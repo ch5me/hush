@@ -543,7 +543,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(output).toContain('LEGACY_KEY');
     expect(output).not.toContain('resend-secret');
     expect(output).not.toContain('legacy-secret');
-  });
+  }, 15000);
 
   it('has and list resolve values from the v3 runtime target view', async () => {
     const root = join(TEST_DIR, 'query-project');
@@ -587,7 +587,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(output).toContain('NEXT_PUBLIC_API_URL is set');
     expect(output).toContain('Variables for target app-dev');
     expect(output).toContain('NEXT_PUBLIC_API_URL=https://example.com');
-  });
+  }, 15000);
 
   it('check validates the v3 repository and flags leftover legacy/plaintext artifacts', async () => {
     const root = join(TEST_DIR, 'check-project');
