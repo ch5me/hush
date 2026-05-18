@@ -134,14 +134,19 @@ This runs:
 The CLI is published to npm as `@chriscode/hush`.
 
 ```bash
-# Bump version in hush-cli/package.json first
-# Then:
-pnpm release
+# Build and verify the shipped package entrypoint first
+bun run cli:build
+bun run --filter @chriscode/hush verify:pack-install
+
+# Then publish from hush-cli/
+cd hush-cli
+npm publish --access public
 ```
 
-This runs:
-1. `prepublishOnly` hook: builds and tests
-2. `npm publish --access public`
+This flow verifies three things before publish:
+1. `bin/hush.js` still marks the CLI as an entrypoint
+2. `npm pack` contains the expected `bin/hush.js`
+3. A fresh install prints output for `hush --version` and `hush --help`
 
 **Note:** Publishing requires npm authentication with 2FA.
 
@@ -158,7 +163,10 @@ Then commit and publish:
 ```bash
 git add hush-cli/package.json
 git commit -m "chore: bump version to 2.3.0"
-pnpm release
+bun run cli:build
+bun run --filter @chriscode/hush verify:pack-install
+cd hush-cli
+npm publish --access public
 ```
 
 ## Claude Code Skill

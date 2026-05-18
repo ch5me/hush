@@ -17,7 +17,8 @@
     "dev": "tsc --watch",
     "test": "bun x vitest run",
     "test:watch": "bun x vitest",
-    "prepublishOnly": "bun run build && bun run test",
+    "verify:pack-install": "node ./scripts/verify-pack-install.mjs",
+    "prepublishOnly": "bun run build && bun run test && bun run verify:pack-install",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
