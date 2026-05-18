@@ -204,8 +204,6 @@ jobs:
       
       - name: Publish to npm (trusted publishing)
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             npx -y npm@11.5.1 publish --tag "${{ steps.version.outputs.release_channel }}" --access public --provenance
@@ -310,4 +308,5 @@ jobs:
         working-directory: docs
         run: |
           export SOPS_AGE_KEY_FILE=~/.config/sops/age/key.txt
+          node ../hush-cli/bin/hush.js config active-identity owner-local
           node ../hush-cli/bin/hush.js run --target root-production -- bun run wrangler pages deploy ./dist --project-name=hush-docs
