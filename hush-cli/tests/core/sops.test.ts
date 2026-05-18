@@ -159,7 +159,9 @@ describe('sops helpers', () => {
   it('reports the resolved identity and attempted key paths on decryption failure', () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), 'hush-sops-home-missing-'));
     const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
-    const standardKeyPath = getStandardKeysPath(isolatedHome).replace(isolatedHome, '~');
+    const standardKeyPathPattern = process.platform === 'darwin'
+      ? escapeRegex(getStandardKeysPath(isolatedHome).replace(isolatedHome, '~'))
+      : '(?:~|/.+)/\\.config/sops/age/keys\\.txt';
     const missingProjectKeyPath = join(isolatedHome, '.config', 'sops', 'age', 'keys', 'missing-key-fixture.txt').replace(isolatedHome, '~');
 
     mkdirSync(dirname(manifestPath), { recursive: true });
@@ -176,7 +178,7 @@ describe('sops helpers', () => {
         'Key identity: missing-key-fixture',
         'Attempted key paths:',
         escapeRegex(missingProjectKeyPath),
-        escapeRegex(standardKeyPath),
+        standardKeyPathPattern,
         '~/.config/sops/age/keys.txt',
         '~/.config/sops/age/key.txt',
       ].join('[\\s\\S]*')),
