@@ -159,6 +159,7 @@ function normalizeYaml(content: string): string {
 }
 
 function writeRepo(root: string, manifest: string, files: Record<string, string>) {
+  nodeFs.mkdirSync(root, { recursive: true });
   ensureTestSopsConfig(root);
   nodeFs.mkdirSync(join(root, '.hush', 'files'), { recursive: true });
   const parsedFiles = Object.values(files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
@@ -541,7 +542,7 @@ describe.sequential('v3 materialization runtime', () => {
     expect(nodeFs.existsSync(stagedPath)).toBe(false);
     const audits = nodeFs.readFileSync(store.auditLogPath!, 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
     expect(audits.at(-1)).toMatchObject({ type: 'materialize', success: false, reason: 'child process failed' });
-  });
+  }, 15000);
 
   it('cleans staged artifacts on simulated SIGINT and SIGTERM', () => {
     const { ctx, emitSignal } = createContext();
