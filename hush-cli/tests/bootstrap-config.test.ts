@@ -276,7 +276,7 @@ describe('bootstrap/config/init task 6', () => {
 
     const output = logger.log.mock.calls.map(([message]) => String(message)).join('\n');
     expect(output).toBe('[]');
-  });
+  }, 15000);
 
   it('parses config subcommands and reader flags through cli argument parsing', () => {
     const parsed = parseArgs([

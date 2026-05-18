@@ -295,6 +295,8 @@ When package metadata does not declare a project identifier, bootstrap falls bac
 
 By default, bootstrap walks upward to find an existing parent \`.hush/\` repository and joins it. Use \`--new-repo\` to force a child-local repository even when a parent exists. Use \`--yes\` (or \`-y\`) to skip interactive confirmation in non-interactive mode.
 
+A fresh bootstrap should leave both \`hush status\` and \`hush inspect\` ready to run without extra repair steps.
+
 ### hush doctor
 
 Diagnose root discovery, key resolution, and store configuration for the current directory.

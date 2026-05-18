@@ -1,7 +1,7 @@
 import { basename, dirname, resolve } from 'node:path';
 import pc from 'picocolors';
 import { stringify as stringifyYaml } from 'yaml';
-import type { BootstrapOptions, HushContext, HushV3Repository } from '../types.js';
+import type { BootstrapOptions, HushContext, HushV3Repository, StoreContext } from '../types.js';
 import {
   V3_SCHEMA_VERSION,
   createFileDocument,
@@ -14,6 +14,7 @@ import {
 } from '../index.js';
 import { getProjectIdentifier } from '../project.js';
 import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
+import { resolveStoreContext } from '../store.js';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
 
 interface KeySetupResult {
@@ -98,10 +99,10 @@ function writeYamlDocument(ctx: HushContext, root: string, keyIdentity: string, 
   });
 }
 
-function ensureManifestShell(ctx: HushContext, root: string, projectIdentity: string): void {
+function ensureManifestShell(ctx: HushContext, root: string, projectIdentity: string): boolean {
   const manifestPath = getV3ManifestPath(root);
   if (ctx.fs.existsSync(manifestPath)) {
-    return;
+    return false;
   }
 
   const manifest = createManifestDocument({
@@ -155,12 +156,13 @@ function ensureManifestShell(ctx: HushContext, root: string, projectIdentity: st
 
   writeYamlDocument(ctx, root, projectIdentity, manifestPath, manifest);
   ctx.logger.log(pc.green('Created .hush/manifest.encrypted'));
+  return true;
 }
 
-function ensureSharedFileShell(ctx: HushContext, root: string, projectIdentity: string): void {
+function ensureSharedFileShell(ctx: HushContext, root: string, projectIdentity: string): boolean {
   const sharedFilePath = getV3EncryptedFilePath(root, DEFAULT_SHARED_FILE_PATH);
   if (ctx.fs.existsSync(sharedFilePath)) {
-    return;
+    return false;
   }
 
   const sharedFile = createFileDocument({
@@ -175,12 +177,50 @@ function ensureSharedFileShell(ctx: HushContext, root: string, projectIdentity: 
 
   writeYamlDocument(ctx, root, projectIdentity, sharedFilePath, sharedFile);
   ctx.logger.log(pc.green('Created .hush/files/env/project/shared.encrypted'));
+  return true;
 }
 
-function ensureActiveIdentity(ctx: HushContext, repository: HushV3Repository, options: BootstrapOptions): string {
-  const currentIdentity = getActiveIdentity(ctx, options.store);
+function resolveBootstrapStore(store: StoreContext, root: string): StoreContext {
+  if (store.mode === 'global') {
+    return store;
+  }
+
+  return resolveStoreContext(root, store.mode, {
+    explicitRoot: root,
+    ignoreAncestors: true,
+  });
+}
+
+function persistActiveIdentity(
+  ctx: HushContext,
+  repository: HushV3Repository,
+  store: StoreContext,
+  nextIdentity: string,
+): void {
+  setActiveIdentity(ctx, {
+    store,
+    identity: nextIdentity,
+    identities: repository.manifest.identities,
+    command: { name: 'bootstrap', args: [] },
+  });
+}
+
+function ensureActiveIdentity(
+  ctx: HushContext,
+  repository: HushV3Repository,
+  options: BootstrapOptions,
+  resolvedStore: StoreContext,
+  forceDefaultIdentity: boolean,
+): string {
+  const currentIdentity = forceDefaultIdentity
+    ? null
+    : getActiveIdentity(ctx, resolvedStore) ?? getActiveIdentity(ctx, options.store);
 
   if (currentIdentity && repository.manifest.identities[currentIdentity]) {
+    persistActiveIdentity(ctx, repository, resolvedStore, currentIdentity);
+    if (resolvedStore.activeIdentityPath !== options.store.activeIdentityPath) {
+      persistActiveIdentity(ctx, repository, options.store, currentIdentity);
+    }
     return currentIdentity;
   }
 
@@ -192,12 +232,10 @@ function ensureActiveIdentity(ctx: HushContext, repository: HushV3Repository, op
     throw new Error('Bootstrapped repository is missing declared identities.');
   }
 
-  setActiveIdentity(ctx, {
-    store: options.store,
-    identity: nextIdentity,
-    identities: repository.manifest.identities,
-    command: { name: 'bootstrap', args: [] },
-  });
+  persistActiveIdentity(ctx, repository, resolvedStore, nextIdentity);
+  if (resolvedStore.activeIdentityPath !== options.store.activeIdentityPath) {
+    persistActiveIdentity(ctx, repository, options.store, nextIdentity);
+  }
 
   return nextIdentity;
 }
@@ -230,6 +268,7 @@ async function verifyBootstrap(
   ctx: HushContext,
   root: string,
   projectIdentity: string,
+  store: StoreContext,
 ): Promise<void> {
   ctx.logger.log('');
   ctx.logger.log(pc.blue('━'.repeat(50)));
@@ -258,7 +297,17 @@ async function verifyBootstrap(
   try {
     const filePath = getV3EncryptedFilePath(root, 'env/project/shared');
     if (ctx.fs.existsSync(filePath)) {
-      ctx.sops.decrypt(filePath, { root, keyIdentity: projectIdentity });
+      const activeIdentity = getActiveIdentity(ctx, store);
+      if (!activeIdentity) {
+        throw new Error('Active identity was not persisted for the bootstrapped project state');
+      }
+
+      const repository = loadV3Repository(root, { keyIdentity: projectIdentity });
+      if (!repository.manifest.identities[activeIdentity]) {
+        throw new Error(`Active identity "${activeIdentity}" is not declared in the bootstrapped repository`);
+      }
+
+      repository.loadFile(DEFAULT_SHARED_FILE_PATH);
       ctx.logger.log(pc.green('  ✓  hush inspect — shared file decrypts'));
     } else {
       ctx.logger.log(pc.red('  ✗  hush inspect — shared file not found'));
@@ -354,11 +403,18 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
   const keyResult = await setupKey(ctx, projectIdentity);
 
   createSopsConfig(ctx, effectiveRoot, keyResult.publicKey);
-  ensureManifestShell(ctx, effectiveRoot, projectIdentity);
-  ensureSharedFileShell(ctx, effectiveRoot, projectIdentity);
+  const createdManifestShell = ensureManifestShell(ctx, effectiveRoot, projectIdentity);
+  const createdSharedFileShell = ensureSharedFileShell(ctx, effectiveRoot, projectIdentity);
 
   const repository = loadV3Repository(effectiveRoot, { keyIdentity: projectIdentity });
-  const activeIdentity = ensureActiveIdentity(ctx, repository, options);
+  const resolvedStore = resolveBootstrapStore(options.store, effectiveRoot);
+  const activeIdentity = ensureActiveIdentity(
+    ctx,
+    repository,
+    options,
+    resolvedStore,
+    createdManifestShell || createdSharedFileShell,
+  );
 
   ctx.logger.log(pc.bold('\nBootstrap summary:'));
   ctx.logger.log(pc.dim(`  Key identity: ${projectIdentity}`));
@@ -368,7 +424,7 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
   ctx.logger.log(pc.dim(`  Target shells: ${Object.keys(repository.manifest.targets ?? {}).join(', ') || '(none)'}`));
 
   try {
-    await verifyBootstrap(ctx, effectiveRoot, projectIdentity);
+    await verifyBootstrap(ctx, effectiveRoot, projectIdentity, resolvedStore);
   } catch {
     ctx.logger.log(pc.yellow('Verification skipped (non-critical).'));
   }

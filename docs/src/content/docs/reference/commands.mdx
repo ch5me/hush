@@ -350,7 +350,7 @@ hush bootstrap --new-repo
 hush bootstrap --yes
 ```
 
-`hush bootstrap` is the canonical setup flow for Task 6. It creates the initial v3 repository layout, `.sops.yaml`, default identities, bundle and target shells, and the machine-local active identity pointer.
+`hush bootstrap` is the canonical setup flow for Task 6. It creates the initial v3 repository layout, `.sops.yaml`, default identities, bundle and target shells, and the machine-local active identity pointer. A fresh bootstrap should leave both `hush status` and `hush inspect` ready to run without extra repair steps.
 
 When run inside a nested git repository, bootstrap walks upward to find an existing parent `.hush/` repository and joins it. Use `--new-repo` to force a child-local repository instead. Use `--yes` (or `-y`) to skip the interactive confirmation prompt in non-interactive mode.
 
