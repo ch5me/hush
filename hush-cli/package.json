@@ -37,13 +37,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hassoncs/hush.git",
+    "url": "git+https://github.com/ch5me/hush.git",
     "directory": "hush-cli"
   },
   "bugs": {
-    "url": "https://github.com/hassoncs/hush/issues"
+    "url": "https://github.com/ch5me/hush/issues"
   },
-  "homepage": "https://github.com/hassoncs/hush#readme",
+  "homepage": "https://github.com/ch5me/hush#readme",
   "engines": {
     "node": ">=18"
   },
