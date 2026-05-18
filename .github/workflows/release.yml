@@ -201,6 +201,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          printf "//registry.npmjs.org/:_authToken=%s\n" "$NODE_AUTH_TOKEN" > ~/.npmrc
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             npx -y npm@11.5.1 publish --tag "${{ steps.version.outputs.release_channel }}" --access public --provenance
           else
@@ -304,4 +305,4 @@ jobs:
         working-directory: docs
         run: |
           export SOPS_AGE_KEY_FILE=~/.config/sops/age/key.txt
-          node ../hush-cli/bin/hush.js run -- bun run wrangler pages deploy ./dist --project-name=hush-docs
+          node ../hush-cli/bin/hush.js run --target root -- bun run wrangler pages deploy ./dist --project-name=hush-docs
