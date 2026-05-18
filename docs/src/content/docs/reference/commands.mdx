@@ -674,7 +674,7 @@ Unreadable files:
 
 ## has
 
-Check if a specific secret exists. Returns exit code `0` if set, `1` if not.
+Check if a specific secret resolves to a non-empty value. Returns exit code `0` if set, `1` if missing or empty.
 
 ```bash
 # Check if a variable is set
@@ -699,11 +699,19 @@ hush has DATABASE_URL -q && echo "DB configured"
 DATABASE_URL is set (45 chars)
 ```
 
+If the key exists but resolves to an empty value:
+
+```
+DATABASE_URL exists but is empty
+```
+
 Or if not set:
 
 ```
-DATABASE_URL not found
+DATABASE_URL not found in target runtime
 ```
+
+`has` is a target-runtime presence check. It does **not** validate whether a value is a real credential versus a placeholder, example, or template string.
 
 ---
 

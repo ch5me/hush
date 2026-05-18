@@ -21,7 +21,7 @@ Use these commands instead:
 - \
 \`npx hush inspect\` for redacted readable values
 - \
-\`npx hush has <KEY>\` to check presence
+\`npx hush has <KEY>\` to check whether a target resolves a non-empty value
 - \
 \`npx hush run -- <cmd>\` to use secrets at runtime
 - \
@@ -431,6 +431,8 @@ hush has DATABASE_URL
 hush has DATABASE_URL -q
 \`\`\`
 
+\`hush has\` returns success only when the selected target resolves a non-empty value. It does not distinguish real credentials from placeholder/example strings.
+
 ### hush resolve / hush trace / hush diff / hush export-example
 
 Safe debugging and review surfaces.
@@ -553,7 +555,7 @@ async function promptForLocation(ctx: HushContext): Promise<InstallLocation> {
     ctx.logger.log(`  ${pc.cyan('2)')} ${pc.bold('Local')} ${pc.dim('(.claude/skills/)')}`);
     ctx.logger.log('     Bundled with this project. Recommended for teams.\n');
 
-    rl.question(`${pc.bold('Choice')} ${pc.dim('[1/2]')}: `, (answer) => {
+    rl.question(`${pc.bold('Choice')} ${pc.dim('[1/2]')}: `, (answer: string) => {
       rl.close();
       const choice = answer.trim();
       if (choice === '2' || choice.toLowerCase() === 'local') {
