@@ -305,4 +305,5 @@ jobs:
         working-directory: docs
         run: |
           export SOPS_AGE_KEY_FILE=~/.config/sops/age/key.txt
-          node ../hush-cli/bin/hush.js run --target root -- bun run wrangler pages deploy ./dist --project-name=hush-docs
+          node ../hush-cli/bin/hush.js --root .. config active-identity owner-local
+          node ../hush-cli/bin/hush.js --root .. run --target root -- bun run wrangler pages deploy ./dist --project-name=hush-docs
