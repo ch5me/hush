@@ -68,6 +68,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install sops and age
         run: |
@@ -197,6 +198,8 @@ jobs:
       
       - name: Publish to npm (trusted publishing)
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             npx -y npm@11.5.1 publish --tag "${{ steps.version.outputs.release_channel }}" --access public --provenance
