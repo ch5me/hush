@@ -1,0 +1,54 @@
+version: 1
+project_id: hush
+generated_at: '2026-05-19T02:26:59Z'
+source_hash: aa8b17110868616beb9130d423a3cd87c0b7be6fa703058bf3dea7474e134278
+plane:
+  project_id: a9827e40-7864-4ae6-b1f6-1e540c658bcf
+  identifier: HUSH1F2
+  name: Hush
+  confidence: high
+  evidence:
+  - unique normalized name match
+assets:
+  icon:
+    file: master/icon.png
+    prompt: "Create a square product icon for hush. Follow CH5 design system: bold,\
+      \ precise, clean geometry, high contrast, no generic purple SaaS styling, no\
+      \ text by default. Accent tokens: version: alpha name: CH5 Core description:\
+      \ Cross-project visual system for CH5 product and tooling surfaces. colors:\
+      \ ink: \"#0F172A\" slate: \"#334155\" lime: \"#22C55E\" cyan: \". Rationale:\
+      \ ## Overview <!-- oc:id=sec_8e3e8b --> CH5 should feel bold, precise, and calm\
+      \ under complexity. This is not a generic startup pastel system. The shared\
+      \ family resemblance should signal: - strong software-tool confidence - high\
+      \ contrast and legibility - clean g. Primary accent color #64748B. Emoji anchor:\
+      \ \U0001F510. Visual identity: AI-native secrets management CLI using SOPS/age\
+      \ encryption and 1Password sync, keeping secrets encrypted at rest and decrypting\
+      \ only in memory at runtime.. Keep it simple, centered, iconic, premium, and\
+      \ readable at app-icon size."
+    prompt_hash: 4576706ceb0bc07fcb16ae5bda0e4ab34a6a15b14939c4f3e5e77d9f97f7ca27
+    provider: minimax
+    model: image-01
+    aspect_ratio: '1:1'
+    key_source: existing-source
+  cover:
+    file: master/cover.png
+    prompt: 'Create a wide brand cover image for hush. Follow CH5 design system: bold,
+      precise, clean geometry, high contrast, no generic purple SaaS styling, no text
+      by default. Accent tokens: version: alpha name: CH5 Core description: Cross-project
+      visual system for CH5 product and tooling surfaces. colors: ink: "#0F172A" slate:
+      "#334155" lime: "#22C55E" cyan: ". Rationale: ## Overview <!-- oc:id=sec_8e3e8b
+      --> CH5 should feel bold, precise, and calm under complexity. This is not a
+      generic startup pastel system. The shared family resemblance should signal:
+      - strong software-tool confidence - high contrast and legibility - clean g.
+      Use #64748B as an anchor color. Build atmosphere from this project context:
+      AI-native secrets management CLI using SOPS/age encryption and 1Password sync,
+      keeping secrets encrypted at rest and decrypting only in memory at runtime.;
+      tags: secrets, encryption, cli, devtools, sops-age, ai-safe; concepts: encrypted
+      at rest, SOPS/age encryption, 1Password key backup, AI-safe commands, framework
+      routing, auto-release CI. Wide cinematic composition, enough negative space
+      for a header crop, no text.'
+    prompt_hash: 6b6485bbd870152dc736e36a741f27d64f78a107b1a8892f0d138cb329f613fe
+    provider: minimax
+    model: image-01
+    aspect_ratio: '16:9'
+    key_source: coding-plan
