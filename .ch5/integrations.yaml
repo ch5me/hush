@@ -15,4 +15,7 @@ integrations:
   browser-use-cloud:
     id: browser-use-cloud
     provider: browser-use-cloud
+  nextauth:
+    id: nextauth
+    provider: nextauth
     networkScope: public
