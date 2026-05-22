@@ -74,7 +74,7 @@ Completed via `hush bootstrap` because:
 ## Project-specific quirks
 
 - Git worktree — `.git` is a file pointing to `automation/.git/worktrees/automation-town-os`. Standard `git status` fails outside the worktree context. Does not block hush operations.
-- 1Password backup returned 409 Conflict during bootstrap. Local key at `~/.config/sops/age/keys/local-automation-town-os.txt` is valid. The conflict suggests an older bootstrap attempt may have created the 1P item already. Verify with: `op item get "SOPS Key - hush/local/automation-town-os"`.
+- 1Password backup returned 409 Conflict during bootstrap. Local key at `~/.config/sops/age/keys/local-automation-town-os.txt` is valid. The conflict suggests an older bootstrap attempt may have created the backup item already.
 - `.sops.yaml` created with single age recipient (owner key). No CI key added yet.
 
 ---
