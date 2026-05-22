@@ -25,9 +25,8 @@ hush init
 
 **What it does:**
 1. Scans for `package.json` and `wrangler.toml` to auto-detect targets
-2. Generates an age encryption key
-3. Backs up the key to 1Password (if available)
-4. Creates `hush.yaml` and `.sops.yaml`
+1. Generates an age encryption key
+1. Creates `hush.yaml` and `.sops.yaml`
 
 ---
 
@@ -52,21 +51,18 @@ hush run -t api -- wrangler dev     # Filter for specific target
 
 ### hush keys
 
-Manage age encryption keys with optional 1Password backup.
+Manage age encryption keys for the project.
 
 ```bash
-hush keys setup      # Pull from 1Password or verify local key
-hush keys generate   # Generate new key + backup to 1Password
-hush keys pull       # Pull key from 1Password to local
-hush keys push       # Push local key to 1Password
-hush keys list       # List all keys (local + 1Password)
+hush keys setup      # Verify local key exists
+hush keys generate  # Generate a new key
+hush keys list      # List all local keys
 ```
 
 **Options:**
 
 | Option | Description |
 |--------|-------------|
-| `--vault <name>` | Specify 1Password vault |
 | `--force` | Overwrite existing key (generate only) |
 
 ---

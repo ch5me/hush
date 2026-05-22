@@ -31,13 +31,6 @@ npm install -D @chriscode/hush
 brew install sops age
 ```
 
-Optional, but recommended for key backup:
-
-```bash
-brew install --cask 1password
-brew install 1password-cli
-```
-
 ## Quick start
 
 ### 1. Bootstrap a v3 repository

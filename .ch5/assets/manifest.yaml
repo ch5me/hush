@@ -22,7 +22,7 @@ assets:
       \ family resemblance should signal: - strong software-tool confidence - high\
       \ contrast and legibility - clean g. Primary accent color #64748B. Emoji anchor:\
       \ \U0001F510. Visual identity: AI-native secrets management CLI using SOPS/age\
-      \ encryption and 1Password sync, keeping secrets encrypted at rest and decrypting\
+      \ encryption, keeping secrets encrypted at rest and decrypting\
       \ only in memory at runtime.. Keep it simple, centered, iconic, premium, and\
       \ readable at app-icon size."
     prompt_hash: 4576706ceb0bc07fcb16ae5bda0e4ab34a6a15b14939c4f3e5e77d9f97f7ca27
@@ -41,10 +41,10 @@ assets:
       generic startup pastel system. The shared family resemblance should signal:
       - strong software-tool confidence - high contrast and legibility - clean g.
       Use #64748B as an anchor color. Build atmosphere from this project context:
-      AI-native secrets management CLI using SOPS/age encryption and 1Password sync,
+      AI-native secrets management CLI using SOPS/age encryption,
       keeping secrets encrypted at rest and decrypting only in memory at runtime.;
       tags: secrets, encryption, cli, devtools, sops-age, ai-safe; concepts: encrypted
-      at rest, SOPS/age encryption, 1Password key backup, AI-safe commands, framework
+      at rest, SOPS/age encryption, AI-safe commands, framework
       routing, auto-release CI. Wide cinematic composition, enough negative space
       for a header crop, no text.'
     prompt_hash: 6b6485bbd870152dc736e36a741f27d64f78a107b1a8892f0d138cb329f613fe

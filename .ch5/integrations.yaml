@@ -1,12 +1,5 @@
 version: 1
 integrations:
-  1password:
-    id: 1password
-    provider: 1password
-    baseUrls:
-      - https://my.1password.com
-    authMode: cli
-    networkScope: public
   sops:
     id: sops
     provider: sops

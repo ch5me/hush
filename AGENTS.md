@@ -47,7 +47,7 @@ When changing a CLI command, update all three in the same change:
 - Hush uses per-project local age keys. It must not invoke 1Password or the `op` CLI.
 - Local key path pattern: `~/.config/sops/age/keys/{project}.txt`.
 - CI uses `SOPS_AGE_KEY` as the private key secret.
-- Load `1password` or `hush-secrets` for procedure-heavy key and secret operations.
+- Load `hush-secrets` for procedure-heavy key and secret operations.
 
 ## Docs / Wiki
 

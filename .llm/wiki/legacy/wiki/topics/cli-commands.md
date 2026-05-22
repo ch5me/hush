@@ -25,7 +25,7 @@ cli.ts (entry point + arg parsing)
 ```
 
 - **Entry point** (`cli.ts`): Parses CLI args via `parseArgs()`, resolves store context (project vs global), checks migration status, dispatches to command handlers via switch/case.
-- **Commands** (`commands/`): Each command receives `(ctx: HushContext, options)` and performs its work through the context's DI surfaces (fs, exec, sops, logger, process, config, age, 1password).
+- **Commands** (`commands/`): Each command receives `(ctx: HushContext, options)` and performs its work through the context's DI surfaces (fs, exec, sops, logger, process, config, age).
 - **Core logic** (`core/`): Parses dotenv content, merges variable arrays, masks sensitive values for display, wraps SOPS CLI calls, handles variable interpolation.
 - **V3 domain** (`v3/`): Repository model, resolution engine, materialization, domain types, schema constants, path resolution, identity management, and cross-repository imports.
 
@@ -64,9 +64,9 @@ cli.ts (entry point + arg parsing)
 ### Key Management
 | Command | Description |
 |---------|-------------|
-| `hush keys setup` | Pull key from 1Password or check local |
-| `hush keys generate` | Generate new key + backup to 1Password |
-| `hush keys pull/push/list` | Key sync with 1Password |
+| `hush keys setup` | Verify local key exists or show the expected path |
+| `hush keys generate` | Generate a new local key and update `.sops.yaml` guidance |
+| `hush keys list` | List local keys |
 
 ### Debugging
 | Command | Description |
@@ -99,7 +99,7 @@ cli.ts (entry point + arg parsing)
 ```bash
 # Bootstrap a repo
 hush bootstrap
-hush keys setup          # Pull key from 1Password
+hush keys setup          # Verify the expected local key
 hush config show         # Verify structure
 ```
 
@@ -130,7 +130,7 @@ hush run --global -- npm start     # Use global secrets only
 If you see the "Migration Required" banner, the repo still uses `hush.yaml`. Run `hush migrate --from v2 --dry-run` first to preview, then `hush migrate --from v2` to convert.
 
 ### SOPS/Age Key Issues
-- "SOPS decryption failed: No matching age key" → Run `hush keys setup` to pull from 1Password or verify local key at `~/.config/sops/age/keys/{project}.txt`.
+- "SOPS decryption failed: No matching age key" → Run `hush keys setup` to verify the expected local key at `~/.config/sops/age/keys/{project}.txt`.
 - "No active identity is configured" → Run `hush config active-identity owner-local` to set identity, or `hush bootstrap` for new repos.
 
 ### Wrangler Conflict

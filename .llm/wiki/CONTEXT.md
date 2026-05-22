@@ -15,7 +15,7 @@ hush/
 │   ├── src/commands/   # Command implementations
 │   ├── src/v3/         # V3 engine (resolver, domain, materialize)
 │   ├── src/core/       # Core primitives (SOPS wrapper)
-│   ├── src/lib/        # Infrastructure (age, 1Password, fs)
+│   ├── src/lib/        # Infrastructure (age, fs)
 │   ├── src/formats/    # Output formatters (dotenv, wrangler, json)
 │   └── src/config/     # Config loader
 ├── docs/               # Astro Starlight documentation site
@@ -32,7 +32,7 @@ hush/
 | Understand the manifest, files, bundles, targets | [topics/v3-repository-model.md](./topics/v3-repository-model.md) |
 | Understand how a bundle resolves into key-value pairs | [topics/secrets-resolution-engine.md](./topics/secrets-resolution-engine.md) |
 | Understand who can read which secrets | [topics/identity-based-access-control.md](./topics/identity-based-access-control.md) |
-| Understand how age keys are backed up/restored | [topics/1password-key-bridge.md](./topics/1password-key-bridge.md) |
+| Understand how local age keys are discovered and managed | [topics/age-key-management.md](./topics/age-key-management.md) |
 | Understand the `.encrypted` file structure | [concepts/encrypted-file-format.md](./concepts/encrypted-file-format.md) |
 | Understand how targets receive specific secrets | [concepts/target-isolation.md](./concepts/target-isolation.md) |
 | Understand why no `.env` files exist | [concepts/secrets-as-code.md](./concepts/secrets-as-code.md) |

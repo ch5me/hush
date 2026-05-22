@@ -15,7 +15,7 @@ Traditional `.env` approaches have these issues:
 | Plaintext on disk | Yes | Never |
 | Git tracking | `.gitignore`d (lost history) | Committed (encrypted) |
 | AI visibility | Reads full values | Only masked output |
-| Team sharing | Manual/unsafe | Via 1Password key bridge |
+| Team sharing | Manual/unsafe | Via local age key exchange + committed recipient rules |
 | Diff capability | No | `hush diff` with redaction |
 | Access control | File permissions only | File-scoped ACLs per document |
 | Audit trail | None | Append-only audit log |
@@ -85,6 +85,6 @@ The migration converts all plaintext and encrypted values into the unified encry
 | `.env` + `.gitignore` | No | No (AI reads all) | No | Manual |
 | Git-crypt | Yes (files) | No (AI reads decrypted) | No | SSH key mgmt |
 | Vault | Yes (server) | Partial (API-based) | Server-side | ACL policies |
-| **Hush** | **Yes (SOPS+age)** | **Yes (masked inspect)** | **Yes (`hush diff`)** | **1Password bridge** |
+| **Hush** | **Yes (SOPS+age)** | **Yes (masked inspect)** | **Yes (`hush diff`)** | **Local age keys** |
 
 > Sources: `README.md` (lines 10-17, 123-132) — AI-safe workflow, no plaintext files; `hush-cli/src/commands/inspect.ts` — masked inspection; `hush-cli/src/commands/run.ts` (lines 34-64) — memory-only runtime; `docs/HUSH_V3_SPEC.md` (lines 148-150, 326-338) — unified encrypted config, threat model; `AGENTS.md` (lines 1-7, 46-52) — non-negotiables: no secrets in commits

@@ -4,7 +4,7 @@
 
 **Package**: `@chriscode/hush`
 **Repository**: `/Users/hassoncs/Workspaces/Personal/dev/hush`
-**Tech**: TypeScript, SOPS+age encryption, 1Password bridge, Cloudflare Workers deploy
+**Tech**: TypeScript, SOPS+age encryption, local age key workflow, Cloudflare Workers deploy
 
 ## Structure
 
@@ -16,7 +16,7 @@
 | [topics/v3-repository-model.md](./topics/v3-repository-model.md) | Encrypted document system, manifest, file documents |
 | [topics/secrets-resolution-engine.md](./topics/secrets-resolution-engine.md) | resolveV3Bundle, interpolation, conflict detection |
 | [topics/identity-based-access-control.md](./topics/identity-based-access-control.md) | File-scoped ACLs, reader roles |
-| [topics/1password-key-bridge.md](./topics/1password-key-bridge.md) | Age key backup/restore via 1Password CLI |
+| [topics/age-key-management.md](./topics/age-key-management.md) | Local age key discovery, generation, and verification |
 | [topics/runtime-execution.md](./topics/runtime-execution.md) | Memory-only secret injection, signal-safe cleanup |
 | [concepts/encrypted-file-format.md](./concepts/encrypted-file-format.md) | SOPS-encrypted YAML, no plaintext at rest |
 | [concepts/target-isolation.md](./concepts/target-isolation.md) | Named consumers receive only bundle-defined secrets |
@@ -41,7 +41,6 @@ Key source files grounding this entire wiki:
 - `hush-cli/src/commands/set.ts` — Secret creation
 - `hush-cli/src/commands/bootstrap.ts` — V3 repo initialization
 - `hush-cli/src/commands/migrate.ts` — V2-to-V3 migration
-- `hush-cli/src/lib/onepassword.ts` — 1Password CLI integration
 - `hush-cli/src/lib/age.ts` — Age key management
 - `hush-cli/src/types.ts` — Central type definitions
 - `hush-cli/src/context.ts` — Dependency injection context

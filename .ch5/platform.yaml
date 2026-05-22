@@ -15,7 +15,3 @@ platform:
       kind: build-tool
       value: age
       required: true
-    - id: op-cli
-      kind: build-tool
-      value: 1password-cli
-      required: false

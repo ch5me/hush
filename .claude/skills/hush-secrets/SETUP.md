@@ -27,17 +27,6 @@ chmod +x /usr/local/bin/sops
 choco install sops age
 ```
 
-### Optional: 1Password CLI (recommended for teams)
-
-For automatic key backup and sharing:
-
-```bash
-brew install --cask 1password
-brew install 1password-cli
-```
-
-Enable "Integrate with 1Password CLI" in 1Password desktop app settings.
-
 ---
 
 ## Project Setup
@@ -58,11 +47,10 @@ npx hush init
 
 This will automatically:
 1. Detect your project structure
-2. Generate an age encryption key
-3. Back up the key to 1Password (if available)
-4. Create `hush.yaml` and `.sops.yaml`
+1. Generate an age encryption key
+1. Create `hush.yaml` and `.sops.yaml`
 
-**No 1Password?** Keys are saved locally to `~/.config/sops/age/keys/`. Share securely with your team.
+Keys are saved locally to `~/.config/sops/age/keys/`. Share securely with your team via a secure channel.
 
 ### Step 4: Review `hush.yaml`
 
@@ -181,27 +169,11 @@ git commit -m "chore: add Hush secrets management"
 
 ## Team Member Setup
 
-### With 1Password (easiest)
-
-```bash
-npx hush keys setup
-```
-
-This automatically pulls the key from 1Password (triggers biometric auth).
-
-### Without 1Password
+### Get the key
 
 1. **Get the private key** from an existing team member (via secure channel)
-2. **Save it** to `~/.config/sops/age/keys/{project}.txt`
-3. **Verify:** `npx hush status`
-
-### Key sharing commands
-
-```bash
-hush keys list       # See all keys (local + 1Password)
-hush keys push       # Push local key to 1Password (for sharing)
-hush keys pull       # Pull key from 1Password
-```
+1. **Save it** to `~/.config/sops/age/keys/{project}.txt`
+1. **Verify:** `npx hush status`
 
 ---
 

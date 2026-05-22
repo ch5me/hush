@@ -126,7 +126,7 @@ npx hush has DATABASE_URL -q && npx hush has API_KEY -q && echo "All configured"
 
 ### "Set up keys for a new developer"
 ```bash
-npx hush keys setup                 # Pulls from 1Password if available
+npx hush keys setup                 # Verifies local key or pulls from team storage
 ```
 
 ---

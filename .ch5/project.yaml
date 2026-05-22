@@ -5,7 +5,7 @@ project:
   name: Hush
   kind: tool
   lifecycle: active
-  summary: AI-native secrets management CLI using SOPS/age encryption and 1Password sync, keeping secrets encrypted at rest and decrypting only in memory at runtime.
+  summary: AI-native secrets management CLI using SOPS/age encryption, keeping secrets encrypted at rest and decrypting only in memory at runtime.
   owners:
     - id: chris
       role: owner
@@ -21,7 +21,6 @@ project:
   key_concepts:
     - encrypted at rest
     - SOPS/age encryption
-    - 1Password key backup
     - AI-safe commands
     - framework routing
     - auto-release CI

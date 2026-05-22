@@ -41,8 +41,6 @@ Create the package layout, docs folder, workflow folder, and repo-local `AGENTS.
 ```bash
 # macOS
 brew install sops age
-brew install --cask 1password
-brew install 1password-cli
 ```
 
 Then add Hush to the repo:
