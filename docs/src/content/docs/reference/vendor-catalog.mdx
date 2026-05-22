@@ -57,6 +57,93 @@ The OAuth flow requires an exact redirect URI match. Verify the callback URL in 
 
 ---
 
+## Google OAuth 2.0
+
+A [Google OAuth 2.0](https://developers.google.com/identity/protocols/oauth2) app authenticates users via Google's OAuth flow. Use this when your app acts on behalf of a user — accessing Google Drive, Gmail, Calendar, YouTube, or any Google API.
+
+### Typical Secrets
+
+| Key | Description | Sensitive |
+|-----|-------------|-----------|
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 client ID from Google Cloud Console | no |
+| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 client secret from Google Cloud Console | yes |
+
+### Setup
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com) and create or select a project
+2. Navigate to **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth client ID**
+3. Set application type to **Web application** and add your redirect URI(s)
+4. Note the **Client ID** and **Client Secret**
+5. Configure the **OAuth consent screen** — add scopes for the Google APIs you need (e.g., `https://www.googleapis.com/auth/drive.readonly`)
+6. Store the secrets in Hush:
+
+```bash
+hush file add env/integrations/google-oauth --roles owner
+hush set GOOGLE_CLIENT_ID --from-value "your-client-id.apps.googleusercontent.com"
+hush set GOOGLE_CLIENT_SECRET --from-value "your-client-secret"
+```
+
+### File Layout
+
+```
+.hush/files/
+  env/integrations/google-oauth.encrypted
+```
+
+### Bundle and Target
+
+```bash
+hush bundle add google-oauth-bundle --files env/integrations/google-oauth
+hush target add google-oauth-runtime --bundle google-oauth-bundle --format dotenv
+```
+
+### OAuth Flow
+
+Redirect the user to Google's consent screen, then exchange the authorization code for tokens:
+
+```typescript
+// Build the authorization URL
+const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+authUrl.searchParams.set('client_id', process.env.GOOGLE_CLIENT_ID);
+authUrl.searchParams.set('redirect_uri', 'https://yourapp.com/oauth/callback');
+authUrl.searchParams.set('response_type', 'code');
+authUrl.searchParams.set('scope', 'https://www.googleapis.com/auth/drive.readonly');
+authUrl.searchParams.set('access_type', 'offline'); // enables refresh tokens
+authUrl.searchParams.set('prompt', 'consent'); // forces refresh token issuance
+
+// Exchange code for tokens
+const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({
+    code: authCode,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    redirect_uri: 'https://yourapp.com/oauth/callback',
+    grant_type: 'authorization_code',
+  }),
+});
+const { access_token, refresh_token, expires_in } = await tokenResponse.json();
+```
+
+<Aside type="tip">
+Include `access_type=offline` in your authorization request to receive a refresh token. Refresh tokens allow your app to obtain new access tokens without requiring the user to re-authenticate.
+</Aside>
+
+<Aside type="caution">
+Google may stop issuing refresh tokens after 6 months of inactivity. Your app should handle `invalid_grant` errors gracefully and redirect the user to re-consent if needed.
+</Aside>
+
+### Notes
+
+- Redirect URIs must match exactly — wildcards are not supported
+- Production apps must complete Google's **OAuth verification** to remove the "unverified app" banner and lift the 100-user cap
+- Adding new scopes may require re-submitting for verification
+- [Google OAuth 2.0 docs](https://developers.google.com/identity/protocols/oauth2)
+- [Google OAuth Scopes](https://developers.google.com/identity/protocols/oauth2/scopes)
+
+---
+
 ## GitHub App
 
 A [GitHub App](https://docs.github.com/en/apps/creating-github-apps) is an entity installed on orgs or user accounts. GitHub Apps can also use OAuth 2.0 for user-to-server requests. Use this for bot-style access, webhook receivers, or granular org-scoped permissions.
