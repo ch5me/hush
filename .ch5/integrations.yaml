@@ -12,3 +12,7 @@ integrations:
     id: npm
     provider: npm
     networkScope: public
+  browser-use-cloud:
+    id: browser-use-cloud
+    provider: browser-use-cloud
+    networkScope: public
