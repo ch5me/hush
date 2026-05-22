@@ -176,6 +176,89 @@ Private keys cannot be retrieved after generation. Download and store in Hush im
 
 ---
 
+## Stripe
+
+[Stripe](https://stripe.com) is a payment processing platform. Use Stripe API keys for server-side payments, billing, and webhook receivers. For apps acting on behalf of connected merchants, use Stripe Connect OAuth.
+
+### Typical Secrets
+
+| Key | Description | Sensitive |
+|-----|-------------|-----------|
+| `STRIPE_SECRET_KEY` | Secret API key from Stripe dashboard | yes |
+| `STRIPE_PUBLISHABLE_KEY` | Publishable API key (often public) | no |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret for validating payloads | yes |
+
+### Setup
+
+1. Create a Stripe account at [dashboard.stripe.com](https://dashboard.stripe.com)
+2. Navigate to **Developers** → **API keys**
+3. Copy the **Secret key** (`sk_live_...` or `sk_test_...`) — store immediately in Hush
+4. Copy the **Publishable key** (`pk_live_...` or `pk_test_...`) — non-sensitive
+5. For webhooks, navigate to **Developers** → **Webhooks** and add an endpoint
+6. Copy the **Webhook signing secret** (`whsec_...`) — store in Hush
+
+Store the secrets in Hush:
+
+```bash
+hush file add env/vendor/stripe --roles owner
+hush set STRIPE_SECRET_KEY --from-value "sk_live_..."
+hush set STRIPE_PUBLISHABLE_KEY --from-value "pk_live_..."
+hush set STRIPE_WEBHOOK_SECRET --from-value "whsec_..."
+```
+
+### File Layout
+
+```
+.hush/files/
+  env/vendor/stripe.encrypted
+```
+
+### Bundle and Target
+
+```bash
+hush bundle add stripe-bundle --files env/vendor/stripe
+hush target add stripe-runtime --bundle stripe-bundle --format dotenv
+```
+
+### Validate Webhooks
+
+Stripe signs webhook payloads using `stripe-signature` header:
+
+```typescript
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: '2024-06-20',
+});
+
+export async function validateStripeWebhook(
+  payload: Buffer,
+  signature: string,
+  secret: string
+): Promise<boolean> {
+  try {
+    stripe.webhooks.constructEvent(payload, signature, secret);
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+<Aside type="tip">
+Use the `stripe` Node.js SDK's built-in `constructEvent` for webhook validation — it handles timing attacks and replay attacks automatically.
+</Aside>
+
+### Notes
+
+- Secret keys cannot be retrieved after creation — store immediately
+- Use test keys (`sk_test_...`) during development
+- Stripe Connect OAuth is available for platforms acting on behalf of merchants
+- [Stripe API docs](https://stripe.com/docs/api)
+- [Stripe webhook docs](https://stripe.com/docs/webhooks)
+
+---
+
 ## Adding a New Vendor
 
 To add a vendor to your Hush repository:

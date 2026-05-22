@@ -227,6 +227,84 @@ targets:
 
 ---
 
+## Stripe
+
+**Type:** API Key + Webhook
+
+[Stripe](https://stripe.com) is a payment processing platform. Use Stripe API keys for server-side payments, billing, and webhook receivers. Stripe Connect OAuth is available for platforms acting on behalf of connected merchants.
+
+### Typical Secrets
+
+| Key | Description | Sensitive |
+|-----|-------------|-----------|
+| `STRIPE_SECRET_KEY` | Secret API key from Stripe dashboard | yes |
+| `STRIPE_PUBLISHABLE_KEY` | Publishable API key (often public) | no |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret for validating payloads | yes |
+
+### Recommended File Layout
+
+```
+env/
+  vendor/
+    stripe.encrypted    # Holds Stripe API keys and webhook secret
+```
+
+### Setup Steps
+
+1. Create a Stripe account at [dashboard.stripe.com](https://dashboard.stripe.com)
+2. Navigate to **Developers** → **API keys** and copy the **Secret key** (`sk_live_...` or `sk_test_...`)
+3. Copy the **Publishable key** (`pk_live_...` or `pk_test_...`) — non-sensitive
+4. For webhooks: **Developers** → **Webhooks** → add endpoint, copy **signing secret** (`whsec_...`)
+5. Store all values in Hush using `hush set`
+
+### Target Bundle Example
+
+```yaml
+# .hush/manifest.encrypted
+bundles:
+  stripe-bundle:
+    files:
+      - path: env/vendor/stripe
+targets:
+  stripe-runtime:
+    bundle: stripe-bundle
+    format: dotenv
+```
+
+### Webhook Validation
+
+```typescript
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: '2024-06-20',
+});
+
+export async function validateStripeWebhook(
+  payload: Buffer,
+  signature: string,
+  secret: string
+): Promise<boolean> {
+  try {
+    stripe.webhooks.constructEvent(payload, signature, secret);
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+### Notes
+
+- Secret keys cannot be retrieved after creation — download and store immediately
+- Use test keys (`sk_test_...` / `pk_test_...`) during development
+- Stripe Connect OAuth is available for platforms acting on behalf of merchants
+- Use the SDK's built-in `constructEvent` for webhook validation — handles timing and replay attacks
+- [Stripe API documentation](https://stripe.com/docs/api)
+- [Stripe webhook documentation](https://stripe.com/docs/webhooks)
+
+---
+
 ## Adding GitHub OAuth + Apps to a Project
 
 ### Step 1: Bootstrap the vendor file
