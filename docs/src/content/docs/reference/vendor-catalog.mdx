@@ -346,6 +346,80 @@ Use the `stripe` Node.js SDK's built-in `constructEvent` for webhook validation 
 
 ---
 
+## Sign in with Apple
+
+[Sign in with Apple](https://developer.apple.com/documentation/sign_in_with_apple) provides authentication for apps on Apple platforms and the web. It uses a provider-based OAuth 2.0 flow with JWT tokens for backend verification.
+
+### Typical Secrets
+
+| Key | Description | Sensitive |
+|-----|-------------|-----------|
+| `APPLE_CLIENT_ID` | Apple **Services ID** identifier (not the same as the bundle ID) | no |
+| `APPLE_TEAM_ID` | Apple Developer Team ID from the membership page | no |
+| `APPLE_KEY_ID` | Key ID of the Sign in with Apple private key | no |
+| `APPLE_PRIVATE_KEY` | Private key (.p8) for signing and verifying tokens | yes |
+| `APPLE_APP_BUNDLE_IDENTIFIER` | Native iOS bundle identifier (optional, distinct from Client ID) | no |
+
+### Critical: Client ID vs Bundle Identifier
+
+For Sign in with Apple, `APPLE_CLIENT_ID` is the **Services ID**, not the iOS bundle identifier. Setting them to the same value causes native Apple Sign In to succeed but server-side token verification to fail with a 401.
+
+Example from FitBot:
+
+- `APPLE_CLIENT_ID=ch5.me.fitbot` (Services ID)
+- `APPLE_APP_BUNDLE_IDENTIFIER=me.ch5.fitbot` (iOS bundle ID)
+
+### Setup
+
+1. Create a Sign in with Apple App ID in [Apple Developer Console](https://developer.apple.com)
+2. Create a Services ID and enable Sign in with Apple
+3. Create a Sign in with Apple key (`.p8`) and note the Key ID
+4. Note your Team ID from the membership page
+5. Store the secrets in Hush:
+
+```bash
+hush file add env/vendor/apple-sign-in --roles owner
+hush set APPLE_CLIENT_ID --from-value "com.example.servicesid"
+hush set APPLE_TEAM_ID --from-value "TEAM123456"
+hush set APPLE_KEY_ID --from-value "KEY123ABC"
+hush set APPLE_PRIVATE_KEY --from-value "$(cat /path/to/AuthKey_KEY123ABC.p8)"
+hush set APPLE_APP_BUNDLE_IDENTIFIER --from-value "com.example.bundleid"
+```
+
+### File Layout
+
+```
+.hush/files/
+  env/vendor/apple-sign-in.encrypted
+```
+
+### Bundle and Target
+
+```bash
+hush bundle add apple-sign-in-bundle --files env/vendor/apple-sign-in
+hush target add apple-sign-in-runtime --bundle apple-sign-in-bundle --format dotenv
+```
+
+Preferred runtime targets:
+
+- `api-dev`
+- `api-staging`
+- `api-production`
+
+### Native vs Web Flow
+
+For native apps using Better Auth or similar, the client forwards Apple's `authorizationCode` along with the `identityToken`. Ensure the backend receives `authorizationCode` as `accessToken` when calling `authClient.signIn.social({ provider: 'apple', idToken: ... })`.
+
+### Notes
+
+- Sign in with Apple private keys cannot be retrieved after creation — download and store in Hush immediately
+- Production can use a dedicated auth key separate from staging
+- Do not confuse App Store Connect `.p8` signing keys with Sign in with Apple `.p8` auth keys — they are different workflows
+- [Sign in with Apple docs](https://developer.apple.com/documentation/sign_in_with_apple)
+- [Sign in with Apple API reference](https://developer.apple.com/documentation/sign_in_with_apple/rest-api)
+
+---
+
 ## Adding a New Vendor
 
 To add a vendor to your Hush repository:
