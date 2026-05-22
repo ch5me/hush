@@ -17,6 +17,7 @@
 | [topics/secrets-resolution-engine.md](./topics/secrets-resolution-engine.md) | resolveV3Bundle, interpolation, conflict detection |
 | [topics/identity-based-access-control.md](./topics/identity-based-access-control.md) | File-scoped ACLs, reader roles |
 | [topics/age-key-management.md](./topics/age-key-management.md) | Local age key discovery, generation, and verification |
+| [topics/vendor-catalog.md](./topics/vendor-catalog.md) | Third-party vendor integrations: OAuth apps, API keys, GitHub OAuth + GitHub Apps |
 | [topics/runtime-execution.md](./topics/runtime-execution.md) | Memory-only secret injection, signal-safe cleanup |
 | [concepts/encrypted-file-format.md](./concepts/encrypted-file-format.md) | SOPS-encrypted YAML, no plaintext at rest |
 | [concepts/target-isolation.md](./concepts/target-isolation.md) | Named consumers receive only bundle-defined secrets |

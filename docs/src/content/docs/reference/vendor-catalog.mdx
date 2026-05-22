@@ -1,0 +1,208 @@
+---
+title: Vendor Catalog
+description: Reference catalog for third-party vendor integrations supported by Hush — OAuth apps, API keys, and secret key patterns.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Hush stores vendor credentials as encrypted entries in your repository. This catalog documents the typical secrets each vendor requires and how to structure them in Hush.
+
+## GitHub OAuth App
+
+A [GitHub OAuth App](https://docs.github.com/en/apps/oauth-apps) authenticates users via OAuth 2.0. Use this when your app acts on behalf of a user — reading repositories, posting commits, managing Gists.
+
+### Typical Secrets
+
+| Key | Description | Sensitive |
+|-----|-------------|-----------|
+| `GITHUB_CLIENT_ID` | OAuth app client ID from GitHub App settings | no |
+| `GITHUB_CLIENT_SECRET` | OAuth app client secret from GitHub App settings | yes |
+
+### Setup
+
+1. Create a GitHub OAuth App at [github.com/settings/applications/new](https://github.com/settings/applications/new)
+2. Set the homepage URL and authorization callback URL
+3. Note the **Client ID** and generate a **Client Secret**
+4. Store the secrets in Hush:
+
+```bash
+hush file add env/integrations/github-oauth --roles owner
+hush set GITHUB_CLIENT_ID --from-value "your-client-id"
+hush set GITHUB_CLIENT_SECRET --from-value "your-client-secret"
+```
+
+### File Layout
+
+```
+.hush/files/
+  env/integrations/github-oauth.encrypted
+```
+
+### Bundle and Target
+
+```bash
+hush bundle add github-oauth-bundle --files env/integrations/github-oauth
+hush target add github-oauth-runtime --bundle github-oauth-bundle --format dotenv
+```
+
+<Aside type="tip">
+The OAuth flow requires an exact redirect URI match. Verify the callback URL in your GitHub OAuth App settings matches your app's redirect endpoint exactly.
+</Aside>
+
+### Notes
+
+- OAuth tokens expire; implement token refresh if persisting tokens
+- OAuth Apps are tied to a user account — for org-owned apps, use a GitHub App instead
+- [GitHub OAuth App docs](https://docs.github.com/en/apps/oauth-apps)
+
+---
+
+## GitHub App
+
+A [GitHub App](https://docs.github.com/en/apps/creating-github-apps) is an entity installed on orgs or user accounts. GitHub Apps can also use OAuth 2.0 for user-to-server requests. Use this for bot-style access, webhook receivers, or granular org-scoped permissions.
+
+### Typical Secrets
+
+| Key | Description | Sensitive |
+|-----|-------------|-----------|
+| `GITHUB_APP_ID` | GitHub App's numeric ID | no |
+| `GITHUB_APP_PRIVATE_KEY` | Private key (.pem) for signing JWTs | yes |
+| `GITHUB_APP_CLIENT_ID` | OAuth client ID for user-to-server requests | no |
+| `GITHUB_APP_CLIENT_SECRET` | OAuth client secret for user-to-server requests | yes |
+| `GITHUB_WEBHOOK_SECRET` | Shared secret for validating webhook payloads | yes |
+
+### Setup
+
+1. Create a GitHub App at [github.com/settings/apps/new](https://github.com/settings/apps/new)
+2. Set the app name, homepage URL, and enable the webhook
+3. Generate a **private key** — downloads as `.pem`. Store immediately in Hush:
+
+```bash
+hush file add env/integrations/github-app --roles owner
+hush set GITHUB_APP_ID --from-value "123456"
+hush set GITHUB_APP_PRIVATE_KEY --from-value "$(cat /path/to/app.private-key.pem)"
+hush set GITHUB_APP_CLIENT_ID --from-value "Iv1.abc123..."
+hush set GITHUB_APP_CLIENT_SECRET --from-value "ov2.xxx..."
+hush set GITHUB_WEBHOOK_SECRET --from-value "your-webhook-secret"
+```
+
+4. Install the app on your org or user account and note the **Installation ID**
+
+### File Layout
+
+```
+.hush/files/
+  env/integrations/github-app.encrypted
+```
+
+### Bundle and Target
+
+```bash
+hush bundle add github-app-bundle --files env/integrations/github-app
+hush target add github-app-runtime --bundle github-app-bundle --format dotenv
+```
+
+### Authenticate as App (JWT)
+
+GitHub Apps use short-lived JWTs signed with the private key:
+
+```typescript
+import { signJwt } from './jwt'; // your JWT library
+
+const jwt = await signJwt({
+  iss: process.env.GITHUB_APP_ID,
+  exp: Math.floor(Date.now() / 1000) + 600,
+}, process.env.GITHUB_APP_PRIVATE_KEY, 'RS256');
+
+const installationResponse = await fetch(
+  `https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens`,
+  {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: 'application/vnd.github+json',
+    },
+  }
+);
+const { token } = await installationResponse.json();
+// Use token for API calls
+```
+
+### Authenticate as User (OAuth)
+
+GitHub Apps can also use OAuth for user-to-server requests:
+
+```typescript
+const response = await fetch('https://github.com/login/oauth/access_token', {
+  method: 'POST',
+  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    client_id: process.env.GITHUB_APP_CLIENT_ID,
+    client_secret: process.env.GITHUB_APP_CLIENT_SECRET,
+    code: oauthCode,
+  }),
+});
+const { access_token } = await response.json();
+```
+
+### Validate Webhooks
+
+```typescript
+import { createHmac } from 'crypto';
+
+export function validateWebhook(
+  payload: Buffer,
+  signature: string,
+  secret: string
+): boolean {
+  const expected = createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+  return `sha256=${expected}` === signature;
+}
+```
+
+<Aside type="caution">
+Private keys cannot be retrieved after generation. Download and store in Hush immediately when creating a GitHub App.
+</Aside>
+
+### Notes
+
+- App tokens expire after 1 hour — refresh using the installation token flow
+- Webhook secrets are optional but strongly recommended
+- GitHub App permissions are granted at install time per org/repo
+- [GitHub App docs](https://docs.github.com/en/apps/creating-github-apps)
+- [App authentication](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app)
+- [OAuth with GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/building-oauth-apps/authorizing-oauth-apps)
+
+---
+
+## Adding a New Vendor
+
+To add a vendor to your Hush repository:
+
+### 1. Create the vendor file
+
+```bash
+hush file add env/vendor/<vendor-name> --roles owner
+```
+
+### 2. Add secrets
+
+```bash
+hush set VENDOR_API_KEY --from-value "your-api-key"
+```
+
+### 3. Bundle and target
+
+```bash
+hush bundle add <vendor>-bundle --files env/vendor/<vendor-name>
+hush target add <vendor>-runtime --bundle <vendor>-bundle --format dotenv
+```
+
+### 4. Verify
+
+```bash
+hush verify-target <vendor>-runtime --require VENDOR_API_KEY
+```
+
+For agent-facing reference, see the [Vendor Catalog wiki topic](../../.llm/wiki/topics/vendor-catalog.md).
