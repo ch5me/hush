@@ -408,9 +408,11 @@ describe('resolveV3Target imports and collisions', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(HushResolutionConflictError);
       expect((error as HushResolutionConflictError).conflicts[0]?.path).toBe('env/apps/api/env/API_URL');
-      expect((error as Error).message).toContain('Files: env/apps/one, env/apps/two.');
-      expect((error as Error).message).toContain('Fix: hush move-key API_URL --from env/apps/one --to env/apps/two');
-      expect((error as Error).message).toContain('Precedence: target "app" resolves files in this order: env/apps/one > env/apps/two.');
+      expect((error as Error).message).toContain('Files containing the duplicate:');
+      expect((error as Error).message).toContain('env/apps/one');
+      expect((error as Error).message).toContain('env/apps/two');
+      expect((error as Error).message).toContain('hush move-key API_URL --from <source> --to <destination>');
+      expect((error as Error).message).toContain('hush delete-key API_URL --from <file-to-remove-from>');
     }
   });
 
@@ -470,9 +472,11 @@ describe('resolveV3Target imports and collisions', () => {
       command: { name: 'resolve', args: ['app-env'] },
     });
 
-    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/Files: env\/apps\/one, env\/apps\/two\./);
-    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/Fix: hush move-key API_URL --from env\/apps\/one --to env\/apps\/two/);
-    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/Precedence: target "app-env" resolves files in this order: env\/apps\/one > env\/apps\/two\./);
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/Files containing the duplicate:/);
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/env\/apps\/one/);
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/env\/apps\/two/);
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/hush move-key API_URL --from <source> --to <destination>/);
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/hush delete-key API_URL --from <file-to-remove-from>/);
   });
 });
 

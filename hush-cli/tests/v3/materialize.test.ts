@@ -727,8 +727,8 @@ describe.sequential('v3 materialization runtime', () => {
     expect(payload.logicalPaths).toBeUndefined();
     expect(payload.targetArtifact).toMatchObject({
       logicalPath: 'targets/runtime-files',
-      path: join(outputRoot, 'runtime-files.json'),
-      relativePath: 'runtime-files.json',
+      path: join(outputRoot, 'targets', 'runtime-files.json'),
+      relativePath: 'targets/runtime-files.json',
       source: 'target',
     });
     expect(payload.targetArtifact.provenance).toBeUndefined();
