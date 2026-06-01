@@ -14,6 +14,7 @@ import {
   withMaterializedTarget,
 } from '../../src/index.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../../src/core/sops.js';
+import { materializeCommand } from '../../src/commands/materialize.js';
 import type { HushContext, HushManifestDocument, LegacyHushConfig, StoreContext } from '../../src/types.js';
 import { ensureTestSopsConfig, ensureTestSopsEnv, writeEncryptedYamlFile } from '../helpers/sops-test.js';
 
@@ -600,6 +601,198 @@ describe.sequential('v3 materialization runtime', () => {
 
       expect(nodeFs.existsSync(stagedPath)).toBe(false);
     }
+  });
+
+  it('emits shell-export syntax for shell-safe env exports', async () => {
+    const { ctx } = createContext();
+    const root = join(TEST_DIR, 'shell-export-target');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        app:
+          files:
+            - path: env/app/shared
+      targets:
+        app-env:
+          bundle: app
+          format: dotenv
+      `,
+      {
+        'env/app/shared': `
+          path: env/app/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/apps/api/env/INLINE:
+              value: has "quotes" and $dollar
+              sensitive: false
+            env/apps/api/env/PEM:
+              value: |
+                -----BEGIN KEY-----
+                line1
+                line2
+                -----END KEY-----
+              sensitive: true
+        `,
+      },
+    );
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await materializeCommand(ctx, {
+      store,
+      target: 'app-env',
+      json: false,
+      format: 'shell-export',
+      cleanup: false,
+    });
+
+    expect(ctx.logger.log).toHaveBeenCalledTimes(1);
+    expect(ctx.logger.log).toHaveBeenCalledWith([
+      'export INLINE="has \\"quotes\\" and $dollar"',
+      "export PEM=$'-----BEGIN KEY-----\\nline1\\nline2\\n-----END KEY-----\\n'",
+    ].join('\n'));
+  });
+
+  it('uses compact json paths by default when requested', async () => {
+    const { ctx } = createContext();
+    const root = join(TEST_DIR, 'compact-json-target');
+    const outputRoot = join(TEST_DIR, 'compact-json-output');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        runtime:
+          files:
+            - path: env/app/shared
+            - path: artifacts/app/runtime
+      targets:
+        runtime-files:
+          bundle: runtime
+          format: json
+      `,
+      {
+        'env/app/shared': `
+          path: env/app/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/apps/api/env/API_URL:
+              value: https://example.com
+              sensitive: false
+        `,
+        'artifacts/app/runtime': `
+          path: artifacts/app/runtime
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            artifacts/app/runtime/env-file:
+              type: file
+              format: dotenv
+              sensitive: true
+        `,
+      },
+    );
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await materializeCommand(ctx, {
+      store,
+      target: 'runtime-files',
+      json: true,
+      compactJson: true,
+      outputRoot,
+      cleanup: false,
+    });
+
+    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}');
+    expect(payload.status).toBe('materialized');
+    expect(payload.repositoryRoot).toBeUndefined();
+    expect(payload.files).toBeUndefined();
+    expect(payload.logicalPaths).toBeUndefined();
+    expect(payload.targetArtifact).toMatchObject({
+      logicalPath: 'targets/runtime-files',
+      path: join(outputRoot, 'runtime-files.json'),
+      relativePath: 'runtime-files.json',
+      source: 'target',
+    });
+    expect(payload.targetArtifact.provenance).toBeUndefined();
+    expect(payload.artifacts[0]).toMatchObject({
+      logicalPath: 'artifacts/app/runtime/env-file',
+      path: join(outputRoot, 'artifacts', 'app', 'runtime', 'env-file.env'),
+      relativePath: 'artifacts/app/runtime/env-file.env',
+      source: 'artifact',
+    });
+    expect(payload.artifacts[0].resolvedFrom).toBeUndefined();
+  });
+
+  it('adds provenance to json only when include-provenance is set', async () => {
+    const { ctx } = createContext();
+    const root = join(TEST_DIR, 'include-provenance-target');
+    const outputRoot = join(TEST_DIR, 'include-provenance-output');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        runtime:
+          files:
+            - path: env/app/shared
+      targets:
+        runtime-files:
+          bundle: runtime
+          format: json
+      `,
+      {
+        'env/app/shared': `
+          path: env/app/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/apps/api/env/API_URL:
+              value: https://example.com
+              sensitive: false
+        `,
+      },
+    );
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await materializeCommand(ctx, {
+      store,
+      target: 'runtime-files',
+      json: true,
+      includeProvenance: true,
+      outputRoot,
+      cleanup: false,
+    });
+
+    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}');
+    expect(payload.repositoryRoot).toBe(root);
+    expect(payload.files).toEqual(['env/app/shared']);
+    expect(payload.logicalPaths).toEqual(['env/apps/api/env/API_URL']);
+    expect(payload.targetArtifact.provenance).toBeDefined();
+    expect(payload.targetArtifact.resolvedFrom).toEqual(['env/app/shared']);
   });
 
   it('hardens staged plaintext with private temp root and restrictive permissions', () => {

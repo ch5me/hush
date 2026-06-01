@@ -94,9 +94,14 @@ Hush v3 keeps repository authority in encrypted YAML documents under `.hush/`.
 | `hush config active-identity [name]` | Show or change the active identity |
 | `hush config readers <file-path> --roles <csv>` | Update file readers |
 | `hush set <KEY>` | Add or update one secret safely |
+| `hush delete-key <KEY> --from <file>` | Remove a secret from an encrypted file |
+| `hush copy-key <KEY>` | Copy one key between encrypted v3 files |
+| `hush move-key <KEY>` | Move one key between encrypted v3 files |
+| `hush edit [file]` | Edit all secrets in an editor |
 | `hush inspect` | List secret names with masked values |
 | `hush has <KEY>` | Check whether a secret exists |
 | `hush run -- <command>` | Run with secrets in memory |
+| `hush materialize` | Write secrets to files for CI/tooling |
 | `hush push` | Push a target to Cloudflare |
 | `hush keys setup` | Verify the local project key |
 | `hush doctor` | Diagnose root, key, and store resolution |

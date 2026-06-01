@@ -11,6 +11,7 @@ import {
   resolveV3Bundle,
   resolveV3Target,
   setActiveIdentity,
+  shapeTargetArtifacts,
   HushResolutionConflictError,
   type HushImportRepositoryMap,
   type HushV3Repository,
@@ -407,7 +408,71 @@ describe('resolveV3Target imports and collisions', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(HushResolutionConflictError);
       expect((error as HushResolutionConflictError).conflicts[0]?.path).toBe('env/apps/api/env/API_URL');
+      expect((error as Error).message).toContain('Files: env/apps/one, env/apps/two.');
+      expect((error as Error).message).toContain('Fix: hush move-key API_URL --from env/apps/one --to env/apps/two');
+      expect((error as Error).message).toContain('Precedence: target "app" resolves files in this order: env/apps/one > env/apps/two.');
     }
+  });
+
+  it('adds duplicate-key remediation when target env keys collide after resolution', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'target-env-key-collision');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        app:
+          files:
+            - path: env/apps/one
+            - path: env/apps/two
+      targets:
+        app-env:
+          bundle: app
+          format: dotenv
+      `,
+      {
+        'env/apps/one': `
+          path: env/apps/one
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/apps/one/API_URL:
+              value: https://one.example.com
+              sensitive: false
+        `,
+        'env/apps/two': `
+          path: env/apps/two
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/apps/two/API_URL:
+              value: https://two.example.com
+              sensitive: false
+        `,
+      },
+    );
+    const store = createStore(root);
+
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    const resolution = resolveV3Target(ctx, {
+      store,
+      repository,
+      targetName: 'app-env',
+      command: { name: 'resolve', args: ['app-env'] },
+    });
+
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/Files: env\/apps\/one, env\/apps\/two\./);
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/Fix: hush move-key API_URL --from env\/apps\/one --to env\/apps\/two/);
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution)).toThrow(/Precedence: target "app-env" resolves files in this order: env\/apps\/one > env\/apps\/two\./);
   });
 });
 

@@ -11,6 +11,13 @@ export type {
   HushInterpolationDependency,
   HushSelectedEntryCandidate,
 } from './v3/provenance.js';
+
+export interface HushCompactRecord {
+  key: string;
+  source: string;
+  target: string;
+  precedence: number;
+}
 export type { HushImportRepositoryMap } from './v3/imports.js';
 export type {
   ResolveV3BundleOptions,
@@ -232,14 +239,17 @@ export interface DecryptOptions {
 export interface EditOptions {
   store: StoreContext;
   file?: 'shared' | 'development' | 'production' | 'local';
+  editor?: string;
 }
 
 export interface SetOptions {
   store: StoreContext;
-  file?: 'shared' | 'development' | 'production' | 'local';
+  file?: 'shared' | 'development' | 'production' | 'local' | string;
   key?: string;
   value?: string;
   gui?: boolean;
+  repoLocal?: boolean;
+  showLength?: boolean;
 }
 
 export interface RunOptions {
@@ -333,6 +343,9 @@ export interface ResolveOptions {
   env: Environment;
   target: string;
   json?: boolean;
+  compact?: boolean;
+  only?: string;
+  jsonCompact?: boolean;
 }
 
 // File command options
@@ -442,6 +455,8 @@ export interface TraceOptions {
   env: Environment;
   key: string;
   json?: boolean;
+  compact?: boolean;
+  jsonCompact?: boolean;
 }
 
 export interface VerifyTargetOptions {
@@ -458,6 +473,14 @@ export interface KeyTransferOptions {
   from?: string;
   to?: string;
   move: boolean;
+  json?: boolean;
+}
+
+export interface DeleteKeyOptions {
+  store: StoreContext;
+  key?: string;
+  from?: string;
+  yes?: boolean;
   json?: boolean;
 }
 
@@ -481,6 +504,9 @@ export interface MaterializeOptions {
   target?: string;
   bundle?: string;
   json: boolean;
+  format?: 'dotenv' | 'shell-export';
+  compactJson?: boolean;
+  includeProvenance?: boolean;
   outputRoot?: string;
   cleanup: boolean;
   command?: string[];

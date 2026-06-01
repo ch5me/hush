@@ -29,6 +29,7 @@ export async function editCommand(ctx: HushContext, options: EditOptions): Promi
       options.store,
       editable.systemPath,
       editable.scope === 'repository' ? repository : undefined,
+      options.editor,
     );
 
     appendAuditEvent(ctx, options.store, {

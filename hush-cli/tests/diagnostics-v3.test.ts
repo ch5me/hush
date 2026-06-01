@@ -223,18 +223,98 @@ describe('task 7 v3 diagnostic commands', () => {
     expect(output).not.toContain('postgres://single-user-db');
   });
 
-  it('resolve shows v3 provenance for a target', async () => {
-    const fixtureRoot = join(FIXTURES_DIR, 'owner-member-acl-split');
-    const { ctx, logger, store } = createContext(fixtureRoot);
-    setIdentity(ctx, store, fixtureRoot, 'developer-local');
+  it('resolve supports only filtering within full json output', async () => {
+    const root = join(TEST_DIR, 'resolve-only-project');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        runtime:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: runtime
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/project/shared/API_URL:
+              value: https://example.com
+              sensitive: false
+            env/project/shared/API_KEY:
+              value: top-secret
+              sensitive: true
+        `,
+      },
+    );
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
 
-    await resolveCommand(ctx, { store, env: 'development', target: 'app-dev' });
+    await resolveCommand(ctx, { store, env: 'development', target: 'runtime', only: 'API_URL' });
 
     const output = getLogOutput(logger);
-    expect(output).toContain('Target: app-dev');
-    expect(output).toContain('Bundle: app');
-    expect(output).toContain('file=env/app/shared namespace=env');
-    expect(output).toContain('file=env/app/secrets namespace=env');
+    expect(output).toContain('Filtered by: API_URL');
+    expect(output).toContain('env/project/shared/API_URL');
+    expect(output).not.toContain('env/project/shared/API_KEY');
+  });
+
+  it('resolve json compact emits minimal machine records', async () => {
+    const root = join(TEST_DIR, 'resolve-json-compact-project');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        runtime:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: runtime
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/project/shared/API_URL:
+              value: https://example.com
+              sensitive: false
+        `,
+      },
+    );
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await resolveCommand(ctx, { store, env: 'development', target: 'runtime', jsonCompact: true, only: 'API_URL' });
+
+    const payload = JSON.parse(getLogOutput(logger)) as Array<{ key: string; source: string; target: string; precedence: number }>;
+    expect(payload).toEqual([
+      {
+        key: 'env/project/shared/API_URL',
+        source: 'env/project/shared',
+        target: 'runtime',
+        precedence: 0,
+      },
+    ]);
   });
 
   it('resolve reports file-level acl denial reasons', async () => {
@@ -380,6 +460,99 @@ describe('task 7 v3 diagnostic commands', () => {
     expect(payload.selector).toBe('RESEND_API_KEY');
     expect(payload.targets.some((target) => target.status === 'not_selected_by_target_bundle' && target.diagnosis?.includes('env/project/production'))).toBe(true);
     expect(JSON.stringify(payload)).not.toContain('resend-secret');
+  });
+
+  it('trace compact shows minimal resolved rows', async () => {
+    const root = join(TEST_DIR, 'trace-compact-project');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        runtime:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: runtime
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/project/shared/API_URL:
+              value: https://example.com
+              sensitive: false
+        `,
+      },
+    );
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await traceCommand(ctx, { store, env: 'development', key: 'API_URL', compact: true });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain('Hush trace compact');
+    expect(output).toContain('API_URL');
+    expect(output).toContain('source=env/project/shared target=runtime precedence=0');
+    expect(output).not.toContain('Active identity:');
+    expect(output).not.toContain('diagnosis:');
+  });
+
+  it('trace json compact emits minimal machine records', async () => {
+    const root = join(TEST_DIR, 'trace-json-compact-project');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        runtime:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: runtime
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/project/shared/API_URL:
+              value: https://example.com
+              sensitive: false
+        `,
+      },
+    );
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await traceCommand(ctx, { store, env: 'development', key: 'API_URL', jsonCompact: true });
+
+    const payload = JSON.parse(getLogOutput(logger)) as Array<{ key: string; source: string; target: string; precedence: number }>;
+    expect(payload).toEqual([
+      {
+        key: 'env/project/shared/API_URL',
+        source: 'env/project/shared',
+        target: 'runtime',
+        precedence: 0,
+      },
+    ]);
   });
 
   it('verify-target passes when required keys resolve', async () => {

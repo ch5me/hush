@@ -4,6 +4,7 @@ import { createProvenanceRecord, isIdentityAllowed, type HushBundleName, type Hu
 import { getNamespaceFromPath } from './schema.js';
 import { requireActiveIdentity } from './identity.js';
 import type { HushContext, HushV3Repository, StoreContext } from '../types.js';
+import { formatDuplicateKeyHint } from '../commands/v3-command-helpers.js';
 import { interpolateCandidates } from './interpolation.js';
 import { collectAllRepositoryPaths, collectBundleCandidates } from './imports.js';
 import type { HushImportRepositoryMap, HushSelectedFileCandidate } from './imports.js';
@@ -203,6 +204,12 @@ function resolveIdentity(ctx: HushContext, options: ResolveV3Options): HushIdent
   return requireActiveIdentity(ctx, options.store, options.repository.manifest.identities, options.command);
 }
 
+function formatConflictHint(conflict: HushBundleConflictDetail, target: string): string {
+  const key = conflict.path.split('/').filter(Boolean).at(-1) ?? conflict.path;
+  const files = conflict.contenders.map((contender) => contender.filePath);
+  return formatDuplicateKeyHint(key, files, target);
+}
+
 function createBundleResolution(
   resolvedNodes: Record<string, HushResolvedNode>,
   identity: HushIdentityName,
@@ -280,8 +287,11 @@ export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOption
   const { selected, conflicts } = selectWinningCandidates(materializeReadableCandidates(readableCandidates));
 
   if (conflicts.length > 0) {
+    const [firstConflict] = conflicts;
+    const hint = firstConflict ? ` ${formatConflictHint(firstConflict, options.bundleName)}` : '';
+
     throw new HushResolutionConflictError(
-      `Bundle "${options.bundleName}" contains equal-precedence logical path conflicts: ${conflicts.map((conflict) => conflict.path).join(', ')}`,
+      `Bundle "${options.bundleName}" contains equal-precedence logical path conflicts: ${conflicts.map((conflict) => conflict.path).join(', ')}.${hint}`,
       conflicts,
     );
   }

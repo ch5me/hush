@@ -211,6 +211,13 @@ export interface ParsedArgs {
   materializeAs?: string;
   keepFile?: boolean;
   files?: string;
+  compact: boolean;
+  only?: string;
+  jsonCompact: boolean;
+  compactJson: boolean;
+  includeProvenance: boolean;
+  repoLocal: boolean;
+  showLength: boolean;
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -267,6 +274,13 @@ export function parseArgs(args: string[]): ParsedArgs {
   let materializeAs: string | undefined;
   let keepFile = false;
   let files: string | undefined;
+  let compact = false;
+  let only: string | undefined;
+  let jsonCompact = false;
+  let compactJson = false;
+  let includeProvenance = false;
+  let repoLocal = false;
+  let showLength = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -555,6 +569,8 @@ export function parseArgs(args: string[]): ParsedArgs {
     local,
     force,
     gui,
+    repoLocal,
+    showLength,
     roles,
     identities,
     ref,
@@ -578,8 +594,14 @@ export function parseArgs(args: string[]): ParsedArgs {
     materializeAs,
     keepFile,
     files,
+    compact,
+    only,
+    jsonCompact,
+    compactJson,
+    includeProvenance,
   };
 }
+
 
 function checkMigrationNeeded(root: string, command: string): void {
   const skipCommands = ['', 'help', 'version', 'bootstrap', 'config', 'init', 'skill', 'migrate'];

@@ -1,10 +1,12 @@
 import { platform } from 'node:os';
 import pc from 'picocolors';
 import { appendAuditEvent } from '../index.js';
-import type { HushContext, SetOptions } from '../types.js';
+import type { HushContext, HushFileDocument, HushV3Repository, SetOptions } from '../types.js';
 import { ensureGlobalStoreBootstrap } from '../global-store.js';
 import {
+  DEFAULT_V3_FILE_PATHS,
   ensureEditableFileDocument,
+  loadMachineLocalOverrides,
   readCurrentIdentity,
   requireMutableIdentity,
   requireV3Repository,
@@ -13,7 +15,9 @@ import {
   writeEditableFileDocument,
 } from './v3-command-helpers.js';
 
-type FileKey = 'shared' | 'development' | 'production' | 'local';
+type FileKey = keyof typeof DEFAULT_V3_FILE_PATHS;
+const FILE_KEYS = Object.keys(DEFAULT_V3_FILE_PATHS) as FileKey[];
+const POSITIONAL_FILE_ALIASES = new Set<FileKey>(FILE_KEYS);
 
 function hasStdinPipe(ctx: HushContext): boolean {
   try {
@@ -21,6 +25,10 @@ function hasStdinPipe(ctx: HushContext): boolean {
   } catch {
     return false;
   }
+}
+
+function trimTrailingLineEndings(value: string): string {
+  return value.replace(/[\r\n]+$/, '');
 }
 
 function readFromStdinPipe(ctx: HushContext): Promise<string> {
@@ -32,8 +40,7 @@ function readFromStdinPipe(ctx: HushContext): Promise<string> {
       data += chunk;
     });
     ctx.process.stdin.on('end', () => {
-      const trimTrailingNewlines = /\n+$/;
-      resolve(data.replace(trimTrailingNewlines, ''));
+      resolve(trimTrailingLineEndings(data));
     });
     ctx.process.stdin.on('error', reject);
     ctx.process.stdin.resume();
@@ -167,7 +174,7 @@ function promptViaTTY(ctx: HushContext, key: string): Promise<string> {
           stdin.pause();
           stdin.removeListener('data', onData);
           ctx.process.stdout.write('\n');
-          resolve(value);
+          resolve(trimTrailingLineEndings(value));
           break;
         case '\u0003':
           stdin.setRawMode(false);
@@ -193,13 +200,114 @@ function promptViaTTY(ctx: HushContext, key: string): Promise<string> {
   });
 }
 
+function normalizePromptValue(value: string): string {
+  return trimTrailingLineEndings(value);
+}
+
+function isFileKey(value: string): value is FileKey {
+  return POSITIONAL_FILE_ALIASES.has(value as FileKey);
+}
+
+function resolveFilePathFromAlias(file: string | undefined, repoLocal: boolean | undefined): { fileKey: FileKey; filePath: string } {
+  if (repoLocal) {
+    return { fileKey: 'local', filePath: DEFAULT_V3_FILE_PATHS.local };
+  }
+
+  const selected = file ?? 'shared';
+  if (isFileKey(selected)) {
+    return {
+      fileKey: selected,
+      filePath: DEFAULT_V3_FILE_PATHS[selected],
+    };
+  }
+
+  const normalized = selected.trim().replace(/\\.encrypted$/, '').replace(/^\.hush\/files\//, '').replace(/^\/+/, '');
+  const matchedEntry = Object.entries(DEFAULT_V3_FILE_PATHS).find(([, candidatePath]) => candidatePath === normalized);
+  if (matchedEntry) {
+    const [fileKey, filePath] = matchedEntry as [FileKey, string];
+    return { fileKey, filePath };
+  }
+
+  throw new Error(
+    `Unknown set destination "${selected}". Use one of: shared, development, production, local, or a v3 file path like env/project/shared.`,
+  );
+}
+
+function getScopeLabel(fileKey: FileKey, scope: 'repository' | 'machine-local'): string {
+  if (scope === 'machine-local') {
+    return 'repo-local';
+  }
+
+  return fileKey;
+}
+
+function getUsageLines(): string[] {
+  return [
+    pc.red('Usage: hush set <KEY> [VALUE] [--file <path-or-alias>] [--repo-local]'),
+    pc.dim('Examples:'),
+    pc.dim('  hush set DATABASE_URL'),
+    pc.dim('  hush set API_KEY --file production'),
+    pc.dim('  hush set API_KEY --repo-local'),
+    pc.dim('  hush set API_KEY --file env/project/shared'),
+    pc.dim('\nTo edit all secrets in an editor, use: hush edit'),
+  ];
+}
+
+function logUsage(ctx: HushContext): void {
+  for (const line of getUsageLines()) {
+    ctx.logger.error(line);
+  }
+}
+
+function detectLegacyPositionalFileArg(key: string | undefined, file: string | undefined, repoLocal: boolean | undefined): void {
+  if (repoLocal || file || !key || !isFileKey(key)) {
+    return;
+  }
+
+  throw new Error(
+    `Invalid syntax: "hush set ${key} KEY VALUE" is no longer supported. Use "hush set KEY VALUE --file ${key}" or "hush set KEY VALUE --repo-local" for local.`,
+  );
+}
+
+function getDocumentValue(document: HushFileDocument | null, filePath: string, key: string): string | undefined {
+  if (!document) {
+    return undefined;
+  }
+
+  const entry = document.entries[`${filePath}/${key}`];
+  if (!entry || 'type' in entry) {
+    return undefined;
+  }
+
+  return typeof entry.value === 'string' ? entry.value : undefined;
+}
+
+function findSharedConflicts(ctx: HushContext, store: SetOptions['store'], repository: HushV3Repository, key: string): string[] {
+  return FILE_KEYS
+    .filter((fileKey) => fileKey !== 'shared')
+    .filter((fileKey) => {
+      const filePath = DEFAULT_V3_FILE_PATHS[fileKey];
+      if (fileKey === 'local') {
+        return getDocumentValue(loadMachineLocalOverrides(ctx, store), filePath, key) !== undefined;
+      }
+
+      const existing = repository.filesByPath[filePath];
+      if (!existing) {
+        return false;
+      }
+
+      return getDocumentValue(repository.loadFile(filePath), filePath, key) !== undefined;
+    })
+    .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey]);
+}
+
 async function promptForValue(ctx: HushContext, key: string, forceGui: boolean): Promise<string> {
   if (!forceGui && hasStdinPipe(ctx)) {
-    return readFromStdinPipe(ctx);
+    return normalizePromptValue(await readFromStdinPipe(ctx));
   }
 
   if (ctx.process.stdin.isTTY && !forceGui) {
-    return promptViaTTY(ctx, key);
+    return normalizePromptValue(await promptViaTTY(ctx, key));
   }
 
   ctx.logger.log(pc.dim('Opening dialog for secret input...'));
@@ -219,7 +327,7 @@ async function promptForValue(ctx: HushContext, key: string, forceGui: boolean):
   }
 
   if (value !== null) {
-    return value;
+    return normalizePromptValue(value);
   }
 
   if (platform() === 'linux') {
@@ -230,36 +338,58 @@ async function promptForValue(ctx: HushContext, key: string, forceGui: boolean):
 }
 
 export async function setCommand(ctx: HushContext, options: SetOptions): Promise<void> {
-  const { store, file, key, value: inlineValue, gui } = options;
+  const {
+    store,
+    file,
+    key,
+    value: inlineValue,
+    gui,
+    repoLocal,
+    showLength,
+  } = options;
 
   if (store.mode === 'global') {
     ensureGlobalStoreBootstrap(ctx, store);
   }
 
-  const fileKey: FileKey = file ?? 'shared';
-
   if (!key) {
-    ctx.logger.error(pc.red('Usage: hush set <KEY> [-e environment]'));
-    ctx.logger.error(pc.dim('Example: hush set DATABASE_URL'));
-    ctx.logger.error(pc.dim('         hush set API_KEY -e production'));
-    ctx.logger.error(pc.dim('\nTo edit all secrets in an editor, use: hush edit'));
+    logUsage(ctx);
     ctx.process.exit(1);
   }
 
+  let destination: { fileKey: FileKey; filePath: string } | null = null;
+
   try {
+    detectLegacyPositionalFileArg(key, file, repoLocal);
+    destination = resolveFilePathFromAlias(file, repoLocal);
+
     const value = inlineValue ?? await promptForValue(ctx, key, gui ?? false);
 
     if (!value) {
-      ctx.logger.error(pc.yellow('No value entered, aborting'));
+      ctx.logger.error(pc.yellow('No value entered. Nothing written.'));
       ctx.process.exit(1);
     }
+
+    if (inlineValue === undefined && showLength) {
+      ctx.logger.log(pc.dim(`input length: ${value.length} chars`));
+    }
+
+    ctx.logger.log(pc.dim(`will write ${key} -> ${destination.filePath}`));
 
     const repository = requireV3Repository(store, 'set');
     const activeIdentity = requireMutableIdentity(ctx, store, repository, {
       name: 'set',
-      args: [fileKey, key],
+      args: [destination.fileKey, key],
     });
-    const editable = ensureEditableFileDocument(ctx, store, repository, fileKey);
+    const editable = ensureEditableFileDocument(ctx, store, repository, destination.fileKey);
+
+    if (destination.fileKey === 'shared') {
+      const conflicts = findSharedConflicts(ctx, store, repository, key);
+      if (conflicts.length > 0) {
+        ctx.logger.warn(pc.yellow(`warning: ${key} already exists in ${conflicts.join(', ')}; shared may not win at runtime.`));
+      }
+    }
+
     const nextDocument = setEnvValueInDocument(editable.document, key, value);
     if (editable.scope === 'machine-local') {
       writeMachineLocalOverrides(ctx, store, nextDocument);
@@ -271,7 +401,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       type: 'write',
       activeIdentity,
       success: true,
-      command: { name: 'set', args: [fileKey, key] },
+      command: { name: 'set', args: [destination.fileKey, key] },
       files: [editable.filePath],
       logicalPaths: [`${editable.filePath}/${key}`],
       details: {
@@ -280,19 +410,31 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       },
     });
 
-    const scopeLabel = editable.scope === 'machine-local' ? ' in machine-local overrides' : fileKey === 'shared' ? '' : ` in ${fileKey}`;
-    ctx.logger.log(pc.green(`\n${key} set${scopeLabel} (${value.length} chars, encrypted-at-rest v3 doc)`));
+    const scopeLabel = getScopeLabel(destination.fileKey, editable.scope);
+    ctx.logger.log(pc.green(`\n${key} set in ${editable.filePath} (${scopeLabel}, ${value.length} chars)`));
   } catch (error) {
     const err = error as Error;
     if (err.message === 'Cancelled') {
       ctx.logger.log(pc.yellow('Cancelled'));
       ctx.process.exit(1);
     }
+    if (err.message.startsWith('Invalid syntax:') || err.message.startsWith('Unknown set destination')) {
+      appendAuditEvent(ctx, store, {
+        type: 'write',
+        activeIdentity: readCurrentIdentity(ctx, store),
+        success: false,
+        command: { name: 'set', args: [destination?.fileKey ?? file ?? 'shared', key ?? ''] },
+        reason: err.message,
+      });
+      ctx.logger.error(pc.red(err.message));
+      logUsage(ctx);
+      ctx.process.exit(1);
+    }
     appendAuditEvent(ctx, store, {
       type: 'write',
       activeIdentity: readCurrentIdentity(ctx, store),
       success: false,
-      command: { name: 'set', args: [fileKey, key ?? ''] },
+      command: { name: 'set', args: [destination?.fileKey ?? file ?? 'shared', key ?? ''] },
       reason: err.message,
     });
     throw err;

@@ -108,6 +108,9 @@ This command uses the existing v3 resolver/materializer, but unlike `hush run` i
 # Materialize a target to an explicit output root
 hush materialize -t ios-signing --json --to /tmp/fitbot-signing
 
+# Emit shell-safe export statements instead of summary text
+hush materialize -t runtime --format shell-export
+
 # Materialize for the lifetime of one command, then auto-clean
 hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
 
@@ -124,7 +127,10 @@ hush materialize --cleanup --to /tmp/fitbot-signing
 |--------|-------------|
 | `-t, --target <name>` | Resolve a specific v3 target; otherwise Hush uses `runtime` or the only non-example target |
 | `--bundle <name>` | Materialize a bundle directly instead of selecting a target |
-| `--json` | Emit machine-readable JSON describing written paths, hashes, provenance, and cleanup hints |
+| `--json` | Emit machine-readable JSON describing written paths and cleanup hints |
+| `--format <dotenv\|shell-export>` | Render env output as summary text with persisted dotenv target default, or shell-safe `export KEY=...` lines |
+| `--compact-json` | Emit minimal JSON with status plus artifact paths only |
+| `--include-provenance` | Add provenance and `resolvedFrom` details to JSON output |
 | `--output-root <dir>` / `--to <dir>` | Output root for persisted plaintext artifacts (default: `.hush-materialized/`) |
 | `--cleanup` | Remove the materialized output root instead of writing files |
 | `-- <command>` | Run a child command with the materialized files available, then auto-clean the output root when it exits |
@@ -150,15 +156,13 @@ Targets can also declare the same metadata for the target artifact itself.
 
 ### JSON output shape
 
-`--json` returns metadata only — never raw secret contents. The payload includes:
+`--json` returns metadata only — never raw secret contents.
 
-- `target` / `bundle`
-- `outputRoot`
-- `targetArtifact.path` for the persisted target file, if any
-- `artifacts[].path`, `artifacts[].relativePath`, `artifacts[].sha256`
-- provenance and `resolvedFrom`
+- Default JSON keeps existing full metadata like `repositoryRoot`, `files`, `logicalPaths`, hashes, and path details.
+- `--compact-json` trims that down to `status`, selection info, and persisted artifact paths.
+- `--include-provenance` adds `provenance` and `resolvedFrom` details to the full JSON payload.
 
-This makes it suitable for CI pipelines that need to install signing files without logging private values.
+This makes it suitable for CI pipelines that need either a tiny handoff surface or a richer audit/debug surface without logging private values.
 
 ### Auto-cleaning command flow
 
@@ -193,6 +197,13 @@ hush set STRIPE_KEY "sk_live_xxx" -e production
 hush set ELEVENLABS_API_KEY "$ELEVENLABS_API_KEY" --global
 hush set FEATURE_FLAG "enabled" --local
 
+# Write to a specific file using --file
+hush set DATABASE_URL "postgres://user:pass@host/db" --file env/project/local
+hush set API_KEY "sk_test_xxx" --file local
+
+# Write to repo-local file using --repo-local shorthand
+hush set DATABASE_URL "postgres://user:pass@host/db" --repo-local
+
 # Interactive prompt (for users)
 hush set DATABASE_URL
 hush set API_KEY -e production
@@ -210,6 +221,9 @@ hush set --global OPENAI_API_KEY
 # Piped input (for scripts/automation)
 echo "my-secret" | hush set MY_KEY
 cat cert.pem | hush set CERTIFICATE
+
+# Verify length before writing (useful for TTY input)
+hush set API_KEY --show-length
 ```
 
 ### Options
@@ -218,6 +232,9 @@ cat cert.pem | hush set CERTIFICATE
 |--------|-------------|
 | `-e, --env <env>` | Write to `env/project/development` or `env/project/production` instead of the shared v3 file |
 | `--local` | Write to the machine-local override document under `~/.hush/state/projects/<slug>/user/local-overrides.encrypted` |
+| `--file <path-or-alias>` | Write to a specific file: full path (`env/project/local`) or alias (`shared`, `development`, `production`, `local`) |
+| `--repo-local` | Shorthand for `--file env/project/local` |
+| `--show-length` | Show the length of the entered value before writing (useful for TTY input verification) |
 | `--gui` | Use a native GUI dialog for input instead of terminal or piped input |
 | `--global` | Set the secret in `~/.hush` instead of the current project store |
 
@@ -239,22 +256,42 @@ hush set API_KEY "value" --global
 
 1. Gets the value from inline arg, pipe, GUI, or prompt
 2. Loads the v3 repository and requires an active identity
-3. Updates the selected `.hush/files/**.encrypted` document, or the machine-local override doc
-4. Writes the YAML document back in place and emits a write audit event
-5. Confirms success with character count only
+3. Shows planned destination before writing (e.g., `will write DATABASE_URL -> env/project/local`)
+4. Updates the selected `.hush/files/**.encrypted` document, or the machine-local override doc
+5. Writes the YAML document back in place and emits a write audit event
+6. Confirms success with destination file and scope
 
 For global mode, Hush binds global writes to `~/.hush/.sops.yaml` explicitly, so running `hush set --global` from inside another repo still uses the global recipient instead of a repo-local `.sops.yaml`.
+
+### Conflict Detection
+
+When writing to `shared`, Hush checks if the key already exists in `local`, `development`, or `production`. If a conflict is detected, it warns:
+
+```
+will write DATABASE_URL -> env/project/shared
+⚠ DATABASE_URL already exists in env/project/local
+```
 
 ### Example Output
 
 ```
 $ hush set DATABASE_URL "postgres://localhost/mydb"
-✓ DATABASE_URL set (25 chars, encrypted-at-rest v3 doc)
+will write DATABASE_URL -> env/project/shared
+✓ DATABASE_URL set in env/project/shared (25 chars)
 
 $ hush set API_KEY
 Enter value for API_KEY: sk_test_xxx
-✓ API_KEY set (14 chars, encrypted-at-rest v3 doc)
+will write API_KEY -> env/project/shared
+✓ API_KEY set in env/project/shared (14 chars)
+
+$ hush set DATABASE_URL "postgres://localhost/mydb" --repo-local
+will write DATABASE_URL -> env/project/local
+✓ DATABASE_URL set in env/project/local (25 chars)
 ```
+
+### TTY Input
+
+When entering secrets interactively, trailing newlines (`\r`, `\n`) are automatically trimmed to prevent issues with trailing whitespace in secrets.
 
 <Aside type="tip">
 AI agents can use inline values directly: `hush set KEY "value"`. For user-provided secrets, use interactive mode: `hush set KEY`.
@@ -297,6 +334,57 @@ hush copy-key RESEND_API_KEY --from env/project/production --to env/api/producti
 
 ---
 
+## delete-key
+
+Delete one key from an encrypted v3 file document. This is the safe way to remove accidental or unwanted secrets from Hush.
+
+```bash
+# Delete a key from shared secrets
+hush delete-key OLD_API_KEY --from env/project/shared
+
+# Delete a key with JSON output
+hush delete-key OLD_API_KEY --from env/project/shared --json
+
+# Delete without confirmation prompt (for automation)
+hush delete-key OLD_API_KEY --from env/project/shared --yes
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--from <file-path>` | Source encrypted v3 file path, such as `env/project/shared` |
+| `--yes` | Skip confirmation prompt |
+| `--json` | Output action metadata without values |
+
+### How It Works
+
+1. Requires an owner active identity because the command mutates encrypted repository documents
+2. Finds exactly one matching leaf key in the specified file
+3. Shows preview of what will be deleted
+4. Prompts for confirmation (unless `--yes`)
+5. Removes the key from the document
+6. Re-encrypts the file and emits audit metadata
+
+### Example Output
+
+```
+$ hush delete-key OLD_API_KEY --from env/project/shared
+This will delete OLD_API_KEY from env/project/shared
+Type "yes" to confirm: yes
+ok: true
+action: delete
+key: OLD_API_KEY
+from: env/project/shared
+logicalPath: env/project/shared/OLD_API_KEY
+```
+
+<Aside type="tip">
+Use `hush delete-key` instead of manually editing encrypted files. It ensures proper audit trails and prevents accidental corruption.
+</Aside>
+
+---
+
 ## edit
 
 Edit a v3 document through a decrypted temporary YAML file in your `$EDITOR`.
@@ -316,19 +404,45 @@ hush edit local
 
 # Edit the explicit global store
 hush edit --global
+
+# Use a specific editor for this session
+hush edit shared --editor vim
+hush edit shared --editor "code --wait"
+
+# Use EDITOR environment variable
+EDITOR=nano hush edit shared
 ```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--editor <command>` | Override editor for this session (e.g., `vim`, `code --wait`) |
+| `--global` | Edit secrets in `~/.hush` instead of the current project store |
 
 ### How It Works
 
 1. Resolves the target v3 document (`shared`, `development`, `production`, or machine-local `local`)
 2. Decrypts that document to a temporary YAML file
-3. Opens the temp file in `$EDITOR`, validates it on close, then re-encrypts it back to the `.encrypted` path
-4. Emits a write audit event
+3. Opens the temp file in `$EDITOR` (or `--editor` override), validates it on close, then re-encrypts it back to the `.encrypted` path
+4. Logs the resolved editor command for debugging
+5. Emits a write audit event
 
 When `--global` is used, the edit flow also binds to `~/.hush/.sops.yaml`, even if the current working directory has its own `.sops.yaml`.
 
+### Editor Resolution
+
+Hush resolves the editor in this order:
+1. `--editor` flag (if provided)
+2. `EDITOR` environment variable
+3. `vi` (default fallback)
+
+<Aside type="tip">
+Use `--editor` to override the default editor without changing your environment: `hush edit shared --editor vim`
+</Aside>
+
 <Aside type="caution">
-Make sure your `$EDITOR` environment variable is set. For VS Code, use `code --wait` so hush knows when you're done editing.
+Make sure your `$EDITOR` environment variable is set or use `--editor`. For VS Code, use `code --wait` so hush knows when you're done editing.
 </Aside>
 
 ---
@@ -917,6 +1031,15 @@ hush resolve runtime -e production
 
 # Machine-readable provenance without secret values
 hush resolve runtime --json
+
+# Minimal human-readable output
+hush resolve runtime --compact
+
+# Filter to one key
+hush resolve runtime --only DATABASE_URL
+
+# Minimal machine-readable output
+hush resolve runtime --json-compact --only DATABASE_URL
 ```
 
 ### Options
@@ -925,6 +1048,9 @@ hush resolve runtime --json
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` |
 | `--json` | Output target, bundle, file, logical path, and provenance metadata without values |
+| `--compact` | Output only key, source file, target, and precedence |
+| `--only <key>` | Filter values and artifacts to one leaf key or full logical path |
+| `--json-compact` | Output minimal machine-readable records: `key`, `source`, `target`, `precedence` |
 
 ### Example Output
 
@@ -956,6 +1082,8 @@ If resolution fails because the active identity cannot read a required file, `re
 
 `--json` is safe for automation: it includes logical paths and provenance, but does not include decrypted scalar values.
 
+`--compact` keeps terminal output short for quick checks. `--json-compact` keeps automation payloads stable and minimal when you only need key reachability.
+
 ---
 
 ## trace
@@ -971,6 +1099,12 @@ hush trace env/apps/api/env/DATABASE_URL
 
 # Machine-readable target reachability diagnostics
 hush trace RESEND_API_KEY --json
+
+# Minimal human-readable output
+hush trace RESEND_API_KEY --compact
+
+# Minimal machine-readable output
+hush trace RESEND_API_KEY --json-compact
 ```
 
 ### Options
@@ -979,6 +1113,8 @@ hush trace RESEND_API_KEY --json
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` |
 | `--json` | Output repository matches and per-target reachability diagnostics without values |
+| `--compact` | Output only key, source file, target, and precedence for resolved targets |
+| `--json-compact` | Output minimal machine-readable records: `key`, `source`, `target`, `precedence` |
 
 ### Example Output
 
@@ -1001,6 +1137,8 @@ Targets:
 `trace` uses the same v3 resolver as runtime commands, so ACL failures and interpolation provenance match real resolution behavior.
 
 When a key exists in Hush but is not selected by a target bundle, `trace` now explains that explicitly and lists candidate source bundles. The fix is still explicit: add a bundle import, or copy/move the key into the file consumed by that target bundle. Hush does not perform ambient inheritance.
+
+Use `--compact` or `--json-compact` when you only need resolved target hits, not full repository and denial diagnostics.
 
 ---
 

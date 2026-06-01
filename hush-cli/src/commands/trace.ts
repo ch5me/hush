@@ -4,7 +4,8 @@ import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { resolveV3Target } from '../v3/resolver.js';
 import { isIdentityAllowed, type HushFileIndexEntry } from '../v3/domain.js';
-import type { HushContext, HushResolvedNode, HushV3Repository, TraceOptions } from '../types.js';
+import { formatCompactRecord, toCompactRecord } from './v3-command-helpers.js';
+import type { HushCompactRecord, HushContext, HushResolvedNode, HushV3Repository, TraceOptions } from '../types.js';
 
 function canReadFile(file: HushFileIndexEntry, identity: string, roles: readonly string[]): boolean {
   return roles.some((role) => isIdentityAllowed(file.readers, identity, role as never));
@@ -69,7 +70,13 @@ function toSafeNodeSummary(logicalPath: string, node: HushResolvedNode): object 
   };
 }
 
+function toCompactTraceRecord(target: string, logicalPath: string, node: HushResolvedNode): HushCompactRecord {
+  return toCompactRecord(logicalPath, target, node);
+}
+
 export async function traceCommand(ctx: HushContext, options: TraceOptions): Promise<void> {
+  const compactMode = options.compact ?? false;
+  const compactJsonMode = options.jsonCompact ?? false;
   const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
   const identity = requireActiveIdentity(ctx, options.store, repository.manifest.identities, {
     name: 'trace',
@@ -88,7 +95,9 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
   const matchedFilePaths = matchedFiles.map((entry) => entry.file.path);
   const candidateBundles = getBundlesReferencingFiles(repository, matchedFilePaths);
   const lines: string[] = [];
+  const compactLines: string[] = [];
   const targetResults: object[] = [];
+  const compactResults: HushCompactRecord[] = [];
 
   appendAuditEvent(ctx, options.store, {
     type: 'read_attempt',
@@ -105,15 +114,17 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
   lines.push(`Matched logical paths: ${pc.cyan(String(allMatchedLogicalPaths.length))}`);
 
   if (matchedFiles.length === 0) {
-    if (options.json) {
-      ctx.logger.log(JSON.stringify({
-        selector: options.key,
-        activeIdentity: identity,
-        matchedLogicalPaths: [],
-        matchedFiles: [],
-        candidateBundles: [],
-        targets: [],
-      }, null, 2));
+    if (options.json || compactJsonMode) {
+      ctx.logger.log(JSON.stringify(compactJsonMode
+        ? []
+        : {
+          selector: options.key,
+          activeIdentity: identity,
+          matchedLogicalPaths: [],
+          matchedFiles: [],
+          candidateBundles: [],
+          targets: [],
+        }, null, 2));
       return;
     }
 
@@ -167,6 +178,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
       lines.push(`  ${pc.cyan(targetName)} ${pc.green('(resolved)')}`);
       for (const [logicalPath, node] of matchedNodes.sort(([left], [right]) => left.localeCompare(right))) {
         lines.push(...formatNodeSummary(logicalPath, node));
+        compactResults.push(toCompactTraceRecord(targetName, logicalPath, node));
       }
       targetResults.push({
         target: targetName,
@@ -194,6 +206,22 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
     }
   }
 
+  if (compactMode) {
+    compactLines.push(pc.blue('Hush trace compact\n'));
+    if (compactResults.length === 0) {
+      compactLines.push(pc.yellow('No target resolves this selector.'));
+    } else {
+      for (const record of compactResults.sort((left, right) => left.key.localeCompare(right.key) || left.target.localeCompare(right.target) || left.source.localeCompare(right.source))) {
+        compactLines.push(formatCompactRecord(record));
+      }
+    }
+  }
+
+  if (compactJsonMode) {
+    ctx.logger.log(JSON.stringify(compactResults.sort((left, right) => left.key.localeCompare(right.key) || left.target.localeCompare(right.target) || left.source.localeCompare(right.source)), null, 2));
+    return;
+  }
+
   if (options.json) {
     ctx.logger.log(JSON.stringify({
       selector: options.key,
@@ -211,5 +239,5 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
     return;
   }
 
-  ctx.logger.log(lines.join('\n'));
+  ctx.logger.log((compactMode ? compactLines : lines).join('\n'));
 }

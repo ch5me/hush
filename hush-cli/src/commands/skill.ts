@@ -27,6 +27,8 @@ Use these commands instead:
 - \
 \`npx hush materialize --target <name> --json --to <dir>\` to write file or binary artifacts for CI/native tooling
 - \
+\`npx hush materialize --target <name> --format shell-export\` to emit shell-safe export statements for sourced workflows
+- \
 \`npx hush verify-target <target> --require <KEY>\` before deploys that sync remote runtime secrets
 - \
 \`npx hush doctor\` to diagnose root, key, and store resolution issues
@@ -123,6 +125,8 @@ npx hush run -t api -- wrangler dev
 
 \`\`\`bash
 npx hush materialize -t ios-signing --json --to /tmp/fitbot-signing
+npx hush materialize -t ios-signing --json --compact-json --to /tmp/fitbot-signing
+npx hush materialize -t runtime --format shell-export
 npx hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
 npx hush materialize --bundle fitbot-signing --to /tmp/fitbot-signing
 npx hush materialize --cleanup --to /tmp/fitbot-signing

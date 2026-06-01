@@ -2,6 +2,7 @@ import { basename, join as joinPosix } from 'node:path/posix';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { formatVars } from '../formats/index.js';
+import { formatDuplicateKeyHint } from '../commands/v3-command-helpers.js';
 import type { EnvVar, OutputFormat } from '../types.js';
 import type { HushArtifactEntry, HushArtifactFormat, HushLogicalPath, HushTargetDefinition } from './domain.js';
 import type { HushResolvedNode, HushTargetResolution } from './provenance.js';
@@ -73,7 +74,14 @@ function logicalPathToEnvKey(path: string): string {
   return key;
 }
 
-function collectEnvVars(values: HushTargetResolution['values']): EnvVar[] {
+function buildTargetPrecedenceFiles(values: HushTargetResolution['values']): string[] {
+  return Array.from(new Set(
+    Object.values(values)
+      .flatMap((node) => node.provenance.map((record) => record.filePath)),
+  ));
+}
+
+function collectEnvVars(values: HushTargetResolution['values'], target: string): EnvVar[] {
   const pairs = Object.entries(values)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([path, node]) => {
@@ -96,8 +104,15 @@ function collectEnvVars(values: HushTargetResolution['values']): EnvVar[] {
   const duplicate = Array.from(collisions.entries()).find(([, paths]) => paths.length > 1);
 
   if (duplicate) {
+    const duplicateFiles = duplicate[1]
+      .map((path) => values[path]?.resolvedFrom ?? [])
+      .flat()
+      .sort((left, right) => left.localeCompare(right));
+    const precedenceFiles = buildTargetPrecedenceFiles(values);
+
     throw new Error(
-      `Multiple logical paths resolve to environment key "${duplicate[0]}": ${duplicate[1].sort().join(', ')}`,
+      `Multiple logical paths resolve to environment key "${duplicate[0]}": ${duplicate[1].sort().join(', ')}. `
+      + formatDuplicateKeyHint(duplicate[0], duplicateFiles.length > 0 ? duplicateFiles : precedenceFiles, target),
     );
   }
 
@@ -251,7 +266,7 @@ export function shapeTargetArtifacts(
   target: HushTargetDefinition,
   resolution: HushTargetResolution,
 ): HushArtifactShapeResult {
-  const envVars = collectEnvVars(resolution.values);
+  const envVars = collectEnvVars(resolution.values, targetName);
   const env = toEnvRecord(envVars);
   const targetArtifact = createTargetArtifact(targetName, target, resolution, envVars);
   const artifacts = Object.entries(resolution.artifacts)
@@ -275,7 +290,7 @@ export function shapeResolvedArtifacts(
 }
 
 export function shapeBundleArtifacts(resolution: HushTargetResolution | { values: HushTargetResolution['values']; artifacts: HushTargetResolution['artifacts'] }): HushArtifactShapeResult {
-  const envVars = collectEnvVars(resolution.values);
+  const envVars = collectEnvVars(resolution.values, 'bundle');
   const env = toEnvRecord(envVars);
   const artifacts = Object.entries(resolution.artifacts)
     .sort(([left], [right]) => left.localeCompare(right))

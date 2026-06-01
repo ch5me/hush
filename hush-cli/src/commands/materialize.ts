@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { appendAuditEvent, getActiveIdentity, materializeV3Bundle, materializeV3Target } from '../index.js';
 import { DEFAULT_PERSISTED_OUTPUT_DIRNAME, requireV3Repository, selectRuntimeTarget } from './v3-command-helpers.js';
 import type {
+  EnvVar,
   HushArtifactDescriptor,
   HushContext,
   HushMaterialization,
@@ -10,7 +11,7 @@ import type {
   MaterializeOptions,
 } from '../types.js';
 
-interface MaterializedArtifactRecord {
+interface MaterializedArtifactRecordBase {
   logicalPath: string;
   kind: 'file' | 'binary';
   format: string;
@@ -19,12 +20,17 @@ interface MaterializedArtifactRecord {
   relativePath: string;
   suggestedName: string;
   sha256: string;
-  provenance: HushArtifactDescriptor['provenance'];
-  resolvedFrom: HushArtifactDescriptor['resolvedFrom'];
   source: 'target' | 'artifact';
 }
 
-interface MaterializeCommandResult {
+interface MaterializedArtifactRecordWithProvenance extends MaterializedArtifactRecordBase {
+  provenance: HushArtifactDescriptor['provenance'];
+  resolvedFrom: HushArtifactDescriptor['resolvedFrom'];
+}
+
+type MaterializedArtifactRecord = MaterializedArtifactRecordWithProvenance | MaterializedArtifactRecordBase;
+
+interface MaterializeCommandResultBase {
   kind: 'target' | 'bundle';
   identity: string;
   target?: string;
@@ -38,6 +44,27 @@ interface MaterializeCommandResult {
   artifacts: MaterializedArtifactRecord[];
   cleanupCommand: string;
 }
+
+interface MaterializeCompactArtifactRecord {
+  logicalPath: string;
+  path: string;
+  relativePath: string;
+  source: 'target' | 'artifact';
+}
+
+interface MaterializeCompactCommandResult {
+  kind: 'target' | 'bundle';
+  identity: string;
+  target?: string;
+  bundle?: string;
+  outputRoot: string;
+  status: 'materialized';
+  targetArtifact: MaterializeCompactArtifactRecord | null;
+  artifacts: MaterializeCompactArtifactRecord[];
+  cleanupCommand: string;
+}
+
+type MaterializeCommandResult = MaterializeCommandResultBase | MaterializeCompactCommandResult;
 
 class MaterializeChildCommandError extends Error {
   readonly exitCode: number;
@@ -93,6 +120,7 @@ function toArtifactRecord(
   materialization: HushMaterialization,
   logicalPath: string,
   source: 'target' | 'artifact',
+  includeProvenance: boolean,
 ): MaterializedArtifactRecord | null {
   const staged = materialization.stagedArtifacts.find((artifact) => artifact.logicalPath === logicalPath);
   const descriptor = createDescriptorMap(materialization).get(logicalPath);
@@ -101,7 +129,7 @@ function toArtifactRecord(
     return null;
   }
 
-  return {
+  const base: MaterializedArtifactRecordBase = {
     logicalPath,
     kind: staged.kind,
     format: staged.format,
@@ -110,19 +138,54 @@ function toArtifactRecord(
     relativePath: descriptor.relativePath,
     suggestedName: descriptor.suggestedName,
     sha256: descriptor.sha256,
-    provenance: descriptor.provenance,
-    resolvedFrom: descriptor.resolvedFrom,
     source,
+  };
+
+  return includeProvenance
+    ? {
+        ...base,
+        provenance: descriptor.provenance,
+        resolvedFrom: descriptor.resolvedFrom,
+      }
+    : base;
+}
+
+function toCompactArtifactRecord(record: MaterializedArtifactRecord | null): MaterializeCompactArtifactRecord | null {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    logicalPath: record.logicalPath,
+    path: record.path,
+    relativePath: record.relativePath,
+    source: record.source,
   };
 }
 
-function toCommandResult(materialization: HushMaterialization, outputRoot: string): MaterializeCommandResult {
+function toCommandResult(materialization: HushMaterialization, outputRoot: string, options: Pick<MaterializeOptions, 'compactJson' | 'includeProvenance'>): MaterializeCommandResult {
+  const includeProvenance = options.includeProvenance ?? false;
   const targetArtifact = materialization.targetArtifact
-    ? toArtifactRecord(materialization, materialization.targetArtifact.logicalPath, 'target')
+    ? toArtifactRecord(materialization, materialization.targetArtifact.logicalPath, 'target', includeProvenance)
     : null;
   const artifacts = materialization.artifacts
-    .map((artifact) => toArtifactRecord(materialization, artifact.logicalPath, 'artifact'))
+    .map((artifact) => toArtifactRecord(materialization, artifact.logicalPath, 'artifact', includeProvenance))
     .filter((artifact): artifact is MaterializedArtifactRecord => artifact !== null);
+  const cleanupCommand = `hush materialize --cleanup --output-root ${outputRoot}`;
+
+  if (options.compactJson) {
+    return {
+      kind: materialization.kind,
+      identity: materialization.identity,
+      target: materialization.target,
+      bundle: materialization.bundle,
+      outputRoot,
+      status: 'materialized',
+      targetArtifact: toCompactArtifactRecord(targetArtifact),
+      artifacts: artifacts.map((artifact) => toCompactArtifactRecord(artifact)).filter((artifact): artifact is MaterializeCompactArtifactRecord => artifact !== null),
+      cleanupCommand,
+    };
+  }
 
   return {
     kind: materialization.kind,
@@ -136,11 +199,11 @@ function toCommandResult(materialization: HushMaterialization, outputRoot: strin
     logicalPaths: materialization.logicalPaths,
     targetArtifact,
     artifacts,
-    cleanupCommand: `hush materialize --cleanup --output-root ${outputRoot}`,
+    cleanupCommand,
   };
 }
 
-function formatText(result: MaterializeCommandResult): string {
+function formatText(result: MaterializeCommandResultBase): string {
   const lines: string[] = [pc.blue('Hush materialize\n')];
   const selection = result.target ? `target ${result.target}` : `bundle ${result.bundle}`;
 
@@ -173,6 +236,30 @@ function formatText(result: MaterializeCommandResult): string {
   lines.push(pc.yellow('Cleanup:'));
   lines.push(`  ${pc.dim(result.cleanupCommand)}`);
   return lines.join('\n');
+}
+
+function escapeShellAnsiCString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
+    .replace(/\f/g, '\\f')
+    .replace(/\v/g, '\\v')
+    .replace(/\0/g, '\\0');
+}
+
+function formatShellExportValue(value: string): string {
+  return value.includes('\n')
+    ? `$'${escapeShellAnsiCString(value)}'`
+    : JSON.stringify(value);
+}
+
+function formatShellExport(envVars: readonly EnvVar[]): string {
+  return envVars
+    .map((variable) => `export ${variable.key}=${formatShellExportValue(variable.value)}`)
+    .join('\n');
 }
 
 function auditSuccess(ctx: HushContext, options: MaterializeOptions, materialization: HushMaterialization): void {
@@ -307,6 +394,21 @@ export async function materializeCommand(ctx: HushContext, options: MaterializeO
     ctx.process.exit(1);
   }
 
+  if (options.format && options.format !== 'dotenv' && options.format !== 'shell-export') {
+    ctx.logger.error(pc.red(`Unsupported materialize format: ${options.format}`));
+    ctx.process.exit(1);
+  }
+
+  if (!options.json && options.compactJson) {
+    ctx.logger.error(pc.red('--compact-json requires --json.'));
+    ctx.process.exit(1);
+  }
+
+  if (!options.json && options.includeProvenance) {
+    ctx.logger.error(pc.red('--include-provenance requires --json.'));
+    ctx.process.exit(1);
+  }
+
   let materialization: HushMaterialization | null = null;
   try {
     materialization = createMaterialization(ctx, options, outputRoot);
@@ -318,8 +420,14 @@ export async function materializeCommand(ctx: HushContext, options: MaterializeO
     }
 
     auditSuccess(ctx, options, materialization);
-    const result = toCommandResult(materialization, outputRoot);
-    ctx.logger.log(options.json ? JSON.stringify(result, null, 2) : formatText(result));
+    const result = toCommandResult(materialization, outputRoot, options);
+    if (options.json) {
+      ctx.logger.log(JSON.stringify(result, null, 2));
+    } else if (options.format === 'shell-export') {
+      ctx.logger.log(formatShellExport(materialization.envVars));
+    } else {
+      ctx.logger.log(formatText(result as MaterializeCommandResultBase));
+    }
   } catch (error) {
     if (error instanceof MaterializeChildCommandError) {
       if (materialization) {

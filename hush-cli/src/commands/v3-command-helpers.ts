@@ -1,6 +1,7 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import pc from 'picocolors';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
   appendAuditEvent,
@@ -17,8 +18,11 @@ import { loadV3Repository, persistV3FileDocument } from '../v3/repository.js';
 import type {
   EnvVar,
   PushConfig,
+  HushCompactRecord,
   HushContext,
   HushFileDocument,
+  HushProvenanceRecord,
+  HushResolvedNode,
   HushTargetDefinition,
   HushTargetResolution,
   HushV3Repository,
@@ -427,9 +431,10 @@ export function writeEditableFileDocument(
   persistV3FileDocument(ctx, store, repository, systemPath, document);
 }
 
-export function openEditor(ctx: HushContext, systemPath: string): void {
-  const editor = ctx.process.env.EDITOR ?? 'vi';
-  ctx.exec.execSync(`${editor} "${systemPath}"`, {
+export function openEditor(ctx: HushContext, systemPath: string, editorOverride?: string): void {
+  const resolvedEditor = editorOverride ?? ctx.process.env.EDITOR ?? 'vi';
+  ctx.logger.info(pc.dim(`Using editor: ${resolvedEditor}`));
+  ctx.exec.execSync(`${resolvedEditor} "${systemPath}"`, {
     stdio: 'inherit',
     shell: '/bin/bash',
   });
@@ -451,6 +456,7 @@ export function openEncryptedDocumentEditor(
   store: StoreContext,
   systemPath: string,
   repository?: HushV3Repository,
+  editorOverride?: string,
 ): HushFileDocument {
   const { tempDir, tempPath } = createPrivateTempYaml();
 
@@ -461,7 +467,7 @@ export function openEncryptedDocumentEditor(
     });
     writeFileSync(tempPath, decrypted, { encoding: 'utf-8', mode: 0o600 });
     chmodSync(tempPath, 0o600);
-    openEditor(ctx, tempPath);
+    openEditor(ctx, tempPath, editorOverride);
     const document = validateEditedFileDocument(ctx, tempPath);
     if (repository) {
       persistV3FileDocument(ctx, store, repository, systemPath, document);
@@ -521,6 +527,29 @@ export function resolveTargetEnvView(
   };
 }
 
+function getCompactSource(record: HushProvenanceRecord): string {
+  return record.filePath;
+}
+
+function getCompactPrecedence(node: Pick<HushResolvedNode, 'provenance'>): number {
+  return Math.max(node.provenance.length - 1, 0);
+}
+
+export function toCompactRecord(key: string, target: string, node: Pick<HushResolvedNode, 'provenance'>): HushCompactRecord {
+  const primarySource = node.provenance.at(-1) ?? node.provenance[0];
+
+  return {
+    key,
+    source: primarySource ? getCompactSource(primarySource) : '-',
+    target,
+    precedence: getCompactPrecedence(node),
+  };
+}
+
+export function formatCompactRecord(record: HushCompactRecord): string {
+  return `  ${pc.cyan(record.key)} ${pc.dim(`source=${record.source} target=${record.target} precedence=${record.precedence}`)}`;
+}
+
 export function appendCommandReadAudit(
   ctx: HushContext,
   store: StoreContext,
@@ -565,4 +594,11 @@ export function readCurrentIdentity(ctx: HushContext, store: StoreContext): stri
   } catch {
     return undefined;
   }
+}
+
+export function formatDuplicateKeyHint(key: string, files: string[], target: string): string {
+  const fileList = files.map((f) => `  - ${f}`).join('\n');
+  const precedence = files.map((f, i) => `  ${i + 1}. ${f}`).join('\n');
+  
+  return `\n\nTo fix this duplicate key conflict:\n\n1. Choose which file should own the key\n2. Remove the duplicate from the other file(s):\n\n   hush move-key ${key} --from <source> --to <destination>\n   # or\n   hush delete-key ${key} --from <file-to-remove-from>\n\nFiles containing the duplicate:\n${fileList}\n\nPrecedence order for target "${target}":\n${precedence}\n\nKeys in earlier files take precedence when the same key exists in multiple files.`;
 }

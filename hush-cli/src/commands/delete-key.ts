@@ -1,0 +1,160 @@
+import { createInterface } from 'node:readline';
+import pc from 'picocolors';
+import { stringify as stringifyYaml } from 'yaml';
+import { appendAuditEvent } from '../v3/audit.js';
+import { createFileDocument } from '../v3/domain.js';
+import { assertNamespacedPath } from '../v3/schema.js';
+import {
+  readCurrentIdentity,
+  requireMutableIdentity,
+  requireV3Repository,
+  writeEditableFileDocument,
+} from './v3-command-helpers.js';
+import type { DeleteKeyOptions, HushContext, HushFileDocument, HushFileEntry } from '../types.js';
+
+function logicalPathKey(logicalPath: string): string {
+  return logicalPath.split('/').filter(Boolean).at(-1) ?? logicalPath;
+}
+
+export function removeEnvValueFromDocument(document: HushFileDocument, key: string): {
+  nextDocument: HushFileDocument;
+  logicalPath: string;
+  entry: HushFileEntry;
+} {
+  const matches = Object.entries(document.entries).filter(([logicalPath]) => logicalPathKey(logicalPath) === key);
+  if (matches.length === 0) {
+    throw new Error(`Key "${key}" was not found in ${document.path}`);
+  }
+  if (matches.length > 1) {
+    throw new Error(`Key "${key}" matched multiple entries in ${document.path}; use a file with unambiguous leaf keys before deleting`);
+  }
+
+  const [logicalPath, entry] = matches[0]!;
+  const { [logicalPath]: _removed, ...remainingEntries } = document.entries;
+  return {
+    nextDocument: createFileDocument({
+      ...document,
+      entries: remainingEntries,
+    }),
+    logicalPath,
+    entry,
+  };
+}
+
+async function confirmDeletion(ctx: HushContext, key: string, filePath: string): Promise<boolean> {
+  if (!ctx.process.stdin.isTTY) {
+    throw new Error('delete-key requires confirmation. Re-run with --yes in non-interactive mode.');
+  }
+
+  const rl = createInterface({
+    input: ctx.process.stdin,
+    output: ctx.process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(`${pc.bold(`Delete ${key} from ${filePath}? Type "yes" to confirm:`)} `, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase() === 'yes');
+    });
+  });
+}
+
+export async function deleteKeyCommand(ctx: HushContext, options: DeleteKeyOptions): Promise<void> {
+  const key = options.key?.trim();
+  const from = options.from?.trim();
+  if (!key || !from) {
+    throw new Error('Usage: hush delete-key <KEY> --from <file-path>');
+  }
+
+  const command = { name: 'delete-key', args: [key, '--from', from] };
+
+  try {
+    const repository = requireV3Repository(options.store, 'delete-key');
+    const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
+    const filePath = assertNamespacedPath(from);
+    const systemPath = repository.fileSystemPaths[filePath];
+    if (!systemPath) {
+      throw new Error(`File "${filePath}" is not declared in this repository`);
+    }
+    const document = repository.loadFile(filePath);
+    const { nextDocument, logicalPath } = removeEnvValueFromDocument(document, key);
+    const preview = `This will delete ${key} from ${filePath}`;
+
+    if (options.json) {
+      ctx.logger.log(JSON.stringify({
+        ok: true,
+        action: 'preview-delete',
+        key,
+        from: filePath,
+        logicalPath,
+        preview,
+      }, null, 2));
+    } else {
+      ctx.logger.log(pc.yellow(preview));
+    }
+
+    if (!options.yes) {
+      const confirmed = await confirmDeletion(ctx, key, filePath);
+      if (!confirmed) {
+        if (options.json) {
+          ctx.logger.log(JSON.stringify({
+            ok: false,
+            action: 'delete',
+            key,
+            from: filePath,
+            cancelled: true,
+          }, null, 2));
+        } else {
+          ctx.logger.log(pc.yellow('Cancelled'));
+        }
+        return;
+      }
+    }
+
+    writeEditableFileDocument(ctx, options.store, repository, systemPath, nextDocument);
+
+    appendAuditEvent(ctx, options.store, {
+      type: 'write',
+      activeIdentity,
+      success: true,
+      command,
+      files: [filePath],
+      logicalPaths: [logicalPath],
+      details: {
+        action: 'delete',
+        key,
+        from: filePath,
+      },
+    });
+
+    const payload = {
+      ok: true,
+      action: 'delete',
+      key,
+      from: filePath,
+      logicalPath,
+    };
+
+    if (options.json) {
+      ctx.logger.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    ctx.logger.log(stringifyYaml(payload, { indent: 2 }).trimEnd());
+  } catch (error) {
+    const err = error as Error;
+    appendAuditEvent(ctx, options.store, {
+      type: 'write',
+      activeIdentity: readCurrentIdentity(ctx, options.store),
+      success: false,
+      command,
+      reason: err.message,
+      details: {
+        action: 'delete',
+        key,
+        from,
+      },
+    });
+    throw err;
+  }
+}

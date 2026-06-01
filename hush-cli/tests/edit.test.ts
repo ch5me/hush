@@ -4,6 +4,7 @@ import * as nodeFs from 'node:fs';
 import { bootstrapCommand } from '../src/commands/bootstrap.js';
 import { configCommand } from '../src/commands/config.js';
 import { editCommand } from '../src/commands/edit.js';
+import * as helpers from '../src/commands/v3-command-helpers.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
 import type { HushContext, StoreContext } from '../src/types.js';
 import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsEnv } from './helpers/sops-test.js';
@@ -86,7 +87,7 @@ function createContext(root: string): HushContext {
   };
 }
 
-describe('editCommand owner authorization', () => {
+describe('editCommand', () => {
   beforeEach(() => {
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
     nodeFs.mkdirSync(TEST_DIR, { recursive: true });
@@ -97,8 +98,8 @@ describe('editCommand owner authorization', () => {
     vi.clearAllMocks();
   });
 
-  it('denies edits when the active identity is not an owner', async () => {
-    const root = join(TEST_DIR, 'member-edit-denied');
+  async function bootstrapEditableRepo(rootName: string): Promise<{ ctx: HushContext; store: StoreContext }> {
+    const root = join(TEST_DIR, rootName);
     nodeFs.mkdirSync(root, { recursive: true });
     nodeFs.writeFileSync(
       join(root, 'package.json'),
@@ -110,11 +111,64 @@ describe('editCommand owner authorization', () => {
     const store = createStore(root);
 
     await bootstrapCommand(ctx, { store, yes: true });
+
+    return { ctx, store };
+  }
+
+  it('denies edits when the active identity is not an owner', async () => {
+    const { ctx, store } = await bootstrapEditableRepo('member-edit-denied');
+
     await configCommand(ctx, { store, subcommand: 'active-identity', args: ['member-local'] });
 
     await expect(editCommand(ctx, {
       store,
       file: 'shared',
     })).rejects.toThrow(/must have the owner role/i);
+  });
+
+  it('honors EDITOR env var when no override is provided', async () => {
+    const { ctx, store } = await bootstrapEditableRepo('editor-env-var');
+    const openEncryptedDocumentEditorSpy = vi.spyOn(helpers, 'openEncryptedDocumentEditor').mockImplementation(() => {
+      return {} as never;
+    });
+
+    ctx.process.env.EDITOR = 'cat';
+
+    await editCommand(ctx, {
+      store,
+      file: 'shared',
+    });
+
+    expect(openEncryptedDocumentEditorSpy).toHaveBeenCalledWith(
+      ctx,
+      store,
+      expect.any(String),
+      expect.anything(),
+      undefined,
+    );
+  });
+
+  it('prefers explicit editor override over EDITOR env var', async () => {
+    const { ctx, store } = await bootstrapEditableRepo('editor-flag-override');
+    const openEncryptedDocumentEditorSpy = vi.spyOn(helpers, 'openEncryptedDocumentEditor').mockImplementation(() => {
+      return {} as never;
+    });
+
+    ctx.process.env.EDITOR = 'cat';
+
+    await editCommand(ctx, {
+      store,
+      file: 'shared',
+      editor: 'sed -n 1p',
+    });
+
+    expect(openEncryptedDocumentEditorSpy).toHaveBeenCalledWith(
+      ctx,
+      store,
+      expect.any(String),
+      expect.anything(),
+      'sed -n 1p',
+    );
+    expect(ctx.logger.info).not.toHaveBeenCalled();
   });
 });

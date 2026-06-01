@@ -3,7 +3,8 @@ import { appendAuditEvent } from '../v3/audit.js';
 import { resolveV3Target, HushResolutionConflictError } from '../v3/resolver.js';
 import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
-import type { HushBundleConflictDetail, HushContext, HushResolvedNode, ResolveOptions } from '../types.js';
+import { formatCompactRecord, toCompactRecord } from './v3-command-helpers.js';
+import type { HushBundleConflictDetail, HushCompactRecord, HushContext, HushResolvedNode, ResolveOptions } from '../types.js';
 
 function formatReaders(readers: { roles: string[]; identities: string[] }): string {
   return `roles=${readers.roles.join(',') || '-'} identities=${readers.identities.join(',') || '-'}`;
@@ -45,10 +46,32 @@ function toSafeNodeSummary(node: HushResolvedNode): object {
   };
 }
 
+function matchesResolveSelector(selector: string, logicalPath: string): boolean {
+  return logicalPath === selector || logicalPath.split('/').filter(Boolean).at(-1) === selector;
+}
+
+function filterResolvedNodes<T extends Record<string, HushResolvedNode>>(nodes: T, only: string | undefined): Record<string, HushResolvedNode> {
+  if (!only) {
+    return { ...nodes };
+  }
+
+  return Object.fromEntries(
+    Object.entries(nodes).filter(([logicalPath]) => matchesResolveSelector(only, logicalPath)),
+  );
+}
+
+function toResolveCompactRecord(target: string, logicalPath: string, node: HushResolvedNode): HushCompactRecord {
+  return toCompactRecord(logicalPath, target, node);
+}
+
 function toSafeResolutionJson(
   resolution: ReturnType<typeof resolveV3Target>,
   target: NonNullable<ReturnType<typeof loadV3Repository>['manifest']['targets']>[string],
+  only: string | undefined,
 ): object {
+  const filteredValues = filterResolvedNodes(resolution.values, only);
+  const filteredArtifacts = filterResolvedNodes(resolution.artifacts, only);
+
   return {
     target: resolution.target,
     bundle: resolution.bundle,
@@ -56,15 +79,15 @@ function toSafeResolutionJson(
     mode: target.mode,
     identity: resolution.identity,
     files: resolution.files,
-    valuePaths: Object.keys(resolution.values).sort(),
-    artifactPaths: Object.keys(resolution.artifacts).sort(),
+    valuePaths: Object.keys(filteredValues).sort(),
+    artifactPaths: Object.keys(filteredArtifacts).sort(),
     values: Object.fromEntries(
-      Object.entries(resolution.values)
+      Object.entries(filteredValues)
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([logicalPath, node]) => [logicalPath, toSafeNodeSummary(node)]),
     ),
     artifacts: Object.fromEntries(
-      Object.entries(resolution.artifacts)
+      Object.entries(filteredArtifacts)
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([logicalPath, node]) => [logicalPath, toSafeNodeSummary(node)]),
     ),
@@ -87,6 +110,8 @@ function explainUnreadableFiles(repository: ReturnType<typeof loadV3Repository>,
 }
 
 export async function resolveCommand(ctx: HushContext, options: ResolveOptions): Promise<void> {
+  const compactMode = options.compact ?? false;
+  const compactJsonMode = options.jsonCompact ?? false;
   const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
   const identity = requireActiveIdentity(ctx, options.store, repository.manifest.identities, {
     name: 'resolve',
@@ -109,6 +134,13 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
     });
     const lines: string[] = [];
     const logicalPaths = [...Object.keys(resolution.values), ...Object.keys(resolution.artifacts)].sort();
+    const filteredValues = filterResolvedNodes(resolution.values, options.only);
+    const filteredArtifacts = filterResolvedNodes(resolution.artifacts, options.only);
+    const filteredLogicalPaths = [...Object.keys(filteredValues), ...Object.keys(filteredArtifacts)].sort();
+    const compactRecords: HushCompactRecord[] = [
+      ...Object.entries(filteredValues).map(([logicalPath, node]) => toResolveCompactRecord(resolution.target, logicalPath, node)),
+      ...Object.entries(filteredArtifacts).map(([logicalPath, node]) => toResolveCompactRecord(resolution.target, logicalPath, node)),
+    ].sort((left, right) => left.key.localeCompare(right.key) || left.source.localeCompare(right.source));
 
     appendAuditEvent(ctx, options.store, {
       type: 'read_attempt',
@@ -121,8 +153,13 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
       target: resolution.target,
     });
 
+    if (compactJsonMode) {
+      ctx.logger.log(JSON.stringify(compactRecords, null, 2));
+      return;
+    }
+
     if (options.json) {
-      ctx.logger.log(JSON.stringify(toSafeResolutionJson(resolution, target), null, 2));
+      ctx.logger.log(JSON.stringify(toSafeResolutionJson(resolution, target, options.only), null, 2));
       return;
     }
 
@@ -132,7 +169,24 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
     lines.push(`Format: ${pc.dim(target.format)}${target.mode ? pc.dim(` (${target.mode})`) : ''}`);
     lines.push(`Active identity: ${pc.green(resolution.identity)}`);
     lines.push(`Resolved files: ${pc.cyan(String(resolution.files.length))}`);
-    lines.push(`Resolved logical paths: ${pc.cyan(String(logicalPaths.length))}`);
+    lines.push(`Resolved logical paths: ${pc.cyan(String(filteredLogicalPaths.length))}`);
+
+    if (options.only) {
+      lines.push(`Filtered by: ${pc.cyan(options.only)}`);
+    }
+
+    if (compactMode) {
+      const compactLines: string[] = [pc.blue('Hush resolve compact\n')];
+      if (compactRecords.length === 0) {
+        compactLines.push(pc.yellow('No resolved entries match filter.'));
+      } else {
+        for (const record of compactRecords) {
+          compactLines.push(formatCompactRecord(record));
+        }
+      }
+      ctx.logger.log(compactLines.join('\n'));
+      return;
+    }
 
     lines.push('');
     lines.push('Files:');
@@ -142,10 +196,10 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
 
     lines.push('');
     lines.push('Values:');
-    if (Object.keys(resolution.values).length === 0) {
+    if (Object.keys(filteredValues).length === 0) {
       lines.push(`  ${pc.dim('(none)')}`);
     } else {
-      for (const [logicalPath, node] of Object.entries(resolution.values).sort(([left], [right]) => left.localeCompare(right))) {
+      for (const [logicalPath, node] of Object.entries(filteredValues).sort(([left], [right]) => left.localeCompare(right))) {
         lines.push(`  ${logicalPath}`);
         lines.push(...formatProvenance(node));
       }
@@ -153,10 +207,10 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
 
     lines.push('');
     lines.push('Artifacts:');
-    if (Object.keys(resolution.artifacts).length === 0) {
+    if (Object.keys(filteredArtifacts).length === 0) {
       lines.push(`  ${pc.dim('(none)')}`);
     } else {
-      for (const [logicalPath, node] of Object.entries(resolution.artifacts).sort(([left], [right]) => left.localeCompare(right))) {
+      for (const [logicalPath, node] of Object.entries(filteredArtifacts).sort(([left], [right]) => left.localeCompare(right))) {
         const entry = node.entry;
         lines.push(`  ${logicalPath} ${'type' in entry ? pc.dim(`(${entry.type}:${entry.format})`) : ''}`.trimEnd());
         lines.push(...formatProvenance(node));
