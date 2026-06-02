@@ -100,7 +100,9 @@ ${pc.bold('Options:')}
   --require-source  Fail if source file is missing (check only)
   --allow-plaintext Allow plaintext .env files (check only, not recommended)
   --global          Use explicit global store at ~/.hush (or install skill globally)
-  --local           Install skill to ./.claude/skills/ (skill/set only)
+  --local           Install skill to ./.claude/skills/ (skill only); legacy alias for set repo-local writes
+  --file <path>     Set destination file alias or declared v3 file path (set only)
+  --repo-local      Write to repo-local machine overrides (set only)
   --gui             Use macOS dialog for input (set only, for AI agents)
   --ref <git-ref>   Compare diff output against a git ref (diff only)
   --bundle <name>   Resolve a specific bundle (diff/export-example only)
@@ -140,6 +142,7 @@ ${pc.bold('Examples:')}
   hush set --global OPENAI_API_KEY  Set a global secret in ~/.hush
   hush run --global -- npm start    Run with global secrets only
   hush set API_KEY -e prod      Set a production secret
+  hush set WORKER_ENV staging --file env/project/staging
   hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
   hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
   hush keys setup               Verify local age key
@@ -199,6 +202,7 @@ export interface ParsedArgs {
   file?: FileKey;
   key?: string;
   value?: string;
+  setFile?: string;
   target?: string;
   requireKeys: string[];
   positionalArgs: string[];
@@ -263,6 +267,7 @@ export function parseArgs(args: string[]): ParsedArgs {
   let file: FileKey | undefined;
   let key: string | undefined;
   let value: string | undefined;
+  let setFile: string | undefined;
   let target: string | undefined;
   let requireKeys: string[] = [];
   let positionalArgs: string[] = [];
@@ -384,6 +389,11 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--repo-local') {
+      repoLocal = true;
+      continue;
+    }
+
     if (arg === '--roles') {
       roles = args[++i];
       continue;
@@ -401,6 +411,11 @@ export function parseArgs(args: string[]): ParsedArgs {
 
     if (arg === '--bundle') {
       bundle = args[++i];
+      continue;
+    }
+
+    if (arg === '--file') {
+      setFile = args[++i];
       continue;
     }
 
@@ -583,6 +598,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     file,
     key,
     value,
+    setFile,
     target,
     requireKeys,
     positionalArgs,
@@ -664,6 +680,7 @@ export async function main(): Promise<void> {
     file,
     key,
     value,
+    setFile,
     target,
     requireKeys,
     positionalArgs,
@@ -722,13 +739,23 @@ export async function main(): Promise<void> {
         break;
 
       case 'set': {
-        let setFile: FileKey = 'shared';
+        let resolvedSetFile = setFile;
+        let resolvedRepoLocal = repoLocal;
+
         if (local) {
-          setFile = 'local';
-        } else if (envExplicit) {
-          setFile = env;
+          resolvedRepoLocal = true;
+        } else if (!resolvedSetFile && envExplicit) {
+          resolvedSetFile = env;
         }
-        await setCommand(defaultContext, { store, file: setFile, key, value, gui });
+
+        await setCommand(defaultContext, {
+          store,
+          file: resolvedSetFile,
+          key,
+          value,
+          gui,
+          repoLocal: resolvedRepoLocal,
+        });
         break;
       }
 

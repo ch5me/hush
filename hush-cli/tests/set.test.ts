@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import * as nodeFs from 'node:fs';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { parseArgs } from '../src/cli.js';
 import { bootstrapCommand } from '../src/commands/bootstrap.js';
 import { setCommand } from '../src/commands/set.js';
 import { configCommand } from '../src/commands/config.js';
+import { createFileDocument, createFileIndexEntry, createManifestDocument } from '../src/index.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
-import type { HushContext, StoreContext } from '../src/types.js';
-import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsEnv, readDecryptedYamlFile } from './helpers/sops-test.js';
+import type { HushContext, HushManifestDocument, StoreContext } from '../src/types.js';
+import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsEnv, readDecryptedYamlFile, writeEncryptedYamlFile } from './helpers/sops-test.js';
 
 const TEST_DIR = join('/tmp', 'hush-test-set-command');
 
@@ -96,6 +98,43 @@ function createContext(root: string): HushContext {
   };
 }
 
+function normalizeYaml(content: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+
+  while (lines[0] !== undefined && lines[0].trim() === '') {
+    lines.shift();
+  }
+
+  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === '') {
+    lines.pop();
+  }
+
+  const indent = lines
+    .filter((line) => line.trim().length > 0)
+    .reduce<number>((smallest, line) => {
+      const match = line.match(/^\s*/);
+      return Math.min(smallest, match?.[0].length ?? 0);
+    }, Number.POSITIVE_INFINITY);
+
+  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join('\n');
+}
+
+function writeRepo(root: string, manifest: string, files: Record<string, string>): void {
+  nodeFs.mkdirSync(join(root, '.hush', 'files'), { recursive: true });
+
+  const parsedFiles = Object.values(files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
+  const manifestDocument = createManifestDocument({
+    ...(parseYaml(normalizeYaml(manifest)) as Record<string, unknown>),
+    fileIndex: Object.fromEntries(parsedFiles.map((file) => [file.path, createFileIndexEntry(file)])),
+  } as HushManifestDocument);
+
+  writeEncryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'), stringifyYaml(manifestDocument, { indent: 2 }));
+
+  for (const [relativePath, content] of Object.entries(files)) {
+    writeEncryptedYamlFile(root, join(root, '.hush', 'files', `${relativePath}.encrypted`), normalizeYaml(content));
+  }
+}
+
 describe('setCommand legacy guard and global bootstrap', () => {
   beforeEach(() => {
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
@@ -161,6 +200,72 @@ describe('setCommand legacy guard and global bootstrap', () => {
       value: 'postgres://db',
     })).rejects.toThrow(/must have the owner role/i);
   });
+
+  it('writes to declared non-default v3 file paths', async () => {
+    const root = join(TEST_DIR, 'declared-staging-path');
+    writeRepo(
+      root,
+      `
+      version: 3
+      activeIdentity: owner-local
+      identities:
+        owner-local:
+          roles: [owner]
+      bundles:
+        project:
+          files:
+            - path: env/project/shared
+            - path: env/project/staging
+      targets:
+        runtime:
+          bundle: project
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+        'env/project/staging': `
+          path: env/project/staging
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+      },
+    );
+
+    const ctx = createContext(root);
+    const store = createStore(root);
+
+    await setCommand(ctx, {
+      store,
+      file: 'shared',
+      key: 'SHARED_KEY',
+      value: 'shared-value',
+    });
+
+    await setCommand(ctx, {
+      store,
+      file: 'env/project/staging',
+      key: 'WORKER_ENV',
+      value: 'staging',
+    });
+
+    const sharedFile = readDecryptedYamlFile(root, join(root, '.hush', 'files', 'env', 'project', 'shared.encrypted'));
+    const stagingFile = readDecryptedYamlFile(root, join(root, '.hush', 'files', 'env', 'project', 'staging.encrypted'));
+    expect(sharedFile).toContain('env/project/shared/SHARED_KEY');
+    expect(sharedFile).toContain('shared-value');
+    expect(stagingFile).toContain('path: env/project/staging');
+    expect(stagingFile).toContain('env/project/staging/WORKER_ENV');
+    expect(stagingFile).toContain('staging');
+  }, 90000);
 });
 
 describe('CLI argument parsing for set command', () => {
@@ -196,5 +301,23 @@ describe('CLI argument parsing for set command', () => {
     expect(result.command).toBe('set');
     expect(result.key).toBe('MY_KEY');
     expect(result.local).toBe(true);
+  });
+
+  it('parses hush set KEY VALUE --file env/project/staging correctly', () => {
+    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--file', 'env/project/staging']);
+
+    expect(result.command).toBe('set');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.value).toBe('my-value');
+    expect(result.setFile).toBe('env/project/staging');
+  });
+
+  it('parses hush set KEY VALUE --repo-local correctly', () => {
+    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--repo-local']);
+
+    expect(result.command).toBe('set');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.value).toBe('my-value');
+    expect(result.repoLocal).toBe(true);
   });
 });

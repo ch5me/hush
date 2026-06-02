@@ -18,6 +18,7 @@ import {
 type FileKey = keyof typeof DEFAULT_V3_FILE_PATHS;
 const FILE_KEYS = Object.keys(DEFAULT_V3_FILE_PATHS) as FileKey[];
 const POSITIONAL_FILE_ALIASES = new Set<FileKey>(FILE_KEYS);
+type SetDestination = { fileKey?: FileKey; filePath: string };
 
 function hasStdinPipe(ctx: HushContext): boolean {
   try {
@@ -208,7 +209,15 @@ function isFileKey(value: string): value is FileKey {
   return POSITIONAL_FILE_ALIASES.has(value as FileKey);
 }
 
-function resolveFilePathFromAlias(file: string | undefined, repoLocal: boolean | undefined): { fileKey: FileKey; filePath: string } {
+function normalizeRequestedFilePath(value: string): string {
+  return value.trim().replace(/\.encrypted$/, '').replace(/^\.hush\/files\//, '').replace(/^\/+/, '');
+}
+
+function resolveSetDestination(
+  file: string | undefined,
+  repoLocal: boolean | undefined,
+  repository: HushV3Repository,
+): SetDestination {
   if (repoLocal) {
     return { fileKey: 'local', filePath: DEFAULT_V3_FILE_PATHS.local };
   }
@@ -221,21 +230,29 @@ function resolveFilePathFromAlias(file: string | undefined, repoLocal: boolean |
     };
   }
 
-  const normalized = selected.trim().replace(/\\.encrypted$/, '').replace(/^\.hush\/files\//, '').replace(/^\/+/, '');
+  const normalized = normalizeRequestedFilePath(selected);
   const matchedEntry = Object.entries(DEFAULT_V3_FILE_PATHS).find(([, candidatePath]) => candidatePath === normalized);
   if (matchedEntry) {
     const [fileKey, filePath] = matchedEntry as [FileKey, string];
     return { fileKey, filePath };
   }
 
+  if (repository.filesByPath[normalized]) {
+    return { filePath: normalized };
+  }
+
   throw new Error(
-    `Unknown set destination "${selected}". Use one of: shared, development, production, local, or a v3 file path like env/project/shared.`,
+    `Unknown set destination "${selected}". Use one of: shared, development, production, local, or a declared v3 file path like env/project/staging.`,
   );
 }
 
-function getScopeLabel(fileKey: FileKey, scope: 'repository' | 'machine-local'): string {
+function getScopeLabel(fileKey: FileKey | undefined, scope: 'repository' | 'machine-local'): string {
   if (scope === 'machine-local') {
     return 'repo-local';
+  }
+
+  if (!fileKey) {
+    return 'repository';
   }
 
   return fileKey;
@@ -248,7 +265,7 @@ function getUsageLines(): string[] {
     pc.dim('  hush set DATABASE_URL'),
     pc.dim('  hush set API_KEY --file production'),
     pc.dim('  hush set API_KEY --repo-local'),
-    pc.dim('  hush set API_KEY --file env/project/shared'),
+    pc.dim('  hush set WORKER_ENV staging --file env/project/staging'),
     pc.dim('\nTo edit all secrets in an editor, use: hush edit'),
   ];
 }
@@ -299,6 +316,29 @@ function findSharedConflicts(ctx: HushContext, store: SetOptions['store'], repos
       return getDocumentValue(repository.loadFile(filePath), filePath, key) !== undefined;
     })
     .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey]);
+}
+
+function loadEditableDestination(
+  ctx: HushContext,
+  store: SetOptions['store'],
+  repository: HushV3Repository,
+  destination: SetDestination,
+): { document: HushFileDocument; filePath: string; systemPath: string; scope: 'repository' | 'machine-local' } {
+  if (destination.fileKey) {
+    return ensureEditableFileDocument(ctx, store, repository, destination.fileKey);
+  }
+
+  const systemPath = repository.fileSystemPaths[destination.filePath];
+  if (!systemPath) {
+    throw new Error(`File "${destination.filePath}" is not declared in this repository`);
+  }
+
+  return {
+    document: repository.loadFile(destination.filePath),
+    filePath: destination.filePath,
+    systemPath,
+    scope: 'repository',
+  };
 }
 
 async function promptForValue(ctx: HushContext, key: string, forceGui: boolean): Promise<string> {
@@ -357,11 +397,13 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     ctx.process.exit(1);
   }
 
-  let destination: { fileKey: FileKey; filePath: string } | null = null;
+  let destination: SetDestination | null = null;
+  let repository: HushV3Repository | null = null;
 
   try {
     detectLegacyPositionalFileArg(key, file, repoLocal);
-    destination = resolveFilePathFromAlias(file, repoLocal);
+    repository = requireV3Repository(store, 'set');
+    destination = resolveSetDestination(file, repoLocal, repository);
 
     const value = inlineValue ?? await promptForValue(ctx, key, gui ?? false);
 
@@ -376,14 +418,13 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
 
     ctx.logger.log(pc.dim(`will write ${key} -> ${destination.filePath}`));
 
-    const repository = requireV3Repository(store, 'set');
     const activeIdentity = requireMutableIdentity(ctx, store, repository, {
       name: 'set',
-      args: [destination.fileKey, key],
+      args: [destination.fileKey ?? destination.filePath, key],
     });
-    const editable = ensureEditableFileDocument(ctx, store, repository, destination.fileKey);
+    const editable = loadEditableDestination(ctx, store, repository, destination);
 
-    if (destination.fileKey === 'shared') {
+    if (destination.filePath === DEFAULT_V3_FILE_PATHS.shared) {
       const conflicts = findSharedConflicts(ctx, store, repository, key);
       if (conflicts.length > 0) {
         ctx.logger.warn(pc.yellow(`warning: ${key} already exists in ${conflicts.join(', ')}; shared may not win at runtime.`));
@@ -401,7 +442,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       type: 'write',
       activeIdentity,
       success: true,
-      command: { name: 'set', args: [destination.fileKey, key] },
+      command: { name: 'set', args: [destination.fileKey ?? destination.filePath, key] },
       files: [editable.filePath],
       logicalPaths: [`${editable.filePath}/${key}`],
       details: {
@@ -423,7 +464,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
         type: 'write',
         activeIdentity: readCurrentIdentity(ctx, store),
         success: false,
-        command: { name: 'set', args: [destination?.fileKey ?? file ?? 'shared', key ?? ''] },
+        command: { name: 'set', args: [destination?.fileKey ?? destination?.filePath ?? file ?? 'shared', key ?? ''] },
         reason: err.message,
       });
       ctx.logger.error(pc.red(err.message));
@@ -434,7 +475,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       type: 'write',
       activeIdentity: readCurrentIdentity(ctx, store),
       success: false,
-      command: { name: 'set', args: [destination?.fileKey ?? file ?? 'shared', key ?? ''] },
+      command: { name: 'set', args: [destination?.fileKey ?? destination?.filePath ?? file ?? 'shared', key ?? ''] },
       reason: err.message,
     });
     throw err;
