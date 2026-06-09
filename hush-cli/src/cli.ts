@@ -666,6 +666,7 @@ export async function main(): Promise<void> {
     allowPlaintext,
     global,
     local,
+    repoLocal,
     force,
     gui,
     roles,
