@@ -23,12 +23,12 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
   </TabItem>
   <TabItem label="Linux">
     ```bash
-    curl -LO https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
-    sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
+    curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+    sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
     sudo chmod +x /usr/local/bin/sops
 
-    curl -LO https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz
-    tar xzf age-v1.1.1-linux-amd64.tar.gz
+    curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
+    tar xzf age-v1.2.0-linux-amd64.tar.gz
     sudo mv age/age /usr/local/bin/
 
     curl -sfL https://direnv.net/install.sh | bash
@@ -38,6 +38,8 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
     ```powershell
     scoop install sops age direnv
     ```
+
+    **Note:** Windows support is best-effort and not yet covered by CI. If you encounter issues, please open a GitHub issue.
   </TabItem>
 </Tabs>
 
@@ -72,7 +74,7 @@ Hush v3 stores the canonical repo state in `.hush/manifest.encrypted` and `.hush
 1. **Bootstrap the v3 repository**
 
    ```bash
-   npx hush bootstrap
+   npx @chriscode/hush bootstrap
    ```
 
    This creates the encrypted repository shell, the initial shared file document, and `.sops.yaml`.
@@ -80,8 +82,8 @@ Hush v3 stores the canonical repo state in `.hush/manifest.encrypted` and `.hush
 2. **Inspect the bootstrapped state**
 
    ```bash
-   npx hush config show
-   npx hush config active-identity
+   npx @chriscode/hush config show
+   npx @chriscode/hush config active-identity
    ```
 
    Use `hush config` to inspect manifest state, active identity, file readers, and target definitions.
@@ -89,8 +91,8 @@ Hush v3 stores the canonical repo state in `.hush/manifest.encrypted` and `.hush
 3. **Add your first secret safely**
 
    ```bash
-   npx hush set DATABASE_URL
-   npx hush set API_KEY --gui
+   npx @chriscode/hush set DATABASE_URL
+   npx @chriscode/hush set API_KEY --gui
    ```
 
    The value is written into the encrypted v3 file document. The assistant never needs to read a plaintext env file.
@@ -98,7 +100,7 @@ Hush v3 stores the canonical repo state in `.hush/manifest.encrypted` and `.hush
 4. **Run your app**
 
    ```bash
-   npx hush run -- npm start
+   npx @chriscode/hush run -- npm start
    ```
 
    Hush resolves the selected v3 target, decrypts only for the child process, and cleans up.
@@ -106,8 +108,8 @@ Hush v3 stores the canonical repo state in `.hush/manifest.encrypted` and `.hush
 5. **Adjust configuration when needed**
 
    ```bash
-   npx hush config show files
-   npx hush config readers env/project/shared --roles owner,ci
+   npx @chriscode/hush config show files
+   npx @chriscode/hush config readers env/project/shared --roles owner,ci
    ```
 
    `hush config` is the normal path for inspecting and updating the current repository model.
@@ -129,15 +131,15 @@ Hush v3 stores the canonical repo state in `.hush/manifest.encrypted` and `.hush
 If this repo still uses legacy v2 files, use the migration bridge instead of bootstrapping over it:
 
 ```bash
-npx hush migrate --from v2
-npx hush migrate --from v2 --cleanup
+npx @chriscode/hush migrate --from v2
+npx @chriscode/hush migrate --from v2 --cleanup
 ```
 
 ## Verify your setup
 
 ```bash
-npx hush config show
-npx hush inspect
+npx @chriscode/hush config show
+npx @chriscode/hush inspect
 ```
 
 ## Troubleshooting
@@ -147,8 +149,8 @@ npx hush inspect
 SOPS cannot find the matching age key.
 
 ```bash
-npx hush keys setup
-npx hush config show state
+npx @chriscode/hush keys setup
+npx @chriscode/hush config show state
 ```
 
 ### Team repository with existing keys
@@ -156,7 +158,7 @@ npx hush config show state
 If the repository already exists, pull or verify the project key first:
 
 ```bash
-npx hush keys setup
+npx @chriscode/hush keys setup
 ```
 
 ## Next steps

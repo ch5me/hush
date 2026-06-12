@@ -58,8 +58,8 @@ Hush v5 introduces a new file naming convention to avoid conflicts with other to
 2. **Run the migrate command**
 
    ```bash
-   npx hush migrate --dry-run    # Preview changes
-   npx hush migrate              # Apply changes
+   npx @chriscode/hush migrate --dry-run    # Preview changes
+   npx @chriscode/hush migrate              # Apply changes
    ```
 
    This automatically:
@@ -117,8 +117,8 @@ Hush v5 introduces a new file naming convention to avoid conflicts with other to
 5. **Verify**
 
    ```bash
-   npx hush status    # Should show .hush.encrypted files
-   npx hush inspect   # Should show your secrets
+   npx @chriscode/hush status    # Should show .hush.encrypted files
+   npx @chriscode/hush inspect   # Should show your secrets
    ```
 
 </Steps>
@@ -222,9 +222,9 @@ Rules:
 - Use hush inspect, hush has, hush status only
 
 Steps:
-1. Run `npx hush migrate --dry-run` to preview
-2. Run `npx hush migrate` to apply
+1. Run `npx @chriscode/hush migrate --dry-run` to preview
+2. Run `npx @chriscode/hush migrate` to apply
 3. Update git (add new files, remove old)
 4. Update .gitignore
-5. Verify with `npx hush status`
+5. Verify with `npx @chriscode/hush status`
 ```

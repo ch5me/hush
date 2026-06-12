@@ -364,10 +364,10 @@ Use the `stripe` Node.js SDK's built-in `constructEvent` for webhook validation 
 
 For Sign in with Apple, `APPLE_CLIENT_ID` is the **Services ID**, not the iOS bundle identifier. Setting them to the same value causes native Apple Sign In to succeed but server-side token verification to fail with a 401.
 
-Example from FitBot:
+Example:
 
-- `APPLE_CLIENT_ID=ch5.me.fitbot` (Services ID)
-- `APPLE_APP_BUNDLE_IDENTIFIER=me.ch5.fitbot` (iOS bundle ID)
+- `APPLE_CLIENT_ID=com.example.servicesid` (Services ID)
+- `APPLE_APP_BUNDLE_IDENTIFIER=com.example.app` (iOS bundle ID)
 
 ### Setup
 

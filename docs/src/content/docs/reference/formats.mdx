@@ -386,7 +386,7 @@ For Kubernetes deployments, use `hush run` to inject secrets into your kubectl c
 
 ```bash
 # Run kubectl with secrets injected
-hush run -e production -- kubectl apply -f k8s/
+hush run --target production -- kubectl apply -f k8s/
 
 # Or use hush push for Cloudflare Workers
 hush push

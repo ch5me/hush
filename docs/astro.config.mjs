@@ -8,7 +8,7 @@ export default defineConfig({
       title: 'Hush',
       description: 'SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.',
       social: {
-        github: 'https://github.com/hassoncs/hush',
+        github: 'https://github.com/ch5me/hush',
       },
       customCss: [
         './src/styles/theme.css',
@@ -36,6 +36,7 @@ export default defineConfig({
             { label: 'Configuration', slug: 'guides/configuration' },
             { label: 'Monorepo Patterns', slug: 'guides/monorepos' },
             { label: 'AI-Native Workflow', slug: 'guides/ai-native' },
+            { label: 'Threat Model', slug: 'guides/threat-model' },
           ],
         },
         {

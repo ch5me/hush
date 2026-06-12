@@ -33,6 +33,10 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
+### Update check
+
+Hush checks for new versions once per day via a standard HTTP request to the npm registry. No telemetry is sent. To disable, set `HUSH_NO_UPDATE_CHECK=1` (also respects `NO_UPDATE_NOTIFIER=1` and any `CI` environment variable).
+
 ---
 
 ## run
@@ -42,10 +46,6 @@ Run a command with secrets injected as environment variables. **This is the prim
 ```bash
 # Run with development secrets (default)
 hush run -- npm start
-
-# Run with production secrets
-hush run -e production -- npm build
-hush run -e prod -- npm build
 
 # Run with a specific v3 target
 hush run -t api -- wrangler dev
@@ -59,9 +59,12 @@ hush run --global -- npm start
 
 | Option | Description |
 |--------|-------------|
-| `-e, --env <env>` | Environment: `development` or `production` |
 | `-t, --target <name>` | Resolve a specific v3 target; otherwise Hush uses `runtime` or the only non-example target |
 | `-- <command>` | The command to run (everything after `--`) |
+
+<Aside type="caution">
+`-e/--env` is not a valid flag for `hush run` and will produce an error. Use `--target` to select a named v3 target instead (e.g. `hush run --target prod -- npm build`).
+</Aside>
 
 ### How It Works
 
@@ -78,9 +81,6 @@ When `--global` is used, Hush reads only from `~/.hush`. It does not merge proje
 ```bash
 # Local development
 hush run -- npm run dev
-
-# Production build
-hush run -e prod -- npm run build
 
 # Wrangler with API secrets only
 hush run -t api -- wrangler dev
@@ -108,9 +108,6 @@ This command uses the existing v3 resolver/materializer, but unlike `hush run` i
 # Materialize a target to an explicit output root
 hush materialize -t ios-signing --json --to /tmp/fitbot-signing
 
-# Emit shell-safe export statements instead of summary text
-hush materialize -t runtime --format shell-export
-
 # Materialize for the lifetime of one command, then auto-clean
 hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
 
@@ -128,9 +125,7 @@ hush materialize --cleanup --to /tmp/fitbot-signing
 | `-t, --target <name>` | Resolve a specific v3 target; otherwise Hush uses `runtime` or the only non-example target |
 | `--bundle <name>` | Materialize a bundle directly instead of selecting a target |
 | `--json` | Emit machine-readable JSON describing written paths and cleanup hints |
-| `--format <dotenv\|shell-export>` | Render env output as summary text with persisted dotenv target default, or shell-safe `export KEY=...` lines |
-| `--compact-json` | Emit minimal JSON with status plus artifact paths only |
-| `--include-provenance` | Add provenance and `resolvedFrom` details to JSON output |
+| `--format <dotenv>` | Render env output in dotenv format (default) |
 | `--output-root <dir>` / `--to <dir>` | Output root for persisted plaintext artifacts (default: `.hush-materialized/`) |
 | `--cleanup` | Remove the materialized output root instead of writing files |
 | `-- <command>` | Run a child command with the materialized files available, then auto-clean the output root when it exits |
@@ -156,13 +151,7 @@ Targets can also declare the same metadata for the target artifact itself.
 
 ### JSON output shape
 
-`--json` returns metadata only — never raw secret contents.
-
-- Default JSON keeps existing full metadata like `repositoryRoot`, `files`, `logicalPaths`, hashes, and path details.
-- `--compact-json` trims that down to `status`, selection info, and persisted artifact paths.
-- `--include-provenance` adds `provenance` and `resolvedFrom` details to the full JSON payload.
-
-This makes it suitable for CI pipelines that need either a tiny handoff surface or a richer audit/debug surface without logging private values.
+`--json` returns metadata only — never raw secret contents. It includes full metadata like `repositoryRoot`, `files`, `logicalPaths`, hashes, and path details. This makes it suitable for CI pipelines that need a stable handoff surface without logging private values.
 
 ### Auto-cleaning command flow
 
@@ -221,9 +210,6 @@ hush set --global OPENAI_API_KEY
 # Piped input (for scripts/automation)
 echo "my-secret" | hush set MY_KEY
 cat cert.pem | hush set CERTIFICATE
-
-# Verify length before writing (useful for TTY input)
-hush set API_KEY --show-length
 ```
 
 ### Options
@@ -234,7 +220,6 @@ hush set API_KEY --show-length
 | `--local` | Write to the machine-local override document under `~/.hush/state/projects/<slug>/user/local-overrides.encrypted` |
 | `--file <path-or-alias>` | Write to a specific file: full path (`env/project/local`) or alias (`shared`, `development`, `production`, `local`) |
 | `--repo-local` | Shorthand for `--file env/project/local` |
-| `--show-length` | Show the length of the entered value before writing (useful for TTY input verification) |
 | `--gui` | Use a native GUI dialog for input instead of terminal or piped input |
 | `--global` | Set the secret in `~/.hush` instead of the current project store |
 
@@ -353,7 +338,7 @@ hush delete-key OLD_API_KEY --from env/project/shared --yes
 
 | Option | Description |
 |--------|-------------|
-| `--from <file-path>` | Source encrypted v3 file path, such as `env/project/shared` |
+| `--from <file-path>` | Source encrypted v3 file path, such as `env/project/shared` (required) |
 | `--yes` | Skip confirmation prompt |
 | `--json` | Output action metadata without values |
 
@@ -799,6 +784,9 @@ hush has API_KEY -q
 
 # Use in scripts
 hush has DATABASE_URL -q && echo "DB configured"
+
+# Machine-readable output for agents and scripts
+hush has DATABASE_URL --json
 ```
 
 ### Options
@@ -806,6 +794,7 @@ hush has DATABASE_URL -q && echo "DB configured"
 | Option | Description |
 |--------|-------------|
 | `-q, --quiet` | Suppress output, only return exit code |
+| `--json` | Emit `{ key, target, exists, declared }` (never values) |
 
 ### Example Output
 
@@ -907,7 +896,7 @@ hush status --global
 ```
 Hush status
 
-Repository: v3
+Repository: ready
 Root: /path/to/repo
 Store: project (/path/to/repo)
 Manifest: /path/to/repo/.hush/manifest.encrypted
@@ -985,9 +974,6 @@ hush check --warn
 
 # JSON output for CI
 hush check --json
-
-# JSON output for CI
-hush check --json
 ```
 
 ### Options
@@ -1011,7 +997,7 @@ hush check --json
 
 ```bash
 # .husky/pre-commit
-npx hush check || exit 1
+npx @chriscode/hush check || exit 1
 ```
 
 `check` validates `.hush/manifest.encrypted`, every `.hush/files/**.encrypted` document, and scans for leftovers such as `hush.yaml`, `.env*`, legacy `.hush*.encrypted`, or `.hush-materialized/`.
@@ -1031,15 +1017,6 @@ hush resolve runtime -e production
 
 # Machine-readable provenance without secret values
 hush resolve runtime --json
-
-# Minimal human-readable output
-hush resolve runtime --compact
-
-# Filter to one key
-hush resolve runtime --only DATABASE_URL
-
-# Minimal machine-readable output
-hush resolve runtime --json-compact --only DATABASE_URL
 ```
 
 ### Options
@@ -1048,9 +1025,6 @@ hush resolve runtime --json-compact --only DATABASE_URL
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` |
 | `--json` | Output target, bundle, file, logical path, and provenance metadata without values |
-| `--compact` | Output only key, source file, target, and precedence |
-| `--only <key>` | Filter values and artifacts to one leaf key or full logical path |
-| `--json-compact` | Output minimal machine-readable records: `key`, `source`, `target`, `precedence` |
 
 ### Example Output
 
@@ -1082,8 +1056,6 @@ If resolution fails because the active identity cannot read a required file, `re
 
 `--json` is safe for automation: it includes logical paths and provenance, but does not include decrypted scalar values.
 
-`--compact` keeps terminal output short for quick checks. `--json-compact` keeps automation payloads stable and minimal when you only need key reachability.
-
 ---
 
 ## trace
@@ -1099,12 +1071,6 @@ hush trace env/apps/api/env/DATABASE_URL
 
 # Machine-readable target reachability diagnostics
 hush trace RESEND_API_KEY --json
-
-# Minimal human-readable output
-hush trace RESEND_API_KEY --compact
-
-# Minimal machine-readable output
-hush trace RESEND_API_KEY --json-compact
 ```
 
 ### Options
@@ -1113,8 +1079,6 @@ hush trace RESEND_API_KEY --json-compact
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` |
 | `--json` | Output repository matches and per-target reachability diagnostics without values |
-| `--compact` | Output only key, source file, target, and precedence for resolved targets |
-| `--json-compact` | Output minimal machine-readable records: `key`, `source`, `target`, `precedence` |
 
 ### Example Output
 
@@ -1137,8 +1101,6 @@ Targets:
 `trace` uses the same v3 resolver as runtime commands, so ACL failures and interpolation provenance match real resolution behavior.
 
 When a key exists in Hush but is not selected by a target bundle, `trace` now explains that explicitly and lists candidate source bundles. The fix is still explicit: add a bundle import, or copy/move the key into the file consumed by that target bundle. Hush does not perform ambient inheritance.
-
-Use `--compact` or `--json-compact` when you only need resolved target hits, not full repository and denial diagnostics.
 
 ---
 
@@ -1409,21 +1371,24 @@ Or better yet, switch to `hush run -- <command>` for future use.
 
 ---
 
-## list (Caution)
+## list
 
-<Aside type="caution">
-This command shows actual secret values. Use `hush inspect` for AI-safe output.
-</Aside>
-
-List all variables with their actual values.
+List variable names. Values are **masked by default**. Use `--reveal` to print plaintext values.
 
 ```bash
 hush list
+hush list --reveal
 hush list -e production
 ```
 
-<Aside type="danger">
-This command shows actual secret values in the terminal. Use `hush inspect` instead when working with AI assistants.
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--reveal` | Print plaintext values instead of masked output |
+
+<Aside type="caution">
+`--reveal` prints actual secret values to the terminal. Use `hush inspect` for AI-safe output that never reveals values.
 </Aside>
 
 ---
@@ -1432,7 +1397,7 @@ This command shows actual secret values in the terminal. Use `hush inspect` inst
 
 ### "no identity matched any of the recipients"
 
-This error means SOPS cannot find your decryption key. 
+This error means SOPS cannot find your decryption key.
 
 **Most common cause:** direnv not loaded.
 

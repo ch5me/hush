@@ -1,0 +1,77 @@
+---
+title: Threat Model
+description: What Hush protects against, what it does not, and how to reason about AI-agent security.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Hush is honest about what it defends against and what it does not. This page is the canonical reference.
+
+## What Hush defends against
+
+### Standing plaintext in repositories
+
+The primary threat Hush addresses is plaintext secret files checked into version control or left on disk where any process — including AI coding assistants — can read them without restriction. Hush replaces `.env` files and similar plaintext stores with encrypted documents under `.hush/`. There is no standing plaintext for an AI to accidentally read, log, or include in a response.
+
+### Accidental commits of secret values
+
+Because there are no plaintext files, there is nothing to accidentally `git add`. The `.hush/files/**.encrypted` documents contain only SOPS-encrypted YAML — they are safe to commit.
+
+### Agents casually reading environment state
+
+`hush inspect` and `hush has` give AI agents the surface they need to check secret presence and names without decrypting values. An agent following the Hush skill never needs to decrypt to know whether a key is configured.
+
+### Value exposure in agent context during set flows
+
+`hush set --gui` opens a native OS dialog for the human to type the secret. The value passes directly from the OS dialog into the encryption layer — it never enters the terminal, the agent's context, or any log that the agent can see.
+
+### Audit trail of access
+
+Every Hush command that reads or writes secrets emits a local activity log under `~/.hush/state/projects/<slug>/audit.jsonl`. This gives you a record of what was decrypted, by which identity, and when.
+
+---
+
+## What Hush does NOT defend against
+
+<Aside type="danger">
+These are genuine limitations. Do not rely on Hush alone for defense-in-depth against a hostile or compromised agent.
+</Aside>
+
+### A prompt-injected or compromised agent with shell access
+
+If an agent has been prompt-injected and can execute arbitrary shell commands, it can run `hush run -- env` or pipe secrets out via any command that inherits the environment. Hush is not a sandbox. Once secrets are injected into a process environment, that process can read them.
+
+**Recommended mitigations:**
+- Gate exfil-capable verbs (`hush run`, `hush decrypt`) behind explicit human approval in your agent harness.
+- Use least-privilege reader identities: give the AI agent an identity that can read only the files it needs, not all files.
+- Review the audit log regularly to detect unexpected decryption events.
+
+### Local malware
+
+A process with sufficient OS privileges on the local machine can read decrypted values from memory, intercept SOPS invocations, or steal the age private key file directly. Hush's threat model assumes the local machine is reasonably trusted.
+
+### A hostile collaborator with the age key
+
+If someone has a copy of the project age private key (`~/.config/sops/age/keys/<project>.txt`), they can decrypt all secrets in that repository. Key distribution and rotation are human-process concerns outside Hush's scope.
+
+### Hush has not been externally audited
+
+This is a single-maintainer open source project. The cryptographic operations are fully delegated to [sops](https://github.com/getsops/sops) and [age](https://github.com/FiloSottile/age) (both well-reviewed), but the Hush CLI layer itself has not been independently audited. Use it accordingly in high-security environments.
+
+---
+
+## Summary
+
+| Threat | Hush helps | Notes |
+|--------|:----------:|-------|
+| Plaintext secrets in repo | yes | Encrypted at rest under `.hush/` |
+| Accidental `git add` of secrets | yes | No plaintext files to stage |
+| AI agent reading `.env` files | yes | No `.env` files exist |
+| Value exposure during `set` | yes | `--gui` keeps value out of agent context |
+| Audit trail | yes | Local activity log (best-effort; not tamper-evident) |
+| Prompt-injected agent with shell | no | Use harness-level permission gating |
+| Local malware | no | Assumes trusted host |
+| Hostile collaborator with age key | no | Key management is out of scope |
+| External security audit | no | Not yet performed |
+
+See [SECURITY.md](https://github.com/ch5me/hush/blob/main/SECURITY.md) for the vulnerability disclosure process.

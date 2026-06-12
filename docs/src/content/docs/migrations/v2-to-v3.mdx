@@ -54,15 +54,15 @@ If you genuinely need plaintext files (Docker builds, legacy tooling), `hush dec
    Search your codebase and scripts for:
    - `hush decrypt`
    - `hush unsafe:decrypt`
-   - `npx hush decrypt`
-   - `npx hush unsafe:decrypt`
+   - `npx @chriscode/hush decrypt`
+   - `npx @chriscode/hush unsafe:decrypt`
 
 2. **Replace with `hush run`**
    
    | Before (v2) | After (v3) |
    |-------------|------------|
    | `hush decrypt && npm start` | `hush run -- npm start` |
-   | `hush decrypt -e production && npm build` | `hush run -e production -- npm build` |
+   | `hush decrypt -e production && npm build` | `hush run --target production -- npm build` |
    | `hush decrypt && cd api && wrangler dev` | `hush run -t api -- wrangler dev` |
 
 3. **Update CI/CD pipelines**
@@ -71,11 +71,11 @@ If you genuinely need plaintext files (Docker builds, legacy tooling), `hush dec
    
    ```yaml
    # Before (v2)
-   - run: npx hush decrypt -e production
+   - run: npx @chriscode/hush decrypt -e production
    - run: npm run build
    
    # After (v3)
-   - run: npx hush run -e production -- npm run build
+   - run: npx @chriscode/hush run --target production -- npm run build
    ```
 
 4. **Update any package.json scripts**

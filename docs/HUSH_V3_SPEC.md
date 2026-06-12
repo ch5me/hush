@@ -373,11 +373,11 @@ The design target is clear, interruption must not leave behind durable plaintext
 
 ## Auditability
 
-Hush v3 includes a local append-only audit log.
+Hush v3 includes a local activity log.
 
 ### Audit Log
 
-The audit log records local events relevant to security, traceability, and operator understanding. It is append-only on the local machine.
+The audit log records local events relevant to security, traceability, and operator understanding. It is a local activity log (best-effort; not tamper-evident) that appends on the local machine.
 
 Minimum event classes:
 

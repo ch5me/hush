@@ -24,15 +24,15 @@ I want to use Hush for AI-native secrets management in this project. Please:
 
 1. Check if sops and age are installed
 2. Install @chriscode/hush as a dev dependency
-3. Run `npx hush bootstrap`
-4. Show me the resulting `.hush/manifest.encrypted` and `.hush/files/**.encrypted` layout with `npx hush config show`
-5. Help me add the first secrets with `npx hush set`
-6. Verify with `npx hush inspect` and `npx hush config active-identity`
+3. Run `npx @chriscode/hush bootstrap`
+4. Show me the resulting `.hush/manifest.encrypted` and `.hush/files/**.encrypted` layout with `npx @chriscode/hush config show`
+5. Help me add the first secrets with `npx @chriscode/hush set`
+6. Verify with `npx @chriscode/hush inspect` and `npx @chriscode/hush config active-identity`
 
 IMPORTANT:
 - Do not teach or create `hush.yaml`
 - Do not use `hush init` or `hush encrypt`
-- If this repo is still legacy v2, stop bootstrapping and use `npx hush migrate --from v2` instead
+- If this repo is still legacy v2, stop bootstrapping and use `npx @chriscode/hush migrate --from v2` instead
 ```
 
 ---
@@ -46,9 +46,9 @@ Use this prompt when the project is a git repo nested inside a parent that alrea
 ```markdown
 This git repository is nested inside a parent that has a Hush `.hush/` repo. I need a child-local Hush repository for this project. Please:
 
-1. Run `npx hush bootstrap --new-repo --yes`
-2. Run `npx hush doctor` to verify the key resolution
-3. Show the resulting layout with `npx hush config show`
+1. Run `npx @chriscode/hush bootstrap --new-repo --yes`
+2. Run `npx @chriscode/hush doctor` to verify the key resolution
+3. Show the resulting layout with `npx @chriscode/hush config show`
 
 Do NOT join the parent `.hush/` repository.
 ```
@@ -60,11 +60,11 @@ Do NOT join the parent `.hush/` repository.
 ```markdown
 Something is wrong with Hush key resolution or root discovery in this project. Please:
 
-1. Run `npx hush doctor` to diagnose the issue
-2. If the doctor reports key mismatch, run `npx hush keys setup`
-3. Verify with `npx hush inspect`
+1. Run `npx @chriscode/hush doctor` to diagnose the issue
+2. If the doctor reports key mismatch, run `npx @chriscode/hush keys setup`
+3. Verify with `npx @chriscode/hush inspect`
 
-If bootstrap fails, try `npx hush bootstrap --new-repo --yes` to force a child-local repository.
+If bootstrap fails, try `npx @chriscode/hush bootstrap --new-repo --yes` to force a child-local repository.
 ```
 
 ---
@@ -75,9 +75,9 @@ If bootstrap fails, try `npx hush bootstrap --new-repo --yes` to force a child-l
 This repository still uses legacy Hush v2 files. Please:
 
 1. Inventory the legacy state
-2. Run `npx hush migrate --from v2`
-3. Verify the new `.hush/` repository with `npx hush config show` and `npx hush inspect`
-4. After validation, run `npx hush migrate --from v2 --cleanup`
+2. Run `npx @chriscode/hush migrate --from v2`
+3. Verify the new `.hush/` repository with `npx @chriscode/hush config show` and `npx @chriscode/hush inspect`
+4. After validation, run `npx @chriscode/hush migrate --from v2 --cleanup`
 
 Do not keep teaching `hush.yaml`, `hush init`, or `hush encrypt` as the current model after migration.
 ```
@@ -160,15 +160,15 @@ Current model:
 - `.hush/files/**.encrypted`
 
 Use these commands:
-- `npx hush config show`
-- `npx hush inspect`
-- `npx hush has <KEY>`
-- `npx hush set <KEY>`
-- `npx hush run -- <command>`
+- `npx @chriscode/hush config show`
+- `npx @chriscode/hush inspect`
+- `npx @chriscode/hush has <KEY>`
+- `npx @chriscode/hush set <KEY>`
+- `npx @chriscode/hush run -- <command>`
 
 Legacy bridge only:
-- `npx hush migrate --from v2`
-- `npx hush migrate --from v2 --cleanup`
+- `npx @chriscode/hush migrate --from v2`
+- `npx @chriscode/hush migrate --from v2 --cleanup`
 
 Do not teach or recreate `hush.yaml`, `hush init`, or `hush encrypt` as the current setup.
 ```
@@ -181,10 +181,10 @@ Do not teach or recreate `hush.yaml`, `hush init`, or `hush encrypt` as the curr
 Hush isn't working in this project. Please diagnose:
 
 1. Check whether the repo already uses `.hush/`
-2. Run `npx hush config show`
-3. Run `npx hush inspect`
+2. Run `npx @chriscode/hush config show`
+3. Run `npx @chriscode/hush inspect`
 4. Verify sops and age are installed
-5. If the repo is legacy v2, use `npx hush migrate --from v2`
+5. If the repo is legacy v2, use `npx @chriscode/hush migrate --from v2`
 
 Do not switch back to `hush.yaml`, `hush init`, or `hush encrypt` as the main path.
 ```

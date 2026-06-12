@@ -1,6 +1,6 @@
 # Contributing to Hush
 
-This guide covers how to build, test, deploy, and publish Hush.
+This guide covers how to build, test, and contribute to Hush.
 
 ## Project Structure
 
@@ -21,24 +21,24 @@ hush/
 ## Prerequisites
 
 - Node.js >= 18
-- pnpm 9.x (`npm install -g pnpm`)
+- [Bun](https://bun.sh) (used for all scripts and package management)
 - For docs deployment: Cloudflare account with Wrangler CLI
 
 ## Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/hassoncs/hush.git
+git clone https://github.com/ch5me/hush.git
 cd hush
 
 # Install dependencies
-pnpm install
+bun install
 
 # Build everything
-pnpm build
+bun run build
 
 # Run tests
-pnpm test
+bun run test
 ```
 
 ## Commands
@@ -47,45 +47,43 @@ pnpm test
 
 | Command | Description |
 |---------|-------------|
-| `pnpm build` | Build all packages |
-| `pnpm test` | Run all tests |
-| `pnpm dev` | Start dev mode (all packages) |
-| `pnpm type-check` | TypeScript type checking |
+| `bun run build` | Build all packages |
+| `bun run test` | Run all tests |
+| `bun run dev` | Start dev mode (all packages) |
+| `bun run type-check` | TypeScript type checking |
 
 ### CLI (`hush-cli/`)
 
 | Command | Description |
 |---------|-------------|
-| `pnpm cli:build` | Build CLI only |
-| `pnpm cli:test` | Test CLI only |
-| `pnpm --filter @chriscode/hush build` | Alternative build |
-| `pnpm --filter @chriscode/hush test` | Alternative test |
+| `bun run cli:build` | Build CLI only |
+| `bun run cli:test` | Test CLI only |
+| `bun run --filter @chriscode/hush build` | Alternative build |
+| `bun run --filter @chriscode/hush test` | Alternative test |
 
 ### Docs (`docs/`)
 
 | Command | Description |
 |---------|-------------|
-| `pnpm docs:dev` | Start docs dev server |
-| `pnpm docs:build` | Build docs for production |
-| `pnpm docs:preview` | Preview built docs locally |
-| `pnpm deploy` | Build and deploy to Cloudflare Pages |
+| `bun run docs:dev` | Start docs dev server |
+| `bun run docs:build` | Build docs for production |
+| `bun run docs:preview` | Preview built docs locally |
+| `bun run docs:deploy` | Build and deploy to Cloudflare Pages |
 
 ## Building
 
 ### CLI
 
 ```bash
-cd hush-cli
-pnpm build
+bun run cli:build
 ```
 
-This compiles TypeScript to `dist/` and runs tests.
+This compiles TypeScript to `dist/`.
 
 ### Docs
 
 ```bash
-cd docs
-pnpm build
+cd docs && bun x astro build
 ```
 
 This generates a static site in `docs/dist/`.
@@ -94,13 +92,13 @@ This generates a static site in `docs/dist/`.
 
 ```bash
 # Run all tests
-pnpm test
+bun run test
 
 # Run CLI tests only
-pnpm cli:test
+bun run cli:test
 
 # Run tests in watch mode
-cd hush-cli && pnpm test:watch
+cd hush-cli && bun x vitest
 ```
 
 Current test coverage: 95+ tests covering:
@@ -116,58 +114,19 @@ Docs are hosted on Cloudflare Pages.
 
 ```bash
 # Build and deploy
-pnpm deploy
+bun run docs:deploy
 ```
-
-This runs:
-1. `pnpm --filter docs build` - Builds Astro site
-2. `pnpm --filter docs deploy` - Deploys via `wrangler pages deploy`
-
-### First-time setup
-
-1. Install Wrangler: `npm install -g wrangler`
-2. Login: `wrangler login`
-3. Create a Pages project in Cloudflare dashboard (or it will be created on first deploy)
 
 ## Publishing to npm
 
-The CLI is published to npm as `@chriscode/hush`.
+Releases are automated by CI on push to `main`. When a conventional commit lands on `main`, CI:
 
-```bash
-# Build and verify the shipped package entrypoint first
-bun run cli:build
-bun run --filter @chriscode/hush verify:pack-install
+1. Determines the version bump (patch/minor/major) from commit messages
+2. Updates `hush-cli/package.json` and creates a git tag
+3. Publishes `@chriscode/hush` to npm with provenance
+4. Creates a GitHub Release with changelog notes
 
-# Then publish from hush-cli/
-cd hush-cli
-npm publish --access public
-```
-
-This flow verifies three things before publish:
-1. `bin/hush.js` still marks the CLI as an entrypoint
-2. `npm pack` contains the expected `bin/hush.js`
-3. A fresh install prints output for `hush --version` and `hush --help`
-
-**Note:** Publishing requires npm authentication with 2FA.
-
-### Version bumping
-
-Edit `hush-cli/package.json`:
-```json
-{
-  "version": "2.3.0"  // Bump this
-}
-```
-
-Then commit and publish:
-```bash
-git add hush-cli/package.json
-git commit -m "chore: bump version to 2.3.0"
-bun run cli:build
-bun run --filter @chriscode/hush verify:pack-install
-cd hush-cli
-npm publish --access public
-```
+**Contributors just write conventional commits.** You do not need to bump versions or publish manually.
 
 ## Claude Code Skill
 
@@ -191,24 +150,21 @@ The skill at `.claude/skills/hush-secrets/` is self-contained and can be:
 - TypeScript with strict mode
 - No `as any` or `@ts-ignore`
 - Tests for all new features
-- Descriptive commit messages
+- Conventional commit messages
 
 ## Pull Requests
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Make changes and add tests
-4. Run `pnpm build && pnpm test`
-5. Commit with a descriptive message
+4. Run `bun run build && bun run test`
+5. Commit with a conventional message (e.g. `feat: add new option`)
 6. Push and create a PR
 
 ## Release Checklist
 
-- [ ] All tests pass (`pnpm test`)
-- [ ] Build succeeds (`pnpm build`)
-- [ ] Version bumped in `hush-cli/package.json`
-- [ ] CHANGELOG updated (if applicable)
+- [ ] All tests pass (`bun run test`)
+- [ ] Build succeeds (`bun run build`)
+- [ ] CHANGELOG updated if applicable
 - [ ] Docs updated for new features
-- [ ] Committed and pushed
-- [ ] Docs deployed (`pnpm deploy`)
-- [ ] Published to npm (`pnpm release`)
+- [ ] Committed and pushed with conventional commit message

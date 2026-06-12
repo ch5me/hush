@@ -3,7 +3,7 @@
 > AI-native secrets manager. Encrypted-at-rest hierarchical config with file-scoped ACLs.
 
 **Package**: `@chriscode/hush`
-**Repository**: `/Users/hassoncs/Workspaces/Personal/dev/hush`
+**Repository**: https://github.com/ch5me/hush
 **Tech**: TypeScript, SOPS+age encryption, local age key workflow, Cloudflare Workers deploy
 
 ## Structure
@@ -35,7 +35,7 @@ Key source files grounding this entire wiki:
 - `hush-cli/src/v3/imports.ts` — Cross-bundle and cross-project imports
 - `hush-cli/src/v3/materialize.ts` — Artifact materialization (env, dotenv, etc.)
 - `hush-cli/src/v3/repository.ts` — V3 repository loading and parsing
-- `hush-cli/src/v3/audit.ts` — Append-only audit log
+- `hush-cli/src/v3/audit.ts` — Local activity log (best-effort; not tamper-evident)
 - `hush-cli/src/core/sops.ts` — SOPS encrypt/decrypt wrapper
 - `hush-cli/src/commands/run.ts` — Runtime command execution
 - `hush-cli/src/commands/keys.ts` — Key management (setup, generate, pull, push, list)

@@ -1,5 +1,5 @@
 ---
-title: Hush
+title: Hush — AI-native secrets manager
 description: The AI-native secrets manager. Secrets stay encrypted at rest—AI helps without seeing values.
 template: splash
 hero:
@@ -13,7 +13,7 @@ hero:
       icon: right-arrow
       variant: primary
     - text: View on GitHub
-      link: https://github.com/hassoncs/hush
+      link: https://github.com/ch5me/hush
       icon: external
       variant: minimal
 ---
@@ -33,10 +33,10 @@ import { Card, CardGrid, Code, Tabs, TabItem } from '@astrojs/starlight/componen
 npm install -D @chriscode/hush
 
 # Bootstrap the v3 repository
-npx hush bootstrap
+npx @chriscode/hush bootstrap
 
 # Inspect the repo state
-npx hush config show`} lang="bash" />
+npx @chriscode/hush config show`} lang="bash" />
   </TabItem>
 </Tabs>
 
@@ -63,20 +63,20 @@ npx hush config show`} lang="bash" />
 
 ```bash
 # Bootstrap the current v3 repository shell
-npx hush bootstrap
+npx @chriscode/hush bootstrap
 
 # Inspect manifest, files, identities, and targets
-npx hush config show
-npx hush config active-identity
+npx @chriscode/hush config show
+npx @chriscode/hush config active-identity
 
 # Add a secret safely
-npx hush set DATABASE_URL
+npx @chriscode/hush set DATABASE_URL
 
 # Run with secrets in memory
-npx hush run -- npm start
+npx @chriscode/hush run -- npm start
 
 # Push a wrangler target
-npx hush push
+npx @chriscode/hush push
 ```
 
 ## Current repository model
