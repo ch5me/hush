@@ -3,7 +3,7 @@
 > **The AI-native secrets manager.** Secrets stay encrypted at rest. AI can help without seeing values.
 
 [![npm](https://img.shields.io/npm/v/@chriscode/hush)](https://www.npmjs.com/package/@chriscode/hush)
-[![Documentation](https://img.shields.io/badge/docs-hush--docs.pages.dev-blue)](https://hush-docs.pages.dev)
+[![Documentation](https://img.shields.io/badge/docs-hush--docs.pages.dev-blue)](https://hush.ch5.me)
 
 <img src="./hero.webp" alt="Hush - AI-native secrets manager" style="width: 100%; max-width: 1200px; height: auto; border-radius: 8px; margin: 1.5rem 0;">
 
@@ -15,7 +15,7 @@ Hush stores project authority in encrypted v3 repository documents. The current 
 
 There are no plaintext secret files to teach an AI assistant to avoid. Hush decrypts only for the active process or materialized target, then cleans up.
 
-**[Read the full documentation →](https://hush-docs.pages.dev)**
+**[Read the full documentation →](https://hush.ch5.me)**
 
 ## Install
 

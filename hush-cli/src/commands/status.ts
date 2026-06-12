@@ -22,13 +22,23 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
 
   try {
     const projectInfo = findProjectRoot(options.store.root);
-
-    ctx.logger.log(pc.blue('Hush status\n'));
-    ctx.logger.log(`Repository: ${pc.cyan(isV3RepositoryRoot(options.store.root) ? 'ready' : projectInfo?.repositoryKind ?? 'missing')}`);
-    ctx.logger.log(`Root: ${pc.dim(projectInfo?.projectRoot ?? options.store.root)}`);
-    ctx.logger.log(`Store: ${pc.cyan(options.store.mode)} ${pc.dim(`(${options.store.displayLabel})`)}`);
+    const repositoryStatus = isV3RepositoryRoot(options.store.root) ? 'ready' : (projectInfo?.repositoryKind ?? 'missing');
 
     if (!isV3RepositoryRoot(options.store.root)) {
+      if (options.json) {
+        ctx.logger.log(JSON.stringify({
+          repository: repositoryStatus,
+          root: projectInfo?.projectRoot ?? options.store.root,
+          store: options.store.mode,
+          storeLabel: options.store.displayLabel,
+        }, null, 2));
+        return;
+      }
+
+      ctx.logger.log(pc.blue('Hush status\n'));
+      ctx.logger.log(`Repository: ${pc.cyan(repositoryStatus)}`);
+      ctx.logger.log(`Root: ${pc.dim(projectInfo?.projectRoot ?? options.store.root)}`);
+      ctx.logger.log(`Store: ${pc.cyan(options.store.mode)} ${pc.dim(`(${options.store.displayLabel})`)}`);
       if (projectInfo?.repositoryKind === 'legacy-v2' && projectInfo.configPath) {
         ctx.logger.log(`Config: ${pc.dim(projectInfo.configPath)}`);
       }
@@ -47,6 +57,39 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     const targetCount = Object.keys(authority.manifest.targets ?? {}).length;
     const importCount = Object.keys(authority.manifest.imports ?? {}).length;
 
+    if (options.json) {
+      ctx.logger.log(JSON.stringify({
+        repository: repositoryStatus,
+        root: projectInfo?.projectRoot ?? options.store.root,
+        store: options.store.mode,
+        storeLabel: options.store.displayLabel,
+        manifestPath: authority.manifestPath,
+        filesRoot: authority.filesRoot,
+        activeIdentity: activeIdentity ?? null,
+        counts: {
+          manifestFiles: manifestCount,
+          encryptedFiles: fileCount,
+          identities: identityCount,
+          bundles: bundleCount,
+          targets: targetCount,
+          imports: importCount,
+        },
+        machineLocal: {
+          projectSlug: statePaths.projectSlug,
+          stateRoot: statePaths.projectRoot,
+          activeIdentityPath: statePaths.activeIdentityPath,
+          activeIdentityPresent: ctx.fs.existsSync(statePaths.activeIdentityPath),
+          auditLogPath: statePaths.auditLogPath,
+          auditLogPresent: ctx.fs.existsSync(statePaths.auditLogPath),
+        },
+      }, null, 2));
+      return;
+    }
+
+    ctx.logger.log(pc.blue('Hush status\n'));
+    ctx.logger.log(`Repository: ${pc.cyan(repositoryStatus)}`);
+    ctx.logger.log(`Root: ${pc.dim(projectInfo?.projectRoot ?? options.store.root)}`);
+    ctx.logger.log(`Store: ${pc.cyan(options.store.mode)} ${pc.dim(`(${options.store.displayLabel})`)}`);
     ctx.logger.log(`Manifest: ${pc.dim(authority.manifestPath)}`);
     ctx.logger.log(`Files root: ${pc.dim(authority.filesRoot)}`);
     ctx.logger.log(`Active identity: ${activeIdentity ? pc.green(activeIdentity) : pc.yellow('(not set)')}`);
@@ -67,6 +110,18 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     ctx.logger.log(`  audit log path: ${pc.dim(statePaths.auditLogPath)} ${pc.dim(`(${formatStateHealth(ctx, statePaths.auditLogPath)})`)}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+
+    if (options.json) {
+      ctx.logger.log(JSON.stringify({
+        repository: 'missing',
+        root: options.store.root,
+        store: options.store.mode,
+        storeLabel: options.store.displayLabel,
+        error: message,
+      }, null, 2));
+      return;
+    }
+
     ctx.logger.log(pc.blue('Hush status\n'));
     ctx.logger.log(`Repository: ${pc.yellow('missing')}`);
     ctx.logger.log(`Root: ${pc.dim(options.store.root)}`);

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://hush-docs.pages.dev/schema.json",
+  "$id": "https://hush.ch5.me/schema.json",
   "title": "Hush Configuration",
   "description": "Configuration file for Hush secrets management",
   "type": "object",

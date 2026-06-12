@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import pc from 'picocolors';
 import { formatVars } from '../formats/index.js';
 import { requireActiveIdentity } from '../v3/identity.js';
@@ -178,6 +179,38 @@ function createTargetExampleOutput(selection: ExportSelection & { kind: 'target'
   return lines.join('\n');
 }
 
+function stripAnsiCodes(text: string): string {
+  // Remove ANSI escape sequences for clean file output
+  return text.replace(/\[[0-9;]*m/g, '');
+}
+
+function resolveWritePath(options: ExportExampleOptions): string {
+  // Use explicit writePath if provided, otherwise default to .env.example in the store root
+  if (options.writePath) {
+    return options.writePath;
+  }
+  return join(options.store.root, '.env.example');
+}
+
+function writeExampleFile(ctx: HushContext, filePath: string, content: string, force: boolean): void {
+  // Strip ANSI codes for clean file content
+  const cleanContent = stripAnsiCodes(content);
+
+  if (ctx.fs.existsSync(filePath)) {
+    const existing = ctx.fs.readFileSync(filePath, 'utf-8') as string;
+    if (existing !== cleanContent) {
+      if (!force) {
+        throw new Error(
+          `File already exists at ${filePath} with different content. Use --force to overwrite.`,
+        );
+      }
+    }
+  }
+
+  ctx.fs.writeFileSync(filePath, cleanContent, 'utf-8');
+  ctx.logger.log(pc.green(`\nWrote example to ${filePath}`));
+}
+
 export async function exportExampleCommand(ctx: HushContext, options: ExportExampleOptions): Promise<void> {
   const repository = requireV3Repository(options.store, 'export-example');
   const selection = selectExportSubject(repository, options);
@@ -194,7 +227,13 @@ export async function exportExampleCommand(ctx: HushContext, options: ExportExam
       activeIdentity: identity,
       command: { name: 'export-example', args: [selection.name] },
     });
-    ctx.logger.log(createBundleExampleOutput(selection.name, resolution));
+    const output = createBundleExampleOutput(selection.name, resolution);
+    ctx.logger.log(output);
+
+    if (options.write) {
+      const filePath = resolveWritePath(options);
+      writeExampleFile(ctx, filePath, output, options.force ?? false);
+    }
     return;
   }
 
@@ -205,5 +244,11 @@ export async function exportExampleCommand(ctx: HushContext, options: ExportExam
     activeIdentity: identity,
     command: { name: 'export-example', args: [selection.name] },
   });
-  ctx.logger.log(createTargetExampleOutput(selection, resolution));
+  const output = createTargetExampleOutput(selection, resolution);
+  ctx.logger.log(output);
+
+  if (options.write) {
+    const filePath = resolveWritePath(options);
+    writeExampleFile(ctx, filePath, output, options.force ?? false);
+  }
 }

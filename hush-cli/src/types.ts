@@ -268,6 +268,7 @@ export interface PushOptions {
 
 export interface StatusOptions {
   store: StoreContext;
+  json?: boolean;
 }
 
 export interface InitOptions {
@@ -497,6 +498,9 @@ export interface ExportExampleOptions {
   env: Environment;
   target?: string;
   bundle?: string;
+  write?: boolean;
+  writePath?: string;
+  force?: boolean;
 }
 
 export interface MaterializeOptions {

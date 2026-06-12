@@ -18,6 +18,7 @@
     "type-check": "bun run --filter '*' type-check",
     "cli:build": "bun run --filter @chriscode/hush build",
     "cli:test": "bun run --filter @chriscode/hush test",
+    "cli:test:coverage": "cd hush-cli && bun x vitest run --coverage",
     "docs:dev": "cd docs && bun x astro dev",
     "docs:build": "cd docs && bun x astro build",
     "docs:preview": "cd docs && bun x astro preview",

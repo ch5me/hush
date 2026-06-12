@@ -5,40 +5,85 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Releases are automated: conventional commits pushed to `main` are versioned,
+published to npm with provenance, and given a GitHub Release by CI.
+
 ## [Unreleased]
 
 ### Added
 
-- **`hush delete-key` command**: Safely remove secrets from encrypted files with confirmation prompt and audit trail
-- **`hush set --file` flag**: Explicitly target a specific file (e.g., `--file env/project/local`)
-- **`hush set --repo-local` flag**: Shorthand for `--file env/project/local`
-- **`hush set --show-length` flag**: Verify secret length before writing (useful for TTY input)
-- **`hush edit --editor` flag**: Override editor for one session without changing environment
-- **`hush materialize --format shell-export`**: Emit shell-safe `export KEY="value"` statements for sourced workflows
-- **`hush materialize --compact-json`**: Minimal JSON output with just artifact paths
-- **`hush materialize --include-provenance`**: Opt-in detailed provenance for JSON output
-- **`hush resolve --compact`**: Minimal human-readable output for quick checks
-- **`hush resolve --only <key>`**: Filter resolution to specific key
-- **`hush resolve --json-compact`**: Minimal machine-readable records
-- **`hush trace --compact`**: Minimal human-readable output for quick checks
-- **`hush trace --json-compact`**: Minimal machine-readable records
+- `hush completion <bash|zsh|fish>` shell completions
+- `--json` output for `inspect`, `status`, and `doctor` (no secret values)
+- `hush export-example --write`: committable redacted `.env.example` so fresh
+  clones can discover required keys before having the decryption key
+- Standalone single-file binaries (Linux/macOS/Windows + SHA256SUMS) attached
+  to GitHub Releases
+- Windows smoke job and a coverage gate in CI; docs now build on every PR
+- Documentation moved to https://hush.ch5.me
+
+## [7.3.1] - 2026-06-12
+
+Security-focused release preparing Hush for public launch.
+
+### Security
+
+- `hush list` masks values by default; plaintext requires the new `--reveal` flag
+- All child processes are spawned with argument arrays instead of shell strings
+  (sops, age-keygen, GUI prompts, `$EDITOR`); the age private key is passed via
+  stdin and never appears in the process table
+- `hush set` GUI prompts use masked input fields on Linux (`zenity --password`,
+  `kdialog --password`) and Windows (`UseSystemPasswordChar`)
+- Materialized artifacts are created with mode `0600` atomically; `hush bootstrap`
+  adds `.hush-materialized/` to `.gitignore`; `hush check` flags leftover
+  materialized plaintext
+- The daily update check can be disabled (`HUSH_NO_UPDATE_CHECK=1`, also honors
+  `NO_UPDATE_NOTIFIER` and `CI`) and no longer inherits secret-bearing
+  environment variables
+- GitHub Actions are SHA-pinned and sops/age CI downloads are checksum-verified
+- Key names are validated before reaching any subprocess
+- Masked output no longer reveals value prefixes or exact lengths
+
+### Added
+
+- `hush delete-key` is now registered in the CLI (it was previously documented
+  but not wired)
+- `hush has --json` machine-readable output for agents
+- Per-OS install guidance when sops or age is missing
+- SECURITY.md and a published threat-model guide
 
 ### Changed
 
-- **`hush set` now shows destination before writing**: Displays `will write KEY -> env/project/shared` before mutation
-- **`hush set` warns on conflicts**: Alerts when writing to `shared` if key exists in other files
-- **`hush set` rejects ambiguous positional `local`**: Hard error with hints when `hush set local KEY VALUE` is used
-- **`hush set` success output includes file path**: Shows destination file and scope (e.g., `KEY set in env/project/shared`)
-- **`hush set` trims TTY newlines**: Automatic trimming of trailing `\r` and `\n` in interactive input
-- **`hush edit` honors `EDITOR` env var**: Resolves editor from `--editor` flag, then `EDITOR` env, then `vi` fallback
-- **`hush edit` logs resolved editor**: Shows exact editor command for debugging
-- **Duplicate-key errors now include remediation**: Error messages show move-key/delete-key commands and precedence order
+- Unknown flags and unexpected positional arguments are rejected loudly instead
+  of being silently ignored
+- `hush run -e/--env` and `hush materialize --format` are hard errors with
+  guidance (`--target` selects what to inject; format belongs to the target)
+- `hush set KEY VALUE` warns that inline values are visible in shell history and
+  the process table
+- Bootstrap "next steps" now point at the newcomer path (set → run → inspect)
+- Internal "v3" version jargon removed from user-facing output
 
-### Fixed
+### Removed
 
-- **TTY secret entry no longer preserves trailing newline**: Prevents `invalid_client` errors from trailing whitespace in secrets
-- **Materialized dotenv format warning**: Added documentation that dotenv artifacts may not be shell-sourceable with multiline values
-- **`hush edit` now honors `EDITOR` override**: Previously attempted to launch `zed --wait` even when `EDITOR` was set
+- Documented-but-unwired flags removed from docs and the AI skill:
+  `--compact-json`, `--json-compact`, `--compact`, `--only`,
+  `--include-provenance`, `--show-length`, `materialize --format shell-export`
+
+## [7.3.0] - 2026-06-01
+
+CLI friction fixes from real-world migration use.
+
+### Added
+
+- `hush set --file <path>`: target a declared v3 file path explicitly
+- `hush set --repo-local`: write machine-local overrides
+- `hush edit --editor <cmd>`: one-shot editor override (also honors `EDITOR`)
+
+### Changed
+
+- `hush set` shows the destination before writing and warns on conflicts
+- `hush set` success output includes the destination file and scope
+- TTY secret entry trims trailing newlines (prevents `invalid_client`-style bugs)
+- Duplicate-key errors include remediation commands and precedence order
 
 ## [7.2.4] - 2026-05-15
 

@@ -3,7 +3,7 @@
 > **The AI-native secrets manager.** Secrets stay encrypted at rest. AI can help without seeing values.
 
 [![npm](https://img.shields.io/npm/v/@chriscode/hush)](https://www.npmjs.com/package/@chriscode/hush)
-[![Documentation](https://img.shields.io/badge/docs-hush--docs.pages.dev-blue)](https://hush-docs.pages.dev)
+[![Documentation](https://img.shields.io/badge/docs-hush.ch5.me-blue)](https://hush.ch5.me)
 
 <img src="./hero.webp" alt="Hush - AI-native secrets manager" style="width: 100%; max-width: 1200px; height: auto; border-radius: 8px; margin: 1.5rem 0;">
 
@@ -15,7 +15,7 @@ Hush stores project authority in encrypted v3 repository documents. The current 
 
 There are no plaintext secret files to teach an AI assistant to avoid. Hush decrypts only for the active process or materialized target, then cleans up.
 
-**[Read the full documentation →](https://hush-docs.pages.dev)**
+**[Read the full documentation →](https://hush.ch5.me)**
 
 ## Install
 
@@ -92,7 +92,7 @@ This is the normal runtime path. Hush decrypts to memory and passes values to th
 
 Hush delegates all cryptographic operations to [sops](https://github.com/getsops/sops) and [age](https://github.com/FiloSottile/age). No home-rolled crypto. Hush itself is a single-maintainer project and has not yet been externally audited — use it accordingly and report issues via [SECURITY.md](./SECURITY.md).
 
-**Threat model in brief:** Hush removes standing plaintext secret files and narrows the surface through which an agent can accidentally expose values. However, an agent that can execute arbitrary commands (`hush run -- env`) can still read injected values at runtime. Hush's protections for AI workflows are guardrails and auditability, not a sandbox. See the [threat model docs](https://hush-docs.pages.dev/guides/threat-model/) for details.
+**Threat model in brief:** Hush removes standing plaintext secret files and narrows the surface through which an agent can accidentally expose values. However, an agent that can execute arbitrary commands (`hush run -- env`) can still read injected values at runtime. Hush's protections for AI workflows are guardrails and auditability, not a sandbox. See the [threat model docs](https://hush.ch5.me/guides/threat-model/) for details.
 
 ### Update check
 
@@ -186,6 +186,24 @@ hush set STRIPE_SECRET_KEY
 # run the app
 hush run -- npm start
 ```
+
+## Shell completions
+
+```bash
+hush completion zsh > ~/.zsh/completions/_hush   # also: bash, fish
+```
+
+## Scripting and agents
+
+Machine-readable output is available on the read-only surface — `has`, `check`,
+`inspect`, `status`, `doctor`, `resolve`, `trace`, `verify-target` all take
+`--json` and never emit secret values. `hush export-example --write` produces a
+committable `.env.example` so a fresh clone can see which keys it needs before
+it has the decryption key.
+
+Standalone single-file binaries (Linux, macOS, Windows; with SHA256SUMS) are
+attached to each [GitHub Release](https://github.com/ch5me/hush/releases) as an
+alternative to the npm package.
 
 ## Team setup
 

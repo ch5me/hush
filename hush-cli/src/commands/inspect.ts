@@ -8,6 +8,7 @@ import type { HushContext, StoreContext } from '../types.js';
 export interface InspectOptions {
   store: StoreContext;
   env: 'development' | 'production';
+  json?: boolean;
 }
 
 function canReadFile(file: HushFileIndexEntry, identity: string, roles: readonly string[]): boolean {
@@ -60,8 +61,52 @@ export async function inspectCommand(ctx: HushContext, options: InspectOptions):
   const readableFileIndexes = Object.values(repository.filesByPath).filter((file) => canReadFile(file, identity, roles));
   const unreadableFiles = Object.values(repository.filesByPath).filter((file) => !canReadFile(file, identity, roles));
   const readableFiles = readableFileIndexes.map((file) => repository.loadFile(file.path));
-  const lines: string[] = [];
   const logicalPaths: string[] = [];
+
+  if (options.json) {
+    // Build JSON payload — never include values for sensitive entries
+    const entries: Array<{
+      key: string;
+      file: string;
+      sensitive: boolean;
+      set: boolean;
+      value?: string;
+    }> = [];
+
+    for (const file of readableFiles.sort((left, right) => left.path.localeCompare(right.path))) {
+      for (const logicalPath of Object.keys(file.entries).sort()) {
+        const entry = file.entries[logicalPath]!;
+        logicalPaths.push(logicalPath);
+        const sensitive = isSensitive(file, entry);
+        const isSet = entry.value !== undefined && entry.value !== null && entry.value !== '';
+        const entryRecord: { key: string; file: string; sensitive: boolean; set: boolean; value?: string } = {
+          key: logicalPath,
+          file: file.path,
+          sensitive,
+          set: isSet,
+        };
+        // Only include value for non-sensitive entries (entries already shown in plaintext)
+        if (!sensitive) {
+          entryRecord.value = formatVisibleValue(entry.value);
+        }
+        entries.push(entryRecord);
+      }
+    }
+
+    appendAuditEvent(ctx, options.store, {
+      type: 'read_attempt',
+      activeIdentity: identity,
+      success: true,
+      command: { name: 'inspect', args: ['--json'] },
+      files: readableFiles.map((file) => file.path),
+      logicalPaths: logicalPaths.sort(),
+    });
+
+    ctx.logger.log(JSON.stringify({ target: options.store.root, entries }, null, 2));
+    return;
+  }
+
+  const lines: string[] = [];
 
   lines.push(pc.blue('Hush inspect\n'));
   lines.push(`Active identity: ${pc.green(identity)}`);

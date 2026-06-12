@@ -27,6 +27,7 @@ import { resolveCommand } from './commands/resolve.js';
 import { traceCommand } from './commands/trace.js';
 import { diffCommand } from './commands/diff.js';
 import { exportExampleCommand } from './commands/export-example.js';
+import { completionCommand } from './commands/completion.js';
 import { materializeCommand } from './commands/materialize.js';
 import { verifyTargetCommand } from './commands/verify-target.js';
 import { copyKeyCommand } from './commands/copy-key.js';
@@ -39,8 +40,20 @@ import { findProjectRoot } from './config/loader.js';
 import { resolveStoreContext } from './store.js';
 import { checkForUpdate } from './utils/version-check.js';
 
-const require = createRequire(import.meta.url);
-const { version: VERSION } = require('../package.json');
+// Injected at single-binary compile time via `bun build --compile --define HUSH_EMBEDDED_VERSION=...`;
+// undefined when running from the npm package under node.
+declare const HUSH_EMBEDDED_VERSION: string | undefined;
+
+function resolveVersion(): string {
+  if (typeof HUSH_EMBEDDED_VERSION === 'string') {
+    return HUSH_EMBEDDED_VERSION;
+  }
+  const require = createRequire(import.meta.url);
+  const { version } = require('../package.json') as { version: string };
+  return version;
+}
+
+const VERSION = resolveVersion();
 
 function printHelp(): void {
   console.log(`
@@ -68,6 +81,7 @@ ${pc.bold('Commands:')}
   status            Show configuration and status
   doctor            Diagnose root, key, and store resolution for the current directory
   skill             Install Claude Code / OpenCode skill
+  completion        Generate shell completion script (bash|zsh|fish)
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
   migrate           Migrate a legacy hush.yaml repo to v3
   materialize       Write target or bundle artifacts to disk for CI/tooling
@@ -135,6 +149,7 @@ ${pc.bold('Examples:')}
   hush config active-identity  Show or switch the active identity
   hush init                     Deprecated alias for bootstrap
   hush migrate --from v2        Inventory or convert a legacy hush.yaml repo to v3
+  hush completion zsh           Install shell completion (see: hush completion --help)
   hush run -- npm start         Run with secrets in memory (AI-safe!)
   hush run -t api -- wrangler dev  Run a specific v3 target
   hush set DATABASE_URL         Set a secret interactively (prompts for value)
@@ -220,6 +235,7 @@ export interface ParsedArgs {
   files?: string;
   repoLocal: boolean;
   reveal: boolean;
+  write: boolean;
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -279,6 +295,7 @@ export function parseArgs(args: string[]): ParsedArgs {
   let files: string | undefined;
   let repoLocal = false;
   let reveal = false;
+  let write = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -389,6 +406,11 @@ export function parseArgs(args: string[]): ParsedArgs {
 
     if (arg === '--reveal') {
       reveal = true;
+      continue;
+    }
+
+    if (arg === '--write') {
+      write = true;
       continue;
     }
 
@@ -563,6 +585,11 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (command === 'completion' && !arg.startsWith('-') && !subcommand) {
+      subcommand = arg;
+      continue;
+    }
+
     // Fail loud instead of silently ignoring input. Silently swallowed flags
     // previously made documented-but-unwired options look like they worked.
     if (arg.startsWith('-')) {
@@ -623,6 +650,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     materializeAs,
     keepFile,
     files,
+    write,
   };
 }
 
@@ -702,6 +730,7 @@ export async function main(): Promise<void> {
     subpath,
     materializeAs,
     files,
+    write,
   } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
@@ -797,7 +826,7 @@ export async function main(): Promise<void> {
         break;
 
       case 'inspect':
-        await inspectCommand(defaultContext, { store, env });
+        await inspectCommand(defaultContext, { store, env, json });
         break;
 
       case 'has':
@@ -819,7 +848,7 @@ export async function main(): Promise<void> {
         break;
 
       case 'status':
-        await statusCommand(defaultContext, { store });
+        await statusCommand(defaultContext, { store, json });
         break;
 
       case 'doctor':
@@ -827,11 +856,16 @@ export async function main(): Promise<void> {
           startDir: root,
           newRepo,
           explicitRoot: newRepo ? root : undefined,
+          json,
         });
         break;
 
       case 'skill':
         await skillCommand(defaultContext, { root, global, local });
+        break;
+
+      case 'completion':
+        await completionCommand(defaultContext, { shell: subcommand ?? '' });
         break;
 
       case 'keys':
@@ -875,7 +909,7 @@ export async function main(): Promise<void> {
         break;
 
       case 'export-example':
-        await exportExampleCommand(defaultContext, { store, env, target, bundle });
+        await exportExampleCommand(defaultContext, { store, env, target, bundle, write, writePath: outputRoot, force });
         break;
 
       case 'template':

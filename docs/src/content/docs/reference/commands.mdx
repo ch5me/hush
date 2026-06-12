@@ -742,7 +742,15 @@ Inspect readable v3 logical paths with redaction applied. **Safe for AI agents**
 ```bash
 hush inspect
 hush inspect -e production
+hush inspect --json
 ```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --env <env>` | Environment: `development` or `production` |
+| `--json` | Output machine-readable JSON (never includes secret values) |
 
 ### Example Output
 
@@ -766,6 +774,10 @@ Readable entries:
 Unreadable files:
   env/app/ci-only (roles=ci identities=ci)
 ```
+
+### JSON output shape
+
+`--json` returns `{ target, entries: [{ key, file, sensitive, set, value? }] }`. The `value` field is included **only** for entries where `sensitive: false`. Sensitive entries never have a `value` field.
 
 `inspect` reports the v3 file boundary directly. It does not summarize legacy source files or target filters.
 
@@ -889,7 +901,16 @@ hush status
 
 # Inspect the explicit global store
 hush status --global
+
+# Machine-readable output
+hush status --json
 ```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output structured JSON with repository readiness, paths, counts, and machine-local state (never includes secret values) |
 
 ### Example Output
 
@@ -946,7 +967,17 @@ hush doctor
 
 # Diagnose as if bootstrapping a child-local repo
 hush doctor --new-repo
+
+# Machine-readable output
+hush doctor --json
 ```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--new-repo` | Diagnose as if bootstrapping a child-local repository |
+| `--json` | Output `{ checks: [{ name, ok, detail }] }` mirroring the diagnostic sections |
 
 `hush doctor` prints a structured diagnostic report covering:
 
@@ -1222,6 +1253,15 @@ hush export-example
 # Choose a specific target or bundle
 hush export-example --target runtime
 hush export-example --bundle project
+
+# Write output to .env.example in the repo root
+hush export-example --write
+
+# Write to a custom path
+hush export-example --write --to /path/to/.env.example
+
+# Overwrite an existing file with different content
+hush export-example --write --force
 ```
 
 ### Options
@@ -1230,6 +1270,21 @@ hush export-example --bundle project
 |--------|-------------|
 | `-t, --target <name>` | Export a specific target; otherwise Hush uses `runtime` or the only non-example target |
 | `--bundle <name>` | Export a bundle summary instead of a target |
+| `--write` | Write the redacted example to a file instead of only printing to stdout |
+| `--to <path>` | Destination file path for `--write` (default: `.env.example` in the repo root) |
+| `--force` | Overwrite the destination file even if its content differs from the generated output |
+
+### Writing .env.example for fresh-clone discovery
+
+Commit a generated `.env.example` so new contributors can see the required environment variables without decrypting secrets:
+
+```bash
+hush export-example --write
+git add .env.example
+git commit -m "chore: update .env.example"
+```
+
+Re-run after changing the repository topology so the example stays in sync with the actual secrets surface. The `--write` flag refuses to overwrite a file whose content diverges without `--force`, protecting against accidental overwrites.
 
 ### Example Output
 
@@ -1320,6 +1375,55 @@ hush skill --local
 <Aside type="tip">
 Once installed, the skill teaches AI assistants to use `hush inspect` and `hush has` instead of reading `.hush` files directly.
 </Aside>
+
+---
+
+## completion
+
+Generate a shell completion script for bash, zsh, or fish.
+
+```bash
+# Generate and install for your shell
+hush completion bash >> ~/.bashrc
+hush completion zsh > ~/.zsh/completions/_hush
+hush completion fish > ~/.config/fish/completions/hush.fish
+```
+
+### Options
+
+| Shell | Install command |
+|-------|----------------|
+| `bash` | `hush completion bash >> ~/.bashrc` (or `/etc/bash_completion.d/hush`) |
+| `zsh` | `hush completion zsh > ~/.zsh/completions/_hush` (make sure `fpath` includes the directory, then `autoload -Uz compinit && compinit`) |
+| `fish` | `hush completion fish > ~/.config/fish/completions/hush.fish` |
+
+### Installation examples
+
+<Tabs>
+  <TabItem label="bash">
+    ```bash
+    hush completion bash >> ~/.bashrc
+    source ~/.bashrc
+    ```
+  </TabItem>
+  <TabItem label="zsh">
+    ```bash
+    mkdir -p ~/.zsh/completions
+    hush completion zsh > ~/.zsh/completions/_hush
+    # Add to ~/.zshrc if not already present:
+    # fpath=(~/.zsh/completions $fpath)
+    # autoload -Uz compinit && compinit
+    source ~/.zshrc
+    ```
+  </TabItem>
+  <TabItem label="fish">
+    ```bash
+    hush completion fish > ~/.config/fish/completions/hush.fish
+    ```
+  </TabItem>
+</Tabs>
+
+Unknown or missing shell argument exits with an error listing supported shells.
 
 ---
 

@@ -161,6 +161,25 @@ If the repository already exists, pull or verify the project key first:
 npx @chriscode/hush keys setup
 ```
 
+## Shell completions
+
+Enable tab-completion for `hush` commands and flags in your shell:
+
+```bash
+# bash
+hush completion bash >> ~/.bashrc && source ~/.bashrc
+
+# zsh
+mkdir -p ~/.zsh/completions
+hush completion zsh > ~/.zsh/completions/_hush
+# Ensure fpath includes ~/.zsh/completions, then: autoload -Uz compinit && compinit
+
+# fish
+hush completion fish > ~/.config/fish/completions/hush.fish
+```
+
+See the [completion command reference](/reference/commands/#completion) for details.
+
 ## Next steps
 
 - Read the [File Reference](/reference/files/)

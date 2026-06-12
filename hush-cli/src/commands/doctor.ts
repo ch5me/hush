@@ -11,6 +11,7 @@ interface DoctorOptions {
   startDir: string;
   newRepo?: boolean;
   explicitRoot?: string;
+  json?: boolean;
 }
 
 function findGitRoot(startDir: string, ctx: HushContext): string | null {
@@ -63,6 +64,77 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
   const cwd = process.cwd();
   const startDir = options.explicitRoot ? resolve(options.explicitRoot) : cwd;
 
+  const gitRoot = findGitRoot(startDir, ctx);
+  const findOptions: ResolveStoreContextOptions = options.newRepo
+    ? { ignoreAncestors: true, explicitRoot: startDir }
+    : {};
+  const store = resolveStoreContext(startDir, 'project', findOptions);
+  const discovery = findProjectRoot(startDir, options.newRepo ? { ignoreAncestors: true } : {});
+  const parentDiscovery = options.newRepo ? null : findProjectRoot(startDir);
+
+  const projectIdentity = store.keyIdentity ?? (store.root ? getProjectIdentifier(store.root) : undefined);
+  const resolution = resolveAgeKeySource({ root: store.root, keyIdentity: projectIdentity });
+
+  // Compute check results
+  const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
+
+  // Check 1: Repository found
+  checks.push({
+    name: 'repository_found',
+    ok: !!discovery || !!options.newRepo,
+    detail: discovery
+      ? `${discovery.repositoryKind} at ${discovery.projectRoot}`
+      : options.newRepo
+        ? `no repo found; --new-repo forces ${startDir}`
+        : `no Hush repository found from ${startDir}`,
+  });
+
+  // Check 2: Age key found
+  checks.push({
+    name: 'age_key_found',
+    ok: !!resolution.selectedKeySource,
+    detail: resolution.selectedKeySource
+      ? `source: ${resolution.selectedKeySource}${resolution.selectedKeyPath ? `; path: ${formatKeyPath(resolution.selectedKeyPath)}` : ''}`
+      : 'no age key found; run "hush keys setup"',
+  });
+
+  // Check 3: SOPS key match (only relevant when v3 repo present)
+  if (isV3RepositoryRoot(store.root)) {
+    const match = checkSopsKeyMatch(ctx, store.root, resolution);
+    checks.push({
+      name: 'sops_key_match',
+      ok: match.matched,
+      detail: match.matched
+        ? 'selected key matches .sops.yaml public key'
+        : match.publicKey && match.sopsPublicKey
+          ? `key mismatch: selected=${match.publicKey} sops=${match.sopsPublicKey}`
+          : !match.publicKey
+            ? 'could not read selected key file'
+            : '.sops.yaml not found',
+    });
+
+    // Check 4: Repository loads
+    try {
+      const repo = loadV3Repository(store.root, { keyIdentity: store.keyIdentity ?? projectIdentity });
+      checks.push({
+        name: 'repository_loads',
+        ok: true,
+        detail: `repository loads successfully (${repo.files.length} file(s)); project: ${repo.manifest.metadata?.project ?? '(not set)'}`,
+      });
+    } catch (error) {
+      checks.push({
+        name: 'repository_loads',
+        ok: false,
+        detail: `failed to load repository: ${(error as Error).message}`,
+      });
+    }
+  }
+
+  if (options.json) {
+    ctx.logger.log(JSON.stringify({ checks }, null, 2));
+    return;
+  }
+
   ctx.logger.log(pc.blue('━'.repeat(60)));
   ctx.logger.log(pc.blue(pc.bold('  Hush Doctor')));
   ctx.logger.log(pc.blue('━'.repeat(60)));
@@ -70,18 +142,12 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
 
   // 1. Directory context
   ctx.logger.log(pc.bold('1. Directory Context'));
-  const gitRoot = findGitRoot(startDir, ctx);
   ctx.logger.log(pc.dim(`  Current directory:  ${cwd}`));
   ctx.logger.log(pc.dim(`  Git root:           ${gitRoot ?? '(not a git repo)'}`));
   ctx.logger.log('');
 
   // 2. Repository root discovery
   ctx.logger.log(pc.bold('2. Repository Root Discovery'));
-  const findOptions: ResolveStoreContextOptions = options.newRepo
-    ? { ignoreAncestors: true, explicitRoot: startDir }
-    : {};
-  const store = resolveStoreContext(startDir, 'project', findOptions);
-  const discovery = findProjectRoot(startDir, options.newRepo ? { ignoreAncestors: true } : {});
 
   if (discovery) {
     ctx.logger.log(pc.dim(`  Found:              ${discovery.repositoryKind} at ${discovery.projectRoot}`));
@@ -89,7 +155,6 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
     ctx.logger.log(pc.yellow(`  No Hush repository found from ${startDir}`));
   }
 
-  const parentDiscovery = options.newRepo ? null : findProjectRoot(startDir);
   if (parentDiscovery && parentDiscovery.projectRoot !== startDir) {
     ctx.logger.log(pc.dim(`  Parent repo:        ${parentDiscovery.projectRoot}`));
     if (options.newRepo) {
@@ -103,8 +168,6 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
 
   // 3. Key resolution
   ctx.logger.log(pc.bold('3. Key Resolution'));
-  const projectIdentity = store.keyIdentity ?? (store.root ? getProjectIdentifier(store.root) : undefined);
-  const resolution = resolveAgeKeySource({ root: store.root, keyIdentity: projectIdentity });
 
   if (resolution.selectedKeySource) {
     ctx.logger.log(pc.green(`  Selected source:    ${resolution.selectedKeySource}`));

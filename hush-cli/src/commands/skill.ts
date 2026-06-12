@@ -99,9 +99,16 @@ npx @chriscode/hush migrate --from v2 --cleanup
 npx @chriscode/hush config show
 npx @chriscode/hush config show --json
 npx @chriscode/hush inspect
+npx @chriscode/hush inspect --json
+npx @chriscode/hush status
+npx @chriscode/hush status --json
+npx @chriscode/hush doctor
+npx @chriscode/hush doctor --json
 npx @chriscode/hush has DATABASE_URL
 npx @chriscode/hush has DATABASE_URL --json
 \`\`\`
+
+\`--json\` is available on \`inspect\`, \`status\`, and \`doctor\` for machine-readable output. \`inspect --json\` includes a \`value\` field **only** for entries where \`sensitive: false\`; sensitive entries are never exposed.
 
 ### Add or update one secret
 
@@ -140,7 +147,10 @@ npx @chriscode/hush trace DATABASE_URL
 npx @chriscode/hush verify-target runtime --require DATABASE_URL
 npx @chriscode/hush diff
 npx @chriscode/hush export-example
+npx @chriscode/hush export-example --write
 \`\`\`
+
+Use \`export-example --write\` to write a redacted \`.env.example\` to the repo root. Commit it so new contributors can discover required environment variables without decrypting secrets.
 
 ## Topology Management
 

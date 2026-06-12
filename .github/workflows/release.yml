@@ -27,6 +27,43 @@ jobs:
           fi
           echo 'OK: no bare `npx hush` usage.'
 
+      - name: Setup Bun (docs build preview)
+        if: github.event_name == 'pull_request'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies (docs build preview)
+        if: github.event_name == 'pull_request'
+        run: bun install --frozen-lockfile
+
+      - name: Build docs (PR preview verify)
+        if: github.event_name == 'pull_request'
+        run: bun run docs:build
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build CLI
+        run: bun run cli:build
+
+      - name: Smoke test --version
+        run: node hush-cli/bin/hush.js --version
+
+      - name: Smoke test --help
+        run: node hush-cli/bin/hush.js --help
+
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +71,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0  # Full history for version calculation
-      
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
         with:
@@ -56,7 +93,7 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      
+
       - name: Build
         run: bun run build
 
@@ -65,25 +102,31 @@ jobs:
 
       - name: Type check
         run: bun run type-check
-      
-      - name: Run tests
-        run: bun run test
+
+      - name: Run tests with coverage
+        run: bun run cli:test:coverage
 
   release:
     needs: ci
     if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prerelease-next') && github.event_name == 'push'
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      released: ${{ steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' }}
     permissions:
       contents: write
       id-token: write
-    
+    outputs:
+      released: ${{ steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && 'true' || 'false' }}
+      new_version: ${{ steps.version.outputs.new_version }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
         with:
@@ -111,13 +154,13 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      
+
       - name: Build
         run: bun run build
 
       - name: Verify packaged CLI entrypoint
         run: bun run --filter @chriscode/hush verify:pack-install
-       
+
       - name: Calculate version bump
         id: version
         run: |
@@ -134,14 +177,14 @@ jobs:
           # Get current npm version
           CURRENT_NPM_VERSION=$(npx -y npm@11.5.1 view @chriscode/hush version 2>/dev/null || echo "0.0.0")
           echo "current_npm_version=$CURRENT_NPM_VERSION" >> $GITHUB_OUTPUT
-          
+
           # Get current package.json version
           PACKAGE_VERSION=$(node -p "require('./hush-cli/package.json').version")
           echo "package_version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
-          
+
           # Find the tag for the current npm version
           LAST_TAG="v$CURRENT_NPM_VERSION"
-          
+
           # Check if tag exists, if not use all commits
           if git rev-parse "$LAST_TAG" >/dev/null 2>&1; then
             COMMITS=$(git log "$LAST_TAG"..HEAD --pretty=format:"%s" 2>/dev/null || echo "")
@@ -149,13 +192,13 @@ jobs:
             echo "No previous tag found, analyzing recent commits"
             COMMITS=$(git log --pretty=format:"%s" -50)
           fi
-          
+
           echo "Commits since $LAST_TAG:"
           echo "$COMMITS"
-          
+
           # Determine bump type from conventional commits
           BUMP="none"
-          
+
           if echo "$COMMITS" | grep -qE "^[a-z]+(\(.+\))?!:"; then
             BUMP="major"
           elif echo "$COMMITS" | grep -qE "^feat(\(.+\))?:"; then
@@ -163,9 +206,9 @@ jobs:
           elif echo "$COMMITS" | grep -qE "^(fix|docs|refactor|test|chore|style|ci|build)(\(.+\))?:"; then
             BUMP="patch"
           fi
-          
+
           echo "bump=$BUMP" >> $GITHUB_OUTPUT
-          
+
           if [ "$BUMP" = "none" ]; then
             echo "No conventional commits found, skipping release"
             echo "new_version=$CURRENT_NPM_VERSION" >> $GITHUB_OUTPUT
@@ -173,7 +216,7 @@ jobs:
           else
             # Calculate new version
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_NPM_VERSION"
-            
+
             case "$BUMP" in
               major)
                 BASE_VERSION="$((MAJOR + 1)).0.0"
@@ -191,17 +234,17 @@ jobs:
             else
               NEW_VERSION="$BASE_VERSION"
             fi
-            
+
             echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
             echo "should_release=true" >> $GITHUB_OUTPUT
             echo "Calculated new version: $NEW_VERSION ($BUMP bump, channel=$RELEASE_CHANNEL)"
           fi
-      
+
       - name: Check if version already published
         id: check_published
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
-          
+
           # Check if this version exists on npm
           if npx -y npm@11.5.1 view "@chriscode/hush@$NEW_VERSION" version >/dev/null 2>&1; then
             echo "Version $NEW_VERSION already published, skipping"
@@ -210,13 +253,13 @@ jobs:
             echo "Version $NEW_VERSION not yet published"
             echo "already_published=false" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Update package.json version
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           CURRENT_VERSION=$(node -p "require('./hush-cli/package.json').version")
-          
+
           if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
             echo "package.json already at version $NEW_VERSION"
           else
@@ -225,7 +268,7 @@ jobs:
             npx -y npm@11.5.1 pkg set version="$NEW_VERSION"
             echo "Updated package.json to version $NEW_VERSION"
           fi
-      
+
       - name: Publish to npm (trusted publishing)
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
         run: |
@@ -235,29 +278,29 @@ jobs:
             npx -y npm@11.5.1 publish --access public --provenance
           fi
         working-directory: hush-cli
-      
+
       - name: Create git tag
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           TAG="v$NEW_VERSION"
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           # Commit the version bump if there are changes
           git add hush-cli/package.json
           git commit -m "chore(release): $NEW_VERSION [skip ci]" || echo "No changes to commit"
-          
+
           # Create tag
           git tag "$TAG" || echo "Tag already exists"
-          
+
           # Push commit and tag separately to ensure tag is pushed
           git push origin main || echo "No commits to push"
           git push origin "$TAG"
-          
+
           echo "Created and pushed tag $TAG"
-      
+
       - name: Create GitHub Release
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
         env:
@@ -265,16 +308,16 @@ jobs:
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           TAG="v$NEW_VERSION"
-          
+
           # Generate release notes from commits
           LAST_TAG="v${{ steps.version.outputs.current_npm_version }}"
-          
+
           if git rev-parse "$LAST_TAG" >/dev/null 2>&1; then
             NOTES=$(git log "$LAST_TAG"..HEAD~1 --pretty=format:"- %s" 2>/dev/null || echo "- Initial release")
           else
             NOTES="- Initial release"
           fi
-          
+
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             gh release create "$TAG" \
               --title "$TAG" \
@@ -287,6 +330,54 @@ jobs:
               --latest
           fi
 
+  binaries:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build CLI
+        run: bun run cli:build
+
+      - name: Compile single-file binaries
+        working-directory: hush-cli
+        run: |
+          VERSION="${{ needs.release.outputs.new_version }}"
+          mkdir -p dist-bin
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            bun build ./bin/hush.js --compile --target="bun-${target}" \
+              --define "HUSH_EMBEDDED_VERSION=\"${VERSION}\"" \
+              --outfile "dist-bin/hush-${target}"
+          done
+          bun build ./bin/hush.js --compile --target=bun-windows-x64 \
+            --define "HUSH_EMBEDDED_VERSION=\"${VERSION}\"" \
+            --outfile dist-bin/hush-windows-x64.exe
+          cd dist-bin && sha256sum hush-* > SHA256SUMS && cat SHA256SUMS
+
+      - name: Smoke-test linux binary
+        working-directory: hush-cli
+        run: |
+          ./dist-bin/hush-linux-x64 --version
+          test "$(./dist-bin/hush-linux-x64 --version)" = "${{ needs.release.outputs.new_version }}"
+
+      - name: Upload binaries to release
+        working-directory: hush-cli
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.release.outputs.new_version }}" dist-bin/hush-* dist-bin/SHA256SUMS --clobber
+
   deploy-docs:
     needs: ci
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -294,16 +385,16 @@ jobs:
     permissions:
       contents: read
       deployments: write
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
         with:
           bun-version: latest
-      
+
       - name: Install sops and age
         run: |
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
@@ -317,19 +408,19 @@ jobs:
           sudo mv age/age /usr/local/bin/
           sudo mv age/age-keygen /usr/local/bin/
           sudo chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
-      
+
       - name: Setup age key
         run: |
           mkdir -p ~/.config/sops/age
           echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/key.txt
           chmod 600 ~/.config/sops/age/key.txt
-      
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      
+
       - name: Build CLI and docs
         run: bun run build
-      
+
       - name: Deploy docs with Hush secrets
         working-directory: docs
         run: |

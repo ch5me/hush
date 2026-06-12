@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-  site: 'https://hush-docs.pages.dev',
+  site: 'https://hush.ch5.me',
   integrations: [
     starlight({
       title: 'Hush',

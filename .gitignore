@@ -22,3 +22,4 @@ docs/.astro/
 .DS_Store
 *.log
 .mutagen.yml
+hush-cli/coverage/
