@@ -6,27 +6,49 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  SOPS_SHA256: "5488e32bc471de7982ad895dd054bbab3ab91c417a118426134551e9626e4e85"
+  AGE_SHA256: "2ae71cb3ea761118937a944083f057cfd42f0ef11d197ce72fc2b8780d50c4ef"
+
 jobs:
+  docs-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Forbid bare `npx hush` in docs
+        run: |
+          # Bare `npx hush` resolves to an unrelated squatted npm package.
+          # Docs must always use the scoped form: npx @chriscode/hush
+          if grep -rn 'npx hush[^-@]' README.md docs/src --include='*.md' --include='*.mdx'; then
+            echo 'Found bare `npx hush` usage above. Use `npx @chriscode/hush` instead.'
+            exit 1
+          fi
+          echo 'OK: no bare `npx hush` usage.'
+
   ci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0  # Full history for version calculation
       
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
         with:
           bun-version: latest
 
       - name: Install sops and age
         run: |
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+          echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
           sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
           sudo chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
+          echo "$AGE_SHA256  age-v1.2.0-linux-amd64.tar.gz" | sha256sum -c -
           tar -xzf age-v1.2.0-linux-amd64.tar.gz
           sudo mv age/age /usr/local/bin/
           sudo mv age/age-keygen /usr/local/bin/
@@ -57,18 +79,18 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
         with:
           bun-version: latest
 
       - name: Setup Node.js (for npm publish)
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -76,10 +98,12 @@ jobs:
       - name: Install sops and age
         run: |
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+          echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
           sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
           sudo chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
+          echo "$AGE_SHA256  age-v1.2.0-linux-amd64.tar.gz" | sha256sum -c -
           tar -xzf age-v1.2.0-linux-amd64.tar.gz
           sudo mv age/age /usr/local/bin/
           sudo mv age/age-keygen /usr/local/bin/
@@ -273,20 +297,22 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
         with:
           bun-version: latest
       
       - name: Install sops and age
         run: |
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+          echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
           sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
           sudo chmod +x /usr/local/bin/sops
-          
+
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
+          echo "$AGE_SHA256  age-v1.2.0-linux-amd64.tar.gz" | sha256sum -c -
           tar -xzf age-v1.2.0-linux-amd64.tar.gz
           sudo mv age/age /usr/local/bin/
           sudo mv age/age-keygen /usr/local/bin/
