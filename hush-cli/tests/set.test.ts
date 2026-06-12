@@ -243,6 +243,9 @@ describe('setCommand legacy guard and global bootstrap', () => {
 
     const ctx = createContext(root);
     const store = createStore(root);
+    // Establish the active identity explicitly: machine-local state does not
+    // exist on a clean runner, and tests must not depend on leftover ~/.hush state.
+    await configCommand(ctx, { store, subcommand: 'active-identity', args: ['owner-local'] });
 
     await setCommand(ctx, {
       store,
