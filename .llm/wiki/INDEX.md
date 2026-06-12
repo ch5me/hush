@@ -11,6 +11,7 @@
 | File | Description |
 |------|-------------|
 | [CONTEXT.md](./CONTEXT.md) | Start Here, task-based quick-start, architecture overview |
+| [public-release-audit-2026-06.md](./public-release-audit-2026-06.md) | Pre-publication adversarial audit: P0 blockers, P1/P2 fixes, refuted findings |
 | [schema.md](./schema.md) | Writing rules — normative vs implementation separation |
 | [topics/secret-encryption.md](./topics/secret-encryption.md) | SOPS+age wrapper, encrypted file format |
 | [topics/v3-repository-model.md](./topics/v3-repository-model.md) | Encrypted document system, manifest, file documents |
