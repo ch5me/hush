@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fs } from './fs.js';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
@@ -19,16 +19,14 @@ function getKeysDir(): string {
 }
 
 export function ageAvailable(): boolean {
-  try {
-    execSync('which age-keygen', { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
+  const result = spawnSync('age-keygen', ['--version'], { stdio: 'ignore' });
+  return result.status === 0;
 }
 
 export function ageGenerate(): AgeKey {
-  const output = execSync('age-keygen', { encoding: 'utf-8' });
+  const result = spawnSync('age-keygen', [], { encoding: 'utf-8' });
+  if (result.status !== 0) throw new Error('Failed to generate age key');
+  const output = result.stdout;
   const pub = output.match(/public key: (age1[a-z0-9]+)/)?.[1];
   const priv = output.match(/(AGE-SECRET-KEY-[A-Z0-9]+)/)?.[1];
   if (!pub || !priv) throw new Error('Failed to generate age key');
@@ -36,10 +34,12 @@ export function ageGenerate(): AgeKey {
 }
 
 export function agePublicFromPrivate(privateKey: string): string {
-  return execSync(`echo "${privateKey}" | age-keygen -y`, {
+  const result = spawnSync('age-keygen', ['-y'], {
+    input: privateKey,
     encoding: 'utf-8',
-    shell: '/bin/bash',
-  }).trim();
+  });
+  if (result.status !== 0) throw new Error('Failed to derive public key from private key');
+  return result.stdout.trim();
 }
 
 export function keyPath(project: string): string {

@@ -6,6 +6,7 @@ import { keysList } from '../lib/age.js';
 import { getProjectIdentifier } from '../project.js';
 import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
 import { ensureGlobalStoreBootstrap } from '../global-store.js';
+import { missingBinaryError } from '../lib/install-hints.js';
 
 export interface KeysOptions {
   store: StoreContext;
@@ -57,8 +58,7 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
     
     case 'generate': {
       if (!ctx.age.ageAvailable()) {
-        ctx.logger.error(pc.red('age not installed. Run: brew install age'));
-        ctx.process.exit(1);
+        throw missingBinaryError('age');
       }
 
       const project = getProject(ctx, store);

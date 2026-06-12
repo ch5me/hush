@@ -7,10 +7,11 @@ export interface HasOptions {
   env: Environment;
   key: string;
   quiet: boolean;
+  json?: boolean;
 }
 
 export async function hasCommand(ctx: HushContext, options: HasOptions): Promise<void> {
-  const { store, key, quiet } = options;
+  const { store, key, quiet, json } = options;
   let exitStatus = 2;
 
   try {
@@ -23,7 +24,14 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
 
     appendCommandReadAudit(ctx, store, view, { name: 'has', args: [key] });
 
-    if (!quiet) {
+    if (json) {
+      ctx.logger.log(JSON.stringify({
+        key,
+        target: view.targetName,
+        exists,
+        declared: found !== undefined,
+      }, null, 2));
+    } else if (!quiet) {
       if (exists) {
         ctx.logger.log(pc.green(`${key} is set (${found!.value.length} chars)`));
       } else if (found) {
@@ -35,7 +43,10 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
 
     exitStatus = exists ? 0 : 1;
   } catch (error) {
-    if (!quiet) {
+    if (json) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.logger.log(JSON.stringify({ key, exists: false, error: message }, null, 2));
+    } else if (!quiet) {
       const message = error instanceof Error ? error.message : String(error);
       ctx.logger.error(pc.red(message));
     }

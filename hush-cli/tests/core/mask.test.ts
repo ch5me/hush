@@ -6,64 +6,48 @@ describe('maskValue', () => {
     expect(maskValue('')).toBe('(not set)');
   });
 
-  it('masks short values entirely', () => {
-    expect(maskValue('abc')).toBe('***');
-    expect(maskValue('abcd')).toBe('****');
+  it('redacts to a fixed width regardless of length', () => {
+    expect(maskValue('abc')).toBe('********');
+    expect(maskValue('abcdefgh')).toBe('********');
+    expect(maskValue('x'.repeat(200))).toBe('********');
   });
 
-  it('masks medium values showing first char', () => {
-    expect(maskValue('abcdefgh')).toBe('a*******');
+  it('never reveals a prefix of the value', () => {
+    const masked = maskValue('sk_test_1234567890abcdef');
+    expect(masked).not.toContain('sk');
+    expect(masked).toBe('********');
   });
 
-  it('masks long values showing prefix', () => {
-    const result = maskValue('sk_test_1234567890abcdef');
-    expect(result.startsWith('sk_t')).toBe(true);
-    expect(result).toContain('*');
-  });
-
-  it('truncates very long masked values', () => {
-    const longValue = 'a'.repeat(100);
-    const result = maskValue(longValue);
-    expect(result.length).toBeLessThan(30);
-    expect(result).toContain('...');
+  it('never reveals the exact length of the value', () => {
+    expect(maskValue('short')).toBe(maskValue('a-much-longer-secret-value'));
   });
 });
 
 describe('maskVars', () => {
-  it('masks all variables', () => {
+  it('masks all variables and reports isSet', () => {
     const vars = [
       { key: 'SHORT', value: 'abc' },
       { key: 'LONG', value: 'sk_test_1234567890' },
       { key: 'EMPTY', value: '' },
     ];
     const result = maskVars(vars);
-    
-    expect(result).toHaveLength(3);
-    expect(result[0].masked).toBe('***');
-    expect(result[0].length).toBe(3);
-    expect(result[0].isSet).toBe(true);
-    
-    expect(result[1].masked).toContain('*');
-    expect(result[1].isSet).toBe(true);
-    
-    expect(result[2].masked).toBe('(not set)');
-    expect(result[2].isSet).toBe(false);
+
+    expect(result).toEqual([
+      { key: 'SHORT', masked: '********', isSet: true },
+      { key: 'LONG', masked: '********', isSet: true },
+      { key: 'EMPTY', masked: '(not set)', isSet: false },
+    ]);
   });
 });
 
 describe('formatMaskedVar', () => {
-  it('formats set variable with length', () => {
-    const v = { key: 'API_KEY', masked: 'sk_t*****', length: 20, isSet: true };
-    const result = formatMaskedVar(v, 10);
-    expect(result).toContain('API_KEY');
-    expect(result).toContain('sk_t*****');
-    expect(result).toContain('20 chars');
+  it('formats set variable without leaking length', () => {
+    const result = formatMaskedVar({ key: 'API_KEY', masked: '********', isSet: true }, 10);
+    expect(result).toBe('API_KEY    = ********');
   });
 
   it('formats unset variable', () => {
-    const v = { key: 'MISSING', masked: '(not set)', length: 0, isSet: false };
-    const result = formatMaskedVar(v, 10);
-    expect(result).toContain('MISSING');
-    expect(result).toContain('(not set)');
+    const result = formatMaskedVar({ key: 'MISSING', masked: '(not set)', isSet: false }, 10);
+    expect(result).toBe('MISSING    = (not set)');
   });
 });

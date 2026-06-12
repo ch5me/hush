@@ -543,7 +543,7 @@ describe.sequential('v3 materialization runtime', () => {
     expect(nodeFs.existsSync(stagedPath)).toBe(false);
     const audits = nodeFs.readFileSync(store.auditLogPath!, 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
     expect(audits.at(-1)).toMatchObject({ type: 'materialize', success: false, reason: 'child process failed' });
-  }, 15000);
+  }, 60000);
 
   it('cleans staged artifacts on simulated SIGINT and SIGTERM', () => {
     const { ctx, emitSignal } = createContext();

@@ -77,12 +77,8 @@ export class HushTempController {
     this.ctx.fs.writeFileSync(
       targetPath,
       descriptor.kind === 'binary' ? descriptor.content : descriptor.content,
-      descriptor.kind === 'binary' ? null : 'utf-8',
+      descriptor.kind === 'binary' ? { mode: PRIVATE_FILE_MODE } : { encoding: 'utf-8', mode: PRIVATE_FILE_MODE },
     );
-
-    if (existsSync(targetPath)) {
-      this.ctx.fs.chmodSync?.(targetPath, PRIVATE_FILE_MODE);
-    }
 
     return {
       logicalPath: descriptor.logicalPath,

@@ -52,7 +52,15 @@ function scanForLeftoverArtifacts(ctx: HushContext, root: string): PlaintextFile
 
         if (stats.isDirectory()) {
           if (relativePath === DEFAULT_PERSISTED_OUTPUT_DIRNAME) {
-            findings.push({ file: relativePath, keyCount: 0 });
+            let dirFiles: string[] = [];
+            try {
+              dirFiles = ctx.fs.readdirSync(absolutePath) as string[];
+            } catch {
+              // ignore unreadable directory
+            }
+            if (dirFiles.length > 0) {
+              findings.push({ file: relativePath, keyCount: 0 });
+            }
             continue;
           }
 
@@ -105,7 +113,7 @@ export async function check(ctx: HushContext, options: CheckOptions): Promise<Ch
         source: 'repository',
         encrypted: projectInfo?.repositoryKind === 'legacy-v2'
           ? `Legacy hush.yaml repo detected at ${projectInfo.configPath}. Run hush migrate --from v2 first.`
-          : `Missing v3 repository at ${options.store.root}.`,
+          : `Missing Hush repository at ${options.store.root}.`,
         inSync: false,
         added: [],
         removed: [],
@@ -143,17 +151,22 @@ export async function check(ctx: HushContext, options: CheckOptions): Promise<Ch
 
 function formatTextOutput(result: CheckResult): string {
   const lines: string[] = [];
-  lines.push('Checking v3 repository integrity...\n');
+  lines.push('Checking repository integrity...\n');
 
   if (result.plaintextFiles && result.plaintextFiles.length > 0) {
     lines.push(pc.red(pc.bold('⚠ LEFTOVER PLAINTEXT OR LEGACY ARTIFACTS DETECTED')));
     lines.push('');
     lines.push(pc.red('The following artifacts should be removed or migrated:'));
     for (const artifact of result.plaintextFiles) {
-      lines.push(pc.red(`  • ${artifact.file}`));
+      if (artifact.file === DEFAULT_PERSISTED_OUTPUT_DIRNAME) {
+        lines.push(pc.red(`  • ${artifact.file}  (materialized plaintext output)`));
+        lines.push(pc.dim(`    Run \`hush materialize --cleanup\` or delete the directory; ensure it is gitignored.`));
+      } else {
+        lines.push(pc.red(`  • ${artifact.file}`));
+      }
     }
     lines.push('');
-    lines.push(pc.yellow('These files or directories break the v3 encrypted-at-rest repository model.'));
+    lines.push(pc.yellow('These files or directories break the encrypted-at-rest repository model.'));
     lines.push(pc.dim('Delete them, migrate them, or use --allow-plaintext only when you intentionally need persisted output.'));
     lines.push('');
   }
@@ -176,7 +189,7 @@ function formatTextOutput(result: CheckResult): string {
   } else if (result.status === 'plaintext') {
     lines.push(pc.yellow('✗ Repository valid, but leftover plaintext/legacy artifacts remain'));
   } else {
-    lines.push(pc.green('✓ V3 repository is valid and free of leftover plaintext artifacts'));
+    lines.push(pc.green('✓ Repository is valid and free of leftover plaintext artifacts'));
   }
 
   return lines.join('\n');

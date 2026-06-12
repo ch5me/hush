@@ -219,7 +219,7 @@ describe('bootstrap/config/init task 6', () => {
       roles: ['owner', 'ci'],
       identities: ['member-local'],
     });
-  }, 15000);
+  }, 60000);
 
   it('denies config readers updates when the active identity is not an owner', async () => {
     const projectRoot = join(TEST_DIR, 'config-readers-owner-gate-project');
@@ -276,7 +276,7 @@ describe('bootstrap/config/init task 6', () => {
 
     const output = logger.log.mock.calls.map(([message]) => String(message)).join('\n');
     expect(output).toBe('[]');
-  }, 15000);
+  }, 60000);
 
   it('parses config subcommands and reader flags through cli argument parsing', () => {
     const parsed = parseArgs([

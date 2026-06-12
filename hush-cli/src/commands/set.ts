@@ -48,38 +48,27 @@ function readFromStdinPipe(ctx: HushContext): Promise<string> {
   });
 }
 
-function getExecErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return 'unknown error';
-  }
-
-  const execError = error as Error & { stderr?: string | Buffer };
-
-  if (typeof execError.stderr === 'string' && execError.stderr.trim()) {
-    return execError.stderr.trim();
-  }
-
-  if (Buffer.isBuffer(execError.stderr) && execError.stderr.length > 0) {
-    return execError.stderr.toString('utf-8').trim();
-  }
-
-  return execError.message;
-}
 
 function promptViaMacOSDialog(ctx: HushContext, key: string): string {
   try {
     const script = `text returned of (display dialog "Enter value for ${key}:" default answer "" with hidden answer with title "Hush - Set Secret")`;
-    const result = ctx.exec.execSync(`osascript -e '${script}'`, {
+    const result = ctx.exec.spawnSync('osascript', ['-e', script], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return result.toString().trim();
-  } catch (error) {
-    const message = getExecErrorMessage(error);
-    if (message.toLowerCase().includes('user canceled')) {
-      throw new Error('Cancelled');
+    if (result.status !== 0) {
+      const message = (result.stderr || result.stdout || '').toString().trim();
+      if (message.toLowerCase().includes('user canceled')) {
+        throw new Error('Cancelled');
+      }
+      throw new Error(`macOS dialog failed: ${message}`);
     }
-    throw new Error(`macOS dialog failed: ${message}`);
+    return result.stdout.toString().trim();
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`macOS dialog failed: unknown error`);
   }
 }
 
@@ -103,6 +92,7 @@ function promptViaWindowsDialog(ctx: HushContext, key: string): string | null {
       $textBox = New-Object System.Windows.Forms.TextBox
       $textBox.Location = New-Object System.Drawing.Point(10,50)
       $textBox.Size = New-Object System.Drawing.Size(260,20)
+      $textBox.UseSystemPasswordChar = $true
       $form.Controls.Add($textBox)
 
       $okButton = New-Object System.Windows.Forms.Button
@@ -125,34 +115,39 @@ function promptViaWindowsDialog(ctx: HushContext, key: string): string | null {
     `;
 
     const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
-    const result = ctx.exec.execSync(`powershell -EncodedCommand "${encodedCommand}"`, {
+    const result = ctx.exec.spawnSync('powershell', ['-EncodedCommand', encodedCommand], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return result.toString().trim();
+    if (result.status !== 0) {
+      return null;
+    }
+    return result.stdout.toString().trim();
   } catch {
     return null;
   }
 }
 
 function promptViaLinuxDialog(ctx: HushContext, key: string): string | null {
-  try {
-    const result = ctx.exec.execSync(`zenity --entry --title="Hush - Set Secret" --text="Enter value for ${key}:"`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return result.toString().trim();
-  } catch {
-    try {
-      const result = ctx.exec.execSync(`kdialog --inputbox "Enter value for ${key}:" --title "Hush - Set Secret"`, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      return result.toString().trim();
-    } catch {
-      return null;
-    }
+  const zenityResult = ctx.exec.spawnSync(
+    'zenity',
+    ['--password', `--title=Hush - Set Secret`, `--text=Enter value for ${key}:`],
+    { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  if (zenityResult.status === 0) {
+    return zenityResult.stdout.toString().trim();
   }
+
+  const kdialogResult = ctx.exec.spawnSync(
+    'kdialog',
+    ['--password', `Enter value for ${key}:`, '--title', 'Hush - Set Secret'],
+    { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  if (kdialogResult.status === 0) {
+    return kdialogResult.stdout.toString().trim();
+  }
+
+  return null;
 }
 
 function promptViaTTY(ctx: HushContext, key: string): Promise<string> {
@@ -394,6 +389,11 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
 
   if (!key) {
     logUsage(ctx);
+    ctx.process.exit(1);
+  }
+
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+    ctx.logger.error(pc.red(`Invalid key name "${key}". Keys must match /^[A-Za-z_][A-Za-z0-9_]*$/`));
     ctx.process.exit(1);
   }
 

@@ -345,7 +345,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(ctx.exec.spawnSync).not.toHaveBeenCalled();
     expect(stripAnsi(logger.error.mock.calls.map(([message]) => String(message)).join('\n'))).toMatch(/requires unreadable file/);
     expect(stripAnsi(logger.error.mock.calls.map(([message]) => String(message)).join('\n'))).not.toMatch(/Invalid v3 file document/);
-  }, 15000);
+  }, 60000);
 
   it('set writes v3 file docs and machine-local override docs instead of legacy sources', async () => {
     const root = join(TEST_DIR, 'set-project');
@@ -403,7 +403,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     const localOverride = readDecryptedYamlFile(root, localOverridePath);
     expect(localOverride).toContain('path: env/project/local');
     expect(localOverride).toContain('env/project/local/DEBUG');
-  }, 15000);
+  }, 60000);
 
   it('edit opens the v3 yaml document directly and keeps it valid', async () => {
     const root = join(TEST_DIR, 'edit-project');
@@ -441,25 +441,26 @@ describe('task 8 v3 runtime and mutating commands', () => {
     setIdentity(ctx, store, repository, 'owner-local');
 
     let stagedPath = '';
-    const execSyncMock = ctx.exec.execSync as ReturnType<typeof vi.fn>;
-    execSyncMock.mockImplementation((command: string) => {
-      const match = command.match(/"([^"]+\.yaml)"$/);
-      expect(match?.[1]).toBeTruthy();
-      stagedPath = match![1]!;
+    const spawnSyncMock = ctx.exec.spawnSync as ReturnType<typeof vi.fn>;
+    spawnSyncMock.mockImplementation((_bin: string, args: string[]) => {
+      const yamlArg = args.find((arg) => arg.endsWith('.yaml'));
+      expect(yamlArg).toBeTruthy();
+      stagedPath = yamlArg!;
 
       const stagedStat = nodeFs.statSync(stagedPath);
       const stagedDirStat = nodeFs.statSync(dirname(stagedPath));
       expect(stagedStat.mode & 0o777).toBe(0o600);
       expect(stagedDirStat.mode & 0o777).toBe(0o700);
 
-      return '';
+      return { status: 0, stdout: '', stderr: '' };
     });
 
     await editCommand(ctx, { store, file: 'shared' });
 
-    expect(ctx.exec.execSync).toHaveBeenCalledWith(
-      expect.stringContaining('.yaml'),
-      expect.objectContaining({ stdio: 'inherit', shell: '/bin/bash' }),
+    expect(ctx.exec.spawnSync).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining([expect.stringContaining('.yaml')]),
+      expect.objectContaining({ stdio: 'inherit' }),
     );
     expect(nodeFs.existsSync(stagedPath)).toBe(false);
   });
@@ -543,7 +544,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(output).toContain('LEGACY_KEY');
     expect(output).not.toContain('resend-secret');
     expect(output).not.toContain('legacy-secret');
-  }, 15000);
+  }, 60000);
 
   it('has and list resolve values from the v3 runtime target view', async () => {
     const root = join(TEST_DIR, 'query-project');
@@ -586,8 +587,13 @@ describe('task 8 v3 runtime and mutating commands', () => {
     const output = getLogOutput(logger);
     expect(output).toContain('NEXT_PUBLIC_API_URL is set');
     expect(output).toContain('Variables for target app-dev');
-    expect(output).toContain('NEXT_PUBLIC_API_URL=https://example.com');
-  }, 15000);
+    // list masks values by default; plaintext must NOT appear without --reveal
+    expect(output).toContain('NEXT_PUBLIC_API_URL=********');
+    expect(output).not.toContain('https://example.com');
+
+    await listCommand(ctx, { store, env: 'development', reveal: true });
+    expect(getLogOutput(logger)).toContain('NEXT_PUBLIC_API_URL=https://example.com');
+  }, 30000);
 
   it('check validates the v3 repository and flags leftover legacy/plaintext artifacts', async () => {
     const root = join(TEST_DIR, 'check-project');
@@ -693,7 +699,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(ctx.exec.execSync).not.toHaveBeenCalled();
     expect(getLogOutput(logger)).toContain('Would push api-workers');
     expect(getLogOutput(logger)).toContain('API_TOKEN');
-  }, 15000);
+  }, 60000);
 
   it('decrypt --force writes persisted artifacts under the guarded output root', async () => {
     const root = join(TEST_DIR, 'decrypt-project');

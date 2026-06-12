@@ -36,11 +36,6 @@ export async function targetCommand(
 }
 
 async function handleAdd(ctx: HushContext, options: TargetAddOptions): Promise<void> {
-  const repository = requireV3Repository(options.store, 'target add');
-  const bundle = options.bundle!;
-  const command = { name: 'target', args: ['add', options.name, '--bundle', bundle, '--format', options.format] };
-  const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
-
   if (!options.format) {
     throw new Error('--format is required for target add');
   }
@@ -48,6 +43,11 @@ async function handleAdd(ctx: HushContext, options: TargetAddOptions): Promise<v
   if (!options.bundle) {
     throw new Error('--bundle is required for target add');
   }
+
+  const repository = requireV3Repository(options.store, 'target add');
+  const bundle = options.bundle;
+  const command = { name: 'target', args: ['add', options.name, '--bundle', bundle, '--format', options.format] };
+  const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
 
   const bundles = repository.manifest.bundles ?? {};
   if (!(options.bundle in bundles)) {

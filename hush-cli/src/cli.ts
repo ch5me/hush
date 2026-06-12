@@ -30,6 +30,7 @@ import { exportExampleCommand } from './commands/export-example.js';
 import { materializeCommand } from './commands/materialize.js';
 import { verifyTargetCommand } from './commands/verify-target.js';
 import { copyKeyCommand } from './commands/copy-key.js';
+import { deleteKeyCommand } from './commands/delete-key.js';
 import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
 import { migrateCommand } from './commands/migrate.js';
@@ -57,8 +58,9 @@ ${pc.bold('Commands:')}
   set <KEY> [VALUE] Set a single secret (AI-safe, prompts if no value)
   copy-key <KEY>    Copy one key between encrypted v3 files without printing it
   move-key <KEY>    Move one key between encrypted v3 files without printing it
+  delete-key <KEY>  Delete one key from an encrypted v3 file (--from <file>)
   edit [file]       Edit all secrets in $EDITOR
-  list              List all variables (shows values)
+  list              List all variables (values masked; --reveal to show)
   inspect           List all variables (masked values, AI-safe)
   has <key>         Check if a secret exists (exit 0 if set, 1 if not)
   check             Verify secrets are encrypted (for pre-commit hooks)
@@ -87,7 +89,7 @@ ${pc.bold('Advanced Commands:')}
   target <cmd>      Manage targets (add, remove, list)
 
 ${pc.bold('Options:')}
-  -e, --env <env>   Environment: development or production (default: development)
+  -e, --env <env>   Environment: development or production (set and legacy commands; not valid for run)
   -r, --root <dir>  Start directory for project mode, execution directory for run (default: current directory)
   -t, --target <t>  Target name from the v3 repository (run/resolve/push)
   -q, --quiet       Suppress output (has/check commands)
@@ -103,7 +105,8 @@ ${pc.bold('Options:')}
   --local           Install skill to ./.claude/skills/ (skill only); legacy alias for set repo-local writes
   --file <path>     Set destination file alias or declared v3 file path (set only)
   --repo-local      Write to repo-local machine overrides (set only)
-  --gui             Use macOS dialog for input (set only, for AI agents)
+  --gui             Use a native dialog for input (set only, for AI agents)
+  --reveal          Print plaintext values (list only; avoid in AI sessions)
   --ref <git-ref>   Compare diff output against a git ref (diff only)
   --bundle <name>   Resolve a specific bundle (diff/export-example only)
   --from <version>  Legacy repo version to migrate from (migrate only)
@@ -133,7 +136,6 @@ ${pc.bold('Examples:')}
   hush init                     Deprecated alias for bootstrap
   hush migrate --from v2        Inventory or convert a legacy hush.yaml repo to v3
   hush run -- npm start         Run with secrets in memory (AI-safe!)
-  hush run -e prod -- npm build Run with production secrets
   hush run -t api -- wrangler dev  Run a specific v3 target
   hush set DATABASE_URL         Set a secret interactively (prompts for value)
   hush set API_KEY "myvalue"    Set a secret inline (no prompt)
@@ -145,6 +147,7 @@ ${pc.bold('Examples:')}
   hush set WORKER_ENV staging --file env/project/staging
   hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
   hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
+  hush delete-key OLD_KEY --from env/project/shared
   hush keys setup               Verify local age key
   hush keys generate            Generate new local age key
   hush edit                     Edit all shared secrets in $EDITOR
@@ -215,13 +218,8 @@ export interface ParsedArgs {
   materializeAs?: string;
   keepFile?: boolean;
   files?: string;
-  compact: boolean;
-  only?: string;
-  jsonCompact: boolean;
-  compactJson: boolean;
-  includeProvenance: boolean;
   repoLocal: boolean;
-  showLength: boolean;
+  reveal: boolean;
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -279,13 +277,8 @@ export function parseArgs(args: string[]): ParsedArgs {
   let materializeAs: string | undefined;
   let keepFile = false;
   let files: string | undefined;
-  let compact = false;
-  let only: string | undefined;
-  let jsonCompact = false;
-  let compactJson = false;
-  let includeProvenance = false;
   let repoLocal = false;
-  let showLength = false;
+  let reveal = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -391,6 +384,11 @@ export function parseArgs(args: string[]): ParsedArgs {
 
     if (arg === '--repo-local') {
       repoLocal = true;
+      continue;
+    }
+
+    if (arg === '--reveal') {
+      reveal = true;
       continue;
     }
 
@@ -506,10 +504,10 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    if (command === 'set' && !arg.startsWith('-')) {
+    if (command === 'set' && !arg.startsWith('-') && (!key || !value)) {
       if (!key) {
         key = arg;
-      } else if (!value) {
+      } else {
         // Second positional arg is the value
         // Syntax: hush set <KEY> <VALUE>
         value = arg;
@@ -517,7 +515,7 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    if ((command === 'copy-key' || command === 'move-key') && !arg.startsWith('-') && !key) {
+    if ((command === 'copy-key' || command === 'move-key' || command === 'delete-key') && !arg.startsWith('-') && !key) {
       key = arg;
       continue;
     }
@@ -564,6 +562,21 @@ export function parseArgs(args: string[]): ParsedArgs {
       }
       continue;
     }
+
+    // Fail loud instead of silently ignoring input. Silently swallowed flags
+    // previously made documented-but-unwired options look like they worked.
+    if (arg.startsWith('-')) {
+      console.error(pc.red(`Unknown option: ${arg}`));
+      console.error(pc.dim("Run 'hush --help' to see supported options."));
+      process.exit(1);
+    }
+
+    console.error(pc.red(`Unexpected argument: ${arg}`));
+    if (command === 'run' || command === 'materialize') {
+      console.error(pc.dim(`Did you mean: hush ${command} -- ${arg} ...`));
+    }
+    console.error(pc.dim("Run 'hush --help' for usage."));
+    process.exit(1);
   }
 
   return {
@@ -585,7 +598,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     force,
     gui,
     repoLocal,
-    showLength,
+    reveal,
     roles,
     identities,
     ref,
@@ -610,11 +623,6 @@ export function parseArgs(args: string[]): ParsedArgs {
     materializeAs,
     keepFile,
     files,
-    compact,
-    only,
-    jsonCompact,
-    compactJson,
-    includeProvenance,
   };
 }
 
@@ -667,6 +675,7 @@ export async function main(): Promise<void> {
     global,
     local,
     repoLocal,
+    reveal,
     force,
     gui,
     roles,
@@ -736,10 +745,20 @@ export async function main(): Promise<void> {
         break;
 
       case 'run':
-        await runCommand(defaultContext, { store, cwd: root, env, target, command: cmdArgs });
+        if (envExplicit) {
+          console.error(pc.red('-e/--env is not supported by `hush run`.'));
+          console.error(pc.dim('Select the secrets to inject with a target instead: hush run -t <target> -- <cmd>'));
+          console.error(pc.dim('List available targets with: hush target list'));
+          process.exit(1);
+        }
+        await runCommand(defaultContext, { store, cwd: root, target, command: cmdArgs });
         break;
 
       case 'set': {
+        if (value !== undefined) {
+          console.error(pc.yellow('Warning: inline values are visible in shell history and process listings.'));
+          console.error(pc.dim('Prefer: hush set KEY (interactive prompt), echo "val" | hush set KEY, or hush set KEY --gui'));
+        }
         let resolvedSetFile = setFile;
         let resolvedRepoLocal = repoLocal;
 
@@ -765,12 +784,16 @@ export async function main(): Promise<void> {
         await copyKeyCommand(defaultContext, { store, key, from, to: outputRoot, move: command === 'move-key', json });
         break;
 
+      case 'delete-key':
+        await deleteKeyCommand(defaultContext, { store, key, from, yes, json });
+        break;
+
       case 'edit':
         await editCommand(defaultContext, { store, file });
         break;
 
       case 'list':
-        await listCommand(defaultContext, { store, env });
+        await listCommand(defaultContext, { store, env, reveal });
         break;
 
       case 'inspect':
@@ -782,7 +805,7 @@ export async function main(): Promise<void> {
           console.error(pc.red('Usage: hush has <KEY>'));
           process.exit(1);
         }
-        await hasCommand(defaultContext, { store, env, key, quiet });
+        await hasCommand(defaultContext, { store, env, key, quiet, json });
         break;
 
       case 'check':
@@ -868,6 +891,11 @@ export async function main(): Promise<void> {
         break;
 
       case 'materialize':
+        if (format) {
+          console.error(pc.red('--format is not supported by `hush materialize`.'));
+          console.error(pc.dim('Output format is a property of the target: hush target add <name> --bundle <b> --format <fmt>'));
+          process.exit(1);
+        }
         await materializeCommand(defaultContext, { store, target, bundle, json, outputRoot, cleanup, command: cmdArgs });
         break;
 

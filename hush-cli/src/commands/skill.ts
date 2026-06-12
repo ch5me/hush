@@ -7,7 +7,7 @@ const SKILL_FILES = {
   'SKILL.md': `---
 name: hush-secrets
 description: Manage secrets safely with the Hush v3 CLI. Use when working with encrypted config, environment variables, API keys, credentials, or migrating a legacy hush.yaml repo. NEVER read .hush/** directly.
-allowed-tools: Bash(hush:*), Bash(npx hush:*), Bash(brew:*), Bash(npm:*), Bash(pnpm:*), Read, Grep, Glob, Write
+allowed-tools: Bash(hush inspect:*), Bash(hush has:*), Bash(hush set:*), Bash(hush run:*), Bash(hush config:*), Bash(hush doctor:*), Bash(hush status:*), Bash(hush check:*), Bash(hush verify-target:*), Bash(hush resolve:*), Bash(hush trace:*), Bash(hush diff:*), Bash(hush export-example:*), Bash(hush bootstrap:*), Bash(npx @chriscode/hush inspect:*), Bash(npx @chriscode/hush has:*), Bash(npx @chriscode/hush set:*), Bash(npx @chriscode/hush run:*), Bash(npx @chriscode/hush config:*), Bash(npx @chriscode/hush doctor:*), Bash(npx @chriscode/hush status:*), Bash(npx @chriscode/hush check:*), Bash(npx @chriscode/hush verify-target:*), Bash(npx @chriscode/hush resolve:*), Bash(npx @chriscode/hush trace:*), Bash(npx @chriscode/hush diff:*), Bash(npx @chriscode/hush export-example:*), Bash(npx @chriscode/hush bootstrap:*), Read, Grep, Glob
 ---
 
 # Hush v3 skill
@@ -17,47 +17,45 @@ Never read ".hush/**" directly.
 Use these commands instead:
 
 - \
-\`npx hush config show --json\` for machine-readable repository structure
+\`npx @chriscode/hush config show --json\` for machine-readable repository structure
 - \
-\`npx hush inspect\` for redacted readable values
+\`npx @chriscode/hush inspect\` for redacted readable values
 - \
-\`npx hush has <KEY>\` to check whether a target resolves a non-empty value
+\`npx @chriscode/hush has <KEY>\` to check whether a target resolves a non-empty value
 - \
-\`npx hush run -- <cmd>\` to use secrets at runtime
+\`npx @chriscode/hush run -- <cmd>\` to use secrets at runtime
 - \
-\`npx hush materialize --target <name> --json --to <dir>\` to write file or binary artifacts for CI/native tooling
+\`npx @chriscode/hush materialize --target <name> --json --to <dir>\` to write file or binary artifacts for CI/native tooling
 - \
-\`npx hush materialize --target <name> --format shell-export\` to emit shell-safe export statements for sourced workflows
+\`npx @chriscode/hush verify-target <target> --require <KEY>\` before deploys that sync remote runtime secrets
 - \
-\`npx hush verify-target <target> --require <KEY>\` before deploys that sync remote runtime secrets
+\`npx @chriscode/hush doctor\` to diagnose root, key, and store resolution issues
 - \
-\`npx hush doctor\` to diagnose root, key, and store resolution issues
+\`npx @chriscode/hush copy-key <KEY> --from <file> --to <file>\` to relocate target-visible secrets without printing values
 - \
-\`npx hush copy-key <KEY> --from <file> --to <file>\` to relocate target-visible secrets without printing values
+\`npx @chriscode/hush file add <namespaced-path> [--roles <csv>] [--identities <csv>]\` to create a new encrypted file
 - \
-\`npx hush file add <namespaced-path> [--roles <csv>] [--identities <csv>]\` to create a new encrypted file
+\`npx @chriscode/hush file remove <namespaced-path> [--keep-file]\` to remove an encrypted file
 - \
-\`npx hush file remove <namespaced-path> [--keep-file]\` to remove an encrypted file
+\`npx @chriscode/hush file list\` to list all encrypted files
 - \
-\`npx hush file list\` to list all encrypted files
+\`npx @chriscode/hush file readers <namespaced-path> [--roles <csv>] [--identities <csv>]\` to update file readers
 - \
-\`npx hush file readers <namespaced-path> [--roles <csv>] [--identities <csv>]\` to update file readers
+\`npx @chriscode/hush bundle add <name> --files <csv>\` to create a bundle from explicit file refs
 - \
-\`npx hush bundle add <name> --files <csv>\` to create a bundle from explicit file refs
+\`npx @chriscode/hush bundle add-file <bundle> <file>\` to add a file to a bundle
 - \
-\`npx hush bundle add-file <bundle> <file>\` to add a file to a bundle
+\`npx @chriscode/hush bundle remove-file <bundle> <file>\` to remove a file from a bundle
 - \
-\`npx hush bundle remove-file <bundle> <file>\` to remove a file from a bundle
+\`npx @chriscode/hush bundle remove <name>\` to remove a bundle
 - \
-\`npx hush bundle remove <name>\` to remove a bundle
+\`npx @chriscode/hush bundle list\` to list all bundles
 - \
-\`npx hush bundle list\` to list all bundles
+\`npx @chriscode/hush target add <name> --bundle <bundle> --format <format>\` to create a target
 - \
-\`npx hush target add <name> --bundle <bundle> --format <format>\` to create a target
+\`npx @chriscode/hush target remove <name>\` to remove a target
 - \
-\`npx hush target remove <name>\` to remove a target
-- \
-\`npx hush target list\` to list all targets
+\`npx @chriscode/hush target list\` to list all targets
 
 ## Current repository model
 
@@ -76,21 +74,21 @@ Hush v3 stores repository authority under:
 Run this first:
 
 \`\`\`bash
-npx hush config show
+npx @chriscode/hush config show
 \`\`\`
 
 If the repo is not set up yet:
 
 \`\`\`bash
-npx hush bootstrap
+npx @chriscode/hush bootstrap
 \`\`\`
 
 If the repo still uses \`hush.yaml\`:
 
 \`\`\`bash
-npx hush migrate --from v2 --dry-run
-npx hush migrate --from v2
-npx hush migrate --from v2 --cleanup
+npx @chriscode/hush migrate --from v2 --dry-run
+npx @chriscode/hush migrate --from v2
+npx @chriscode/hush migrate --from v2 --cleanup
 \`\`\`
 
 ## Safe default workflows
@@ -98,48 +96,50 @@ npx hush migrate --from v2 --cleanup
 ### Inspect state
 
 \`\`\`bash
-npx hush config show
-npx hush config show --json
-npx hush inspect
-npx hush has DATABASE_URL
+npx @chriscode/hush config show
+npx @chriscode/hush config show --json
+npx @chriscode/hush inspect
+npx @chriscode/hush has DATABASE_URL
+npx @chriscode/hush has DATABASE_URL --json
 \`\`\`
 
 ### Add or update one secret
 
 \`\`\`bash
-npx hush set DATABASE_URL "postgres://db"
-npx hush set API_KEY --gui
-npx hush set FEATURE_FLAG --local
-npx hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
-npx hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
+npx @chriscode/hush set DATABASE_URL "postgres://db"
+npx @chriscode/hush set API_KEY --gui
+npx @chriscode/hush set FEATURE_FLAG --local
+npx @chriscode/hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
+npx @chriscode/hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
+npx @chriscode/hush delete-key OLD_KEY --from env/project/shared --yes
 \`\`\`
+
+Prefer \`--gui\` or piped stdin for values: inline \`set KEY VALUE\` puts the value in shell history and the process table (the CLI warns when you do).
 
 ### Run with secrets
 
 \`\`\`bash
-npx hush run -- npm start
-npx hush run -t api -- wrangler dev
+npx @chriscode/hush run -- npm start
+npx @chriscode/hush run -t api -- wrangler dev
 \`\`\`
 
 ### Materialize file and binary artifacts
 
 \`\`\`bash
-npx hush materialize -t ios-signing --json --to /tmp/fitbot-signing
-npx hush materialize -t ios-signing --json --compact-json --to /tmp/fitbot-signing
-npx hush materialize -t runtime --format shell-export
-npx hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
-npx hush materialize --bundle fitbot-signing --to /tmp/fitbot-signing
-npx hush materialize --cleanup --to /tmp/fitbot-signing
+npx @chriscode/hush materialize -t ios-signing --json --to /tmp/fitbot-signing
+npx @chriscode/hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+npx @chriscode/hush materialize --bundle fitbot-signing --to /tmp/fitbot-signing
+npx @chriscode/hush materialize --cleanup --to /tmp/fitbot-signing
 \`\`\`
 
 ### Review config safely
 
 \`\`\`bash
-npx hush resolve runtime
-npx hush trace DATABASE_URL
-npx hush verify-target runtime --require DATABASE_URL
-npx hush diff
-npx hush export-example
+npx @chriscode/hush resolve runtime
+npx @chriscode/hush trace DATABASE_URL
+npx @chriscode/hush verify-target runtime --require DATABASE_URL
+npx @chriscode/hush diff
+npx @chriscode/hush export-example
 \`\`\`
 
 ## Topology Management
@@ -150,21 +150,21 @@ Files, bundles, and targets form a three-layer hierarchy. Build from the bottom 
 
 \`\`\`bash
 # 1. Create an encrypted file
-npx hush file add env/api/production --roles owner,ci
+npx @chriscode/hush file add env/api/production --roles owner,ci
 
 # 2. Create a bundle that references it
-npx hush bundle add api-production --files env/api/production
+npx @chriscode/hush bundle add api-production --files env/api/production
 
 # 3. Create a target that consumes the bundle
-npx hush target add api-production --bundle api-production --format dotenv
+npx @chriscode/hush target add api-production --bundle api-production --format dotenv
 
 # 4. Verify the target resolves
-npx hush verify-target api-production --require DATABASE_URL
+npx @chriscode/hush verify-target api-production --require DATABASE_URL
 
 # 5. Teardown in reverse order
-npx hush target remove api-production
-npx hush bundle remove api-production
-npx hush file remove env/api/production
+npx @chriscode/hush target remove api-production
+npx @chriscode/hush bundle remove api-production
+npx @chriscode/hush file remove env/api/production
 \`\`\`
 
 ### Safety semantics
@@ -178,39 +178,40 @@ npx hush file remove env/api/production
 ### Manage files
 
 \`\`\`bash
-npx hush file add env/api/production --roles owner,ci
-npx hush file add env/api/staging --roles owner,member,ci
-npx hush file list
-npx hush file readers env/api/production --roles owner,ci --identities owner-local,ci
-npx hush file remove env/api/staging
-npx hush file remove env/api/production --keep-file
+npx @chriscode/hush file add env/api/production --roles owner,ci
+npx @chriscode/hush file add env/api/staging --roles owner,member,ci
+npx @chriscode/hush file list
+npx @chriscode/hush file readers env/api/production --roles owner,ci --identities owner-local,ci
+npx @chriscode/hush file remove env/api/staging
+npx @chriscode/hush file remove env/api/production --keep-file
 \`\`\`
 
 ### Manage bundles
 
 \`\`\`bash
-npx hush bundle add api-production --files env/api/production
-npx hush bundle add-file api-production env/project/shared
-npx hush bundle remove-file api-production env/project/shared
-npx hush bundle list
-npx hush bundle remove api-production
+npx @chriscode/hush bundle add api-production --files env/api/production
+npx @chriscode/hush bundle add-file api-production env/project/shared
+npx @chriscode/hush bundle remove-file api-production env/project/shared
+npx @chriscode/hush bundle list
+npx @chriscode/hush bundle remove api-production
 \`\`\`
 
 ### Manage targets
 
 \`\`\`bash
-npx hush target add api-production --bundle api-production --format dotenv
-npx hush target add ios-signing --bundle ios-signing --format json --mode file
-npx hush target list
-npx hush target remove api-production
+npx @chriscode/hush target add api-production --bundle api-production --format dotenv
+npx @chriscode/hush target add ios-signing --bundle ios-signing --format json --mode file
+npx @chriscode/hush target list
+npx @chriscode/hush target remove api-production
 \`\`\`
 
 ## Commands to avoid
 
 - \`cat .env\`
 - \`cat .hush/**\`
-- \`hush list\`
+- \`hush list --reveal\` (plaintext dump; \`hush list\` without it is masked and fine)
 - \`hush decrypt --force\` unless the user explicitly needs the legacy bulk plaintext dump
+- \`hush edit\`, \`hush push\`, and \`hush materialize\` are deliberately not pre-approved by this skill: they can persist or transmit plaintext, so they require explicit human approval
 
 See [SETUP.md](SETUP.md), [REFERENCE.md](REFERENCE.md), and [examples/workflows.md](examples/workflows.md).
 `,
@@ -220,8 +221,8 @@ See [SETUP.md](SETUP.md), [REFERENCE.md](REFERENCE.md), and [examples/workflows.
 ## New repository
 
 \`\`\`bash
-npx hush bootstrap
-npx hush config show
+npx @chriscode/hush bootstrap
+npx @chriscode/hush config show
 \`\`\`
 
 This creates:
@@ -236,8 +237,8 @@ This creates:
 Then add values safely:
 
 \`\`\`bash
-npx hush set DATABASE_URL "postgres://db"
-npx hush inspect
+npx @chriscode/hush set DATABASE_URL "postgres://db"
+npx @chriscode/hush inspect
 \`\`\`
 
 ## Existing legacy repository
@@ -245,9 +246,9 @@ npx hush inspect
 If the project still has \`hush.yaml\`, migrate it in one big bang:
 
 \`\`\`bash
-npx hush migrate --from v2 --dry-run
-npx hush migrate --from v2
-npx hush migrate --from v2 --cleanup
+npx @chriscode/hush migrate --from v2 --dry-run
+npx @chriscode/hush migrate --from v2
+npx @chriscode/hush migrate --from v2 --cleanup
 \`\`\`
 
 Migration writes v3 repo state under \`.hush/**\` and machine-local overrides under:
@@ -259,9 +260,9 @@ Migration writes v3 repo state under \`.hush/**\` and machine-local overrides un
 ## Team member setup
 
 \`\`\`bash
-npx hush keys setup
-npx hush config show
-npx hush inspect
+npx @chriscode/hush keys setup
+npx @chriscode/hush config show
+npx @chriscode/hush inspect
 \`\`\`
 
 Hush prefers explicit SOPS env when present, then the expected repo-scoped key in \`~/.config/sops/age/keys/<project>.txt\`, then any local project key that matches the \`.sops.yaml\` recipient, then the standard SOPS keyring (\`~/Library/Application Support/sops/age/keys.txt\` on macOS, \`~/.config/sops/age/keys.txt\` on Linux), and finally the legacy compatibility path \`~/.config/sops/age/key.txt\`.
@@ -269,9 +270,9 @@ Hush prefers explicit SOPS env when present, then the expected repo-scoped key i
 ## Global store
 
 \`\`\`bash
-npx hush keys generate --global
-npx hush set --global OPENAI_API_KEY
-npx hush inspect --global
+npx @chriscode/hush keys generate --global
+npx @chriscode/hush set --global OPENAI_API_KEY
+npx @chriscode/hush inspect --global
 \`\`\`
 `,
 
@@ -472,11 +473,11 @@ Deprecated alias for \`hush bootstrap\`.
 ## Bootstrap a repo
 
 \`\`\`bash
-npx hush bootstrap
-npx hush config show
-npx hush config show --json
-npx hush set DATABASE_URL "postgres://db"
-npx hush inspect
+npx @chriscode/hush bootstrap
+npx @chriscode/hush config show
+npx @chriscode/hush config show --json
+npx @chriscode/hush set DATABASE_URL "postgres://db"
+npx @chriscode/hush inspect
 \`\`\`
 
 ## Bootstrap a nested repo (child-local)
@@ -484,57 +485,57 @@ npx hush inspect
 When inside a git repo that's nested under a parent Hush repo, use \`--new-repo\` to create a child-local repository instead of joining the parent. Use \`--yes\` in non-interactive contexts.
 
 \`\`\`bash
-npx hush bootstrap --new-repo --yes
-npx hush doctor
-npx hush config show
+npx @chriscode/hush bootstrap --new-repo --yes
+npx @chriscode/hush doctor
+npx @chriscode/hush config show
 \`\`\`
 
 ## Diagnose root/key issues
 
 \`\`\`bash
-npx hush doctor
-npx hush doctor --new-repo
+npx @chriscode/hush doctor
+npx @chriscode/hush doctor --new-repo
 \`\`\`
 
 ## Migrate a legacy repo
 
 \`\`\`bash
-npx hush migrate --from v2 --dry-run
-npx hush migrate --from v2
-npx hush config show
-npx hush inspect
-npx hush migrate --from v2 --cleanup
+npx @chriscode/hush migrate --from v2 --dry-run
+npx @chriscode/hush migrate --from v2
+npx @chriscode/hush config show
+npx @chriscode/hush inspect
+npx @chriscode/hush migrate --from v2 --cleanup
 \`\`\`
 
 ## Change readers on one file
 
 \`\`\`bash
-npx hush config readers env/project/shared --roles owner,member,ci
-npx hush config readers env/project/shared --identities owner-local,ci
+npx @chriscode/hush config readers env/project/shared --roles owner,member,ci
+npx @chriscode/hush config readers env/project/shared --identities owner-local,ci
 \`\`\`
 
 ## Run an app
 
 \`\`\`bash
-npx hush run -- npm start
-npx hush run -t api -- wrangler dev
-npx hush verify-target api-production --require RESEND_API_KEY
-npx hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
+npx @chriscode/hush run -- npm start
+npx @chriscode/hush run -t api -- wrangler dev
+npx @chriscode/hush verify-target api-production --require RESEND_API_KEY
+npx @chriscode/hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
 \`\`\`
 
 ## Materialize a signing bundle
 
 \`\`\`bash
-npx hush materialize -t ios-signing --json --to /tmp/fitbot-signing
-npx hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
-npx hush materialize --cleanup --to /tmp/fitbot-signing
+npx @chriscode/hush materialize -t ios-signing --json --to /tmp/fitbot-signing
+npx @chriscode/hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+npx @chriscode/hush materialize --cleanup --to /tmp/fitbot-signing
 \`\`\`
 
 ## Review before commit
 
 \`\`\`bash
-npx hush diff
-npx hush export-example
+npx @chriscode/hush diff
+npx @chriscode/hush export-example
 \`\`\`
 `,
 };

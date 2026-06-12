@@ -200,7 +200,7 @@ describe('task 7 v3 diagnostic commands', () => {
     await statusCommand(ctx, { store });
 
     const output = getLogOutput(logger);
-    expect(output).toContain('Repository: v3');
+    expect(output).toContain('Repository: ready');
     expect(output).toContain('Active identity: developer-local');
     expect(output).toContain('encrypted files: 1');
     expect(output).toContain('active identity path:');

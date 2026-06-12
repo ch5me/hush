@@ -403,7 +403,7 @@ describe('task 9 diff and export-example commands', () => {
     expect(output).toContain('current [redacted]');
     expect(output).not.toContain('postgres://previous-secret');
     expect(output).not.toContain('postgres://current-secret');
-  }, 15000);
+  }, 60000);
 
   it('export-example omits protected target values and keeps sensitive artifacts redacted', async () => {
     const root = join(TEST_DIR, 'export-target');

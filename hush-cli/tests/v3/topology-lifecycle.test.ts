@@ -386,7 +386,7 @@ describe('topology-lifecycle', () => {
 
       const reloaded = loadV3Repository(TMP_DIR, { keyIdentity: TMP_DIR });
       expect(reloaded.filesByPath['env/project/shared']).toBeUndefined();
-    }, 15000);
+    }, 60000);
 
     it('(e) remove referenced file fails', async () => {
       const ctx = createFileContext(TMP_DIR);

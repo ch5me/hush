@@ -80,7 +80,9 @@ describe('sops helpers', () => {
       keyIdentity: 'hush-global',
     });
 
-    expect(readFileSync(outputPath, 'utf-8')).toContain('sops_version=');
+    const encryptedContent = readFileSync(outputPath, 'utf-8');
+    expect(encryptedContent).toContain('sops_version=');
+    expect(encryptedContent).not.toContain('API_KEY=value');
     expect(decrypt(outputPath, { root: storeDir, keyIdentity: 'hush-global' })).toContain('API_KEY=value');
   });
 
@@ -98,6 +100,8 @@ describe('sops helpers', () => {
       keyIdentity: 'hush-global',
     });
 
+    const encryptedContent = readFileSync(encryptedPath, 'utf-8');
+    expect(encryptedContent).not.toContain('secret-value');
     const decrypted = decrypt(encryptedPath, { root: storeDir, keyIdentity: 'hush-global' });
     expect(decrypted).toContain('EXISTING=1');
     expect(decrypted).toContain('API_KEY=secret-value');
@@ -112,7 +116,10 @@ describe('sops helpers', () => {
       keyIdentity: 'hush-global',
     });
 
-    expect(readFileSync(manifestPath, 'utf-8')).toContain('sops:');
+    const encryptedYaml = readFileSync(manifestPath, 'utf-8');
+    expect(encryptedYaml).toContain('sops:');
+    // encrypted values must appear as ENC[...] ciphertext, not plaintext
+    expect(encryptedYaml).toContain('ENC[AES256_GCM');
     expect(decryptYaml(manifestPath, { root: storeDir, keyIdentity: 'hush-global' })).toContain('version: 3');
   });
 
@@ -266,6 +273,8 @@ describe('sops helpers', () => {
       keyIdentity: 'hush-global',
     });
 
+    const encryptedAfterSet = readFileSync(encryptedPath, 'utf-8');
+    expect(encryptedAfterSet).not.toContain('secret-value');
     const decrypted = decrypt(encryptedPath, { root: storeDir, keyIdentity: 'hush-global' });
     expect(decrypted).toContain('EXISTING=1');
     expect(decrypted).toContain('API_KEY=secret-value');

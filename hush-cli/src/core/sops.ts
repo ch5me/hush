@@ -1,5 +1,6 @@
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { missingBinaryError } from '../lib/install-hints.js';
 import { fs } from '../lib/fs.js';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
@@ -244,10 +245,7 @@ function buildDecryptionFailureMessage(errorOutput: string, resolution: Resolved
 
 export function isSopsInstalled(): boolean {
   try {
-    const result = spawnSync('sops', ['--version'], { 
-      stdio: 'ignore',
-      shell: true 
-    });
+    const result = spawnSync('sops', ['--version'], { stdio: 'ignore' });
     return result.status === 0;
   } catch {
     return false;
@@ -265,27 +263,28 @@ function decryptWithFormat(filePath: string, format: SopsFileFormat, options?: S
   }
 
   if (!isSopsInstalled()) {
-    throw new Error('SOPS is not installed. Install with: brew install sops (Mac) or scoop install sops (Windows)');
+    throw missingBinaryError('sops');
   }
 
-  try {
-    const result = execSync(
-      `sops --input-type ${format} --output-type ${format} --decrypt "${filePath}"`,
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: getSopsEnv(options),
-      }
-    );
-    return result;
-  } catch (error) {
-    const err = error as { stderr?: string; message?: string };
-    const errorOutput = err.stderr || err.message || '';
+  const result = spawnSync(
+    'sops',
+    ['--input-type', format, '--output-type', format, '--decrypt', filePath],
+    {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: getSopsEnv(options),
+    }
+  );
+
+  if (result.status !== 0) {
+    const errorOutput = (result.stderr || result.stdout || '').toString();
     if (/no identity matched|failed to load age identities/i.test(errorOutput)) {
       throw new Error(buildDecryptionFailureMessage(errorOutput, resolveAgeKeySource(options)));
     }
     throw new Error(`SOPS decryption failed: ${errorOutput}`);
   }
+
+  return result.stdout;
 }
 
 export function decrypt(filePath: string, options?: SopsOptions): string {
@@ -302,7 +301,7 @@ function encryptWithFormat(inputPath: string, outputPath: string, format: SopsFi
   }
 
   if (!isSopsInstalled()) {
-    throw new Error('SOPS is not installed. Install with: brew install sops (Mac) or scoop install sops (Windows)');
+    throw missingBinaryError('sops');
   }
 
   try {
@@ -369,7 +368,7 @@ export function edit(filePath: string, options?: SopsOptions): void {
   }
 
   if (!isSopsInstalled()) {
-    throw new Error('SOPS is not installed. Install with: brew install sops');
+    throw missingBinaryError('sops');
   }
 
   const configPath = getSopsConfigFile(options);
@@ -381,7 +380,6 @@ export function edit(filePath: string, options?: SopsOptions): void {
     {
       stdio: 'inherit',
       env: getSopsEnv(options),
-      shell: true
     }
   );
 
@@ -392,7 +390,7 @@ export function edit(filePath: string, options?: SopsOptions): void {
 
 export function setKey(filePath: string, key: string, value: string, options?: SopsOptions): void {
   if (!isSopsInstalled()) {
-    throw new Error('SOPS is not installed. Install with: brew install sops');
+    throw missingBinaryError('sops');
   }
 
   let content = '';
@@ -421,15 +419,22 @@ export function setKey(filePath: string, key: string, value: string, options?: S
 
   withPrivatePlaintextTempFile('dotenv', newContent, (tempFile) => {
     const configPath = getSopsConfigFile(options);
-    const configFlag = configPath ? ` --config "${configPath}"` : '';
-
-    execSync(
-      `sops --input-type dotenv --output-type dotenv --encrypt${configFlag} --filename-override "${filePath}" "${tempFile}" > "${filePath}"`,
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: getSopsEnv(options),
-      }
-    );
+    const args = [
+      '--input-type', 'dotenv',
+      '--output-type', 'dotenv',
+      '--encrypt',
+      '--filename-override', filePath,
+      ...(configPath ? ['--config', configPath] : []),
+      tempFile,
+    ];
+    const result = spawnSync('sops', args, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: getSopsEnv(options),
+    });
+    if (result.status !== 0) {
+      throw new Error(`SOPS encryption failed: ${result.stderr || result.stdout || `exit code ${result.status}`}`);
+    }
+    writeFileSync(filePath, result.stdout, 'utf-8');
   });
 }

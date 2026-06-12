@@ -1,7 +1,7 @@
 {
   "name": "@chriscode/hush",
   "version": "7.3.0",
-  "description": "SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.",
+  "description": "AI-native secrets manager. Secrets stay encrypted at rest; AI agents help without seeing values.",
   "type": "module",
   "bin": {
     "hush": "./bin/hush.js"
@@ -31,7 +31,13 @@
     "monorepo",
     "cloudflare",
     "wrangler",
-    "expo"
+    "expo",
+    "ai",
+    "ai-native",
+    "agents",
+    "llm",
+    "claude",
+    "secrets-manager"
   ],
   "author": "Chris Hasson",
   "license": "MIT",

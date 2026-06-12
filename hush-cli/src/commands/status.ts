@@ -24,7 +24,7 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     const projectInfo = findProjectRoot(options.store.root);
 
     ctx.logger.log(pc.blue('Hush status\n'));
-    ctx.logger.log(`Repository: ${pc.cyan(isV3RepositoryRoot(options.store.root) ? 'v3' : projectInfo?.repositoryKind ?? 'missing')}`);
+    ctx.logger.log(`Repository: ${pc.cyan(isV3RepositoryRoot(options.store.root) ? 'ready' : projectInfo?.repositoryKind ?? 'missing')}`);
     ctx.logger.log(`Root: ${pc.dim(projectInfo?.projectRoot ?? options.store.root)}`);
     ctx.logger.log(`Store: ${pc.cyan(options.store.mode)} ${pc.dim(`(${options.store.displayLabel})`)}`);
 
@@ -33,7 +33,7 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
         ctx.logger.log(`Config: ${pc.dim(projectInfo.configPath)}`);
       }
       ctx.logger.log(pc.yellow('\nThis repo still uses legacy hush.yaml runtime authority.'));
-      ctx.logger.log(pc.dim('Migrate with "hush migrate --from v2" before relying on normal v3 command flows.'));
+      ctx.logger.log(pc.dim('Migrate with "hush migrate --from v2" before relying on normal command flows.'));
       return;
     }
 
@@ -73,6 +73,6 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     ctx.logger.log(`Store: ${pc.cyan(options.store.mode)} ${pc.dim(`(${options.store.displayLabel})`)}`);
     ctx.logger.log('');
     ctx.logger.log(pc.yellow(message));
-    ctx.logger.log(pc.dim('Bootstrap a v3 repository with "hush bootstrap" to enable v3 diagnostics.'));
+    ctx.logger.log(pc.dim('Bootstrap a repository with "hush bootstrap" to enable diagnostics.'));
   }
 }

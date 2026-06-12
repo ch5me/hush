@@ -16,6 +16,8 @@ import { getProjectIdentifier } from '../project.js';
 import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
 import { resolveStoreContext } from '../store.js';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
+import { missingBinaryError } from '../lib/install-hints.js';
+import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from './v3-command-helpers.js';
 
 interface KeySetupResult {
   publicKey: string;
@@ -41,7 +43,7 @@ function tryExistingLocalKey(ctx: HushContext, project: string): KeySetupResult 
 
 function generateLocalKey(ctx: HushContext, project: string): KeySetupResult {
   if (!ctx.age.ageAvailable()) {
-    throw new Error('age is not installed. Install it before bootstrapping a v3 repository.');
+    throw missingBinaryError('age');
   }
 
   ctx.logger.log(pc.blue(`Generating new key for ${pc.cyan(project)}...`));
@@ -252,6 +254,32 @@ function findGitRoot(startDir: string, ctx: HushContext): string | null {
   }
 }
 
+function ensureMaterializedDirIgnored(ctx: HushContext, gitRoot: string): void {
+  const gitignorePath = ctx.path.join(gitRoot, '.gitignore');
+  const entry = `${DEFAULT_PERSISTED_OUTPUT_DIRNAME}/`;
+
+  if (!ctx.fs.existsSync(gitignorePath)) {
+    ctx.fs.writeFileSync(gitignorePath, `${entry}\n`, 'utf-8');
+    ctx.logger.log(pc.green(`Created .gitignore with ${entry}`));
+    return;
+  }
+
+  const raw = ctx.fs.readFileSync(gitignorePath, 'utf-8');
+  const text = typeof raw === 'string' ? raw : raw.toString('utf-8');
+  const lines = text.split(/\r?\n/);
+
+  const alreadyPresent = lines.some((line) => {
+    const trimmed = line.trim();
+    return trimmed === entry || trimmed === DEFAULT_PERSISTED_OUTPUT_DIRNAME;
+  });
+
+  if (!alreadyPresent) {
+    const trailingNewline = text.endsWith('\n') ? '' : '\n';
+    ctx.fs.writeFileSync(gitignorePath, `${text}${trailingNewline}${entry}\n`, 'utf-8');
+    ctx.logger.log(pc.green(`Added ${entry} to .gitignore`));
+  }
+}
+
 async function readLine(ctx: HushContext): Promise<string> {
   return new Promise((resolve) => {
     const { stdin } = ctx.process;
@@ -406,6 +434,10 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
   const createdManifestShell = ensureManifestShell(ctx, effectiveRoot, projectIdentity);
   const createdSharedFileShell = ensureSharedFileShell(ctx, effectiveRoot, projectIdentity);
 
+  if (gitRoot) {
+    ensureMaterializedDirIgnored(ctx, gitRoot);
+  }
+
   const repository = loadV3Repository(effectiveRoot, { keyIdentity: projectIdentity });
   const resolvedStore = resolveBootstrapStore(options.store, effectiveRoot);
   const activeIdentity = ensureActiveIdentity(
@@ -430,7 +462,7 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
   }
 
   ctx.logger.log(pc.bold('\nNext steps:'));
-  ctx.logger.log(pc.dim('  1. hush config show'));
-  ctx.logger.log(pc.dim('  2. hush config active-identity member-local'));
-  ctx.logger.log(pc.dim('  3. hush config readers env/project/shared --roles owner,member,ci'));
+  ctx.logger.log(pc.dim('  1. hush set DATABASE_URL        Add your first secret'));
+  ctx.logger.log(pc.dim('  2. hush run -- npm start        Run your app with secrets injected in memory'));
+  ctx.logger.log(pc.dim('  3. hush inspect                 List what is stored (values stay hidden)'));
 }

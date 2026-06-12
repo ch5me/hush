@@ -13,7 +13,19 @@ interface UpdateCache {
   latestVersion: string;
 }
 
+function updateCheckDisabled(): boolean {
+  return Boolean(
+    process.env.HUSH_NO_UPDATE_CHECK ||
+    process.env.NO_UPDATE_NOTIFIER ||
+    process.env.CI
+  );
+}
+
 export function checkForUpdate(currentVersion: string): void {
+  if (updateCheckDisabled()) {
+    return;
+  }
+
   try {
     if (!fs.existsSync(CONFIG_DIR)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -76,10 +88,18 @@ function spawnBackgroundCheck() {
     req.end();
   `;
 
+  // Minimal env on purpose: never leak SOPS_AGE_KEY or other secrets into the
+  // detached update-check child.
+  const childEnv: NodeJS.ProcessEnv = { NO_UPDATE_NOTIFIER: '1' };
+  if (process.env.PATH) childEnv.PATH = process.env.PATH;
+  if (process.env.HOME) childEnv.HOME = process.env.HOME;
+  if (process.env.HTTPS_PROXY) childEnv.HTTPS_PROXY = process.env.HTTPS_PROXY;
+  if (process.env.SYSTEMROOT) childEnv.SYSTEMROOT = process.env.SYSTEMROOT;
+
   const child = spawn(process.execPath, ['-e', script], {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, NO_UPDATE_NOTIFIER: '1' }
+    env: childEnv
   });
   
   child.unref();

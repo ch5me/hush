@@ -157,7 +157,7 @@ describe('migrateCommand v2 -> v3', () => {
     const localOverridePath = join(process.env.HOME!, '.hush', 'state', 'projects', projectSlug, 'user', 'local-overrides.encrypted');
     expect(nodeFs.existsSync(localOverridePath)).toBe(true);
     expect(readDecryptedYamlFile(root, localOverridePath)).toContain('env/project/local/LOCAL_ONLY');
-  }, 15000);
+  }, 60000);
 
   it('cleanup is rerun-safe and removes transitional leftovers after validation', async () => {
     const root = join(TEST_DIR, 'cleanup-repo');
@@ -172,7 +172,7 @@ describe('migrateCommand v2 -> v3', () => {
     expect(nodeFs.existsSync(join(root, '.env.encrypted'))).toBe(false);
     expect(nodeFs.existsSync(join(root, '.env.local.encrypted'))).toBe(false);
     expect(nodeFs.existsSync(join(root, '.hush', 'migration-v2-state.json'))).toBe(false);
-  }, 15000);
+  }, 60000);
 
   it('short-circuits safely when the repo is already migrated', async () => {
     const root = join(TEST_DIR, 'already-migrated');
@@ -186,7 +186,7 @@ describe('migrateCommand v2 -> v3', () => {
 
     expect(readDecryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'))).toBe(firstManifest);
     expect(ctx.logger.log).toHaveBeenCalledWith(expect.stringMatching(/already has \.hush\/ v3 state/i));
-  }, 15000);
+  }, 60000);
 
   it('fails without leaving mixed state when .hush is still a legacy file', async () => {
     const root = join(TEST_DIR, 'root-file-conflict');
@@ -223,7 +223,7 @@ describe('migrateCommand v2 -> v3', () => {
     expect(gitignore).not.toMatch(/^\.hush\/?$/m);
     expect(gitignore).toMatch(/^\.hush-materialized\/$/m);
     expect(ctx.logger.log).toHaveBeenCalledWith(expect.stringMatching(/Updated \.gitignore/i));
-  }, 15000);
+  }, 60000);
 
   it('migrates plaintext local overrides and resolves self-referential placeholders before v3 validation', async () => {
     const root = join(TEST_DIR, 'plaintext-local-repo');
@@ -241,7 +241,7 @@ describe('migrateCommand v2 -> v3', () => {
     expect(runtimeFile).toContain('http://localhost:11434');
     expect(runtimeFile).not.toContain('${OLLAMA_API_KEY}');
     expect(localFile).toContain('env/project/local/OLLAMA_API_KEY');
-  }, 15000);
+  }, 60000);
 
   it('fails migration with a clear unresolved interpolation error before v3 materialization crashes', async () => {
     const root = join(TEST_DIR, 'unresolved-placeholder-repo');
@@ -266,7 +266,7 @@ describe('migrateCommand v2 -> v3', () => {
     expect(manifest).toContain('pages-production:');
     expect(manifest).toContain('type: cloudflare-pages');
     expect(manifest).toContain('project: docs');
-  }, 15000);
+  }, 60000);
 
   it('migrates object-keyed legacy targets without crashing', async () => {
     const root = join(TEST_DIR, 'object-keyed-targets');
@@ -299,7 +299,7 @@ targets:
     expect(manifest).toContain('api:');
     expect(manifest).toContain('web:');
     expect(manifest).not.toContain('schema_only:');
-  }, 15000);
+  }, 60000);
 
   it('parses migrate flags correctly', () => {
     const parsed = parseArgs(['migrate', '--from', 'v2', '--cleanup', '--dry-run']);

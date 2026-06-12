@@ -255,7 +255,6 @@ export interface SetOptions {
 export interface RunOptions {
   store: StoreContext;
   cwd: string;
-  env: Environment;
   target?: string;
   command: string[];
 }
@@ -297,6 +296,7 @@ export interface ConfigOptions {
 export interface ListOptions {
   store: StoreContext;
   env: Environment;
+  reveal?: boolean;
 }
 
 export interface CheckOptions {

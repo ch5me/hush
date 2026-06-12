@@ -434,10 +434,8 @@ export function writeEditableFileDocument(
 export function openEditor(ctx: HushContext, systemPath: string, editorOverride?: string): void {
   const resolvedEditor = editorOverride ?? ctx.process.env.EDITOR ?? 'vi';
   ctx.logger.info(pc.dim(`Using editor: ${resolvedEditor}`));
-  ctx.exec.execSync(`${resolvedEditor} "${systemPath}"`, {
-    stdio: 'inherit',
-    shell: '/bin/bash',
-  });
+  const [bin, ...editorArgs] = resolvedEditor.split(/\s+/);
+  ctx.exec.spawnSync(bin, [...editorArgs, systemPath], { stdio: 'inherit' });
 }
 
 export function validateEditedFileDocument(ctx: HushContext, systemPath: string): HushFileDocument {

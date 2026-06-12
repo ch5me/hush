@@ -75,11 +75,11 @@ export async function pushCommand(ctx: HushContext, options: PushOptions): Promi
   const pushableTargets = getPushableTargetNames(repository, options.target);
 
   if (pushableTargets.length === 0) {
-    ctx.logger.error(pc.red('No pushable v3 targets found. Add a wrangler-formatted target first.'));
+    ctx.logger.error(pc.red('No pushable targets found. Add a wrangler-formatted target with `hush target add`.'));
     ctx.process.exit(1);
   }
 
-  ctx.logger.log(pc.blue('Pushing v3 secrets to Cloudflare Workers...'));
+  ctx.logger.log(pc.blue('Pushing secrets to Cloudflare Workers...'));
   if (options.dryRun) {
     ctx.logger.log(pc.yellow('(dry-run mode)'));
   }
