@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { withMaterializedTarget } from '../index.js';
 import { requireV3Repository, selectRuntimeTarget } from './v3-command-helpers.js';
 import type { HushContext, RunOptions } from '../types.js';
+import { globalStoreHint } from '../lib/global-store-hint.js';
 
 function warnWranglerConflict(ctx: HushContext, cwd: string): void {
   const devVarsPath = join(cwd, '.dev.vars');
@@ -65,6 +66,16 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     ctx.logger.error(pc.red(message));
+
+    // Emit a cross-store hint when a named target is missing and the global
+    // store exists and contains that target name.
+    if (target && store.mode !== 'global') {
+      const hint = globalStoreHint(target, 'target', store.root);
+      if (hint) {
+        ctx.logger.warn(pc.yellow(`\nHint: ${hint}`));
+      }
+    }
+
     ctx.process.exit(1);
   }
 

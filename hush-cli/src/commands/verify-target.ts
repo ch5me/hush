@@ -4,6 +4,7 @@ import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { HushResolutionConflictError, resolveV3Target } from '../v3/resolver.js';
 import type { HushContext, HushResolvedNode, VerifyTargetOptions } from '../types.js';
+import { globalStoreHint } from '../lib/global-store-hint.js';
 
 function logicalPathKey(logicalPath: string): string {
   return logicalPath.split('/').filter(Boolean).at(-1) ?? logicalPath;
@@ -49,6 +50,12 @@ export async function verifyTargetCommand(ctx: HushContext, options: VerifyTarge
     } else {
       ctx.logger.error(`Target not found: ${options.target}`);
       ctx.logger.error(pc.dim(`Available targets: ${payload.availableTargets.join(', ') || '(none)'}`));
+      if (options.store.mode !== 'global') {
+        const hint = globalStoreHint(options.target, 'target', options.store.root);
+        if (hint) {
+          ctx.logger.warn(pc.yellow(`\nHint: ${hint}`));
+        }
+      }
     }
     ctx.process.exit(1);
   }

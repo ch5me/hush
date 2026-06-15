@@ -1,9 +1,37 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import pc from 'picocolors';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
+import { GLOBAL_STORE_ROOT } from '../store.js';
 import { getActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { getProjectStatePaths } from '../v3/state.js';
 import type { HushContext, StatusOptions } from '../types.js';
+
+/**
+ * Peek at the global store manifest for target/bundle counts.
+ * Read-only, names-only (SOPS YAML outer keys), never decrypts values, never throws.
+ */
+function peekGlobalStoreCounts(globalRoot: string): { targetCount: number; bundleCount: number } | undefined {
+  const manifestPath = join(globalRoot, '.hush', 'manifest.encrypted');
+  if (!existsSync(manifestPath)) return undefined;
+  try {
+    const raw = readFileSync(manifestPath, 'utf-8');
+    const parsed = parseYaml(raw) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== 'object') return { targetCount: 0, bundleCount: 0 };
+    const targets = parsed.targets;
+    const bundles = parsed.bundles;
+    return {
+      targetCount: targets && typeof targets === 'object' && !Array.isArray(targets)
+        ? Object.keys(targets as Record<string, unknown>).length : 0,
+      bundleCount: bundles && typeof bundles === 'object' && !Array.isArray(bundles)
+        ? Object.keys(bundles as Record<string, unknown>).length : 0,
+    };
+  } catch {
+    return { targetCount: 0, bundleCount: 0 };
+  }
+}
 
 function formatStateHealth(ctx: HushContext, path: string): string {
   return ctx.fs.existsSync(path) ? pc.green('present') : pc.yellow('missing');
@@ -57,6 +85,14 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     const targetCount = Object.keys(authority.manifest.targets ?? {}).length;
     const importCount = Object.keys(authority.manifest.imports ?? {}).length;
 
+    // Global store topology: best-effort peek (names only, never decrypts, never throws).
+    const globalCounts = options.store.mode !== 'global'
+      ? peekGlobalStoreCounts(GLOBAL_STORE_ROOT)
+      : null;
+    const home = process.env.HOME ?? '';
+    const globalDisplayPath = home ? `~/.hush` : GLOBAL_STORE_ROOT;
+    const globalExists = existsSync(join(GLOBAL_STORE_ROOT, '.hush', 'manifest.encrypted'));
+
     if (options.json) {
       ctx.logger.log(JSON.stringify({
         repository: repositoryStatus,
@@ -82,6 +118,15 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
           auditLogPath: statePaths.auditLogPath,
           auditLogPresent: ctx.fs.existsSync(statePaths.auditLogPath),
         },
+        globalStore: globalCounts !== null
+          ? {
+            path: globalDisplayPath,
+            exists: globalExists,
+            targetCount: globalCounts?.targetCount ?? 0,
+            bundleCount: globalCounts?.bundleCount ?? 0,
+            autoInherited: false,
+          }
+          : null,
       }, null, 2));
       return;
     }
@@ -102,6 +147,19 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     ctx.logger.log(formatCount('bundles', bundleCount));
     ctx.logger.log(formatCount('targets', targetCount));
     ctx.logger.log(formatCount('imports', importCount));
+
+    // Two-store topology note (only when in project mode).
+    if (globalCounts !== null) {
+      ctx.logger.log('');
+      ctx.logger.log('Global store:');
+      if (globalExists && globalCounts) {
+        ctx.logger.log(`  ${globalDisplayPath}: ${pc.cyan(`${globalCounts.targetCount} target(s), ${globalCounts.bundleCount} bundle(s)`)}`);
+      } else {
+        ctx.logger.log(`  ${globalDisplayPath}: ${pc.dim('(not present)')}`);
+      }
+      ctx.logger.log(pc.dim(`  Not auto-inherited — compose via \`hush import add --source-root ${globalDisplayPath}\` or use \`hush --root ${globalDisplayPath} <cmd>\` for one-off access.`));
+    }
+
     ctx.logger.log('');
     ctx.logger.log('Machine-local state:');
     ctx.logger.log(`  project slug: ${pc.cyan(statePaths.projectSlug)}`);

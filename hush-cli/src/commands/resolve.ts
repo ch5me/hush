@@ -5,6 +5,7 @@ import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { formatCompactRecord, toCompactRecord } from './v3-command-helpers.js';
 import type { HushBundleConflictDetail, HushCompactRecord, HushContext, HushResolvedNode, ResolveOptions } from '../types.js';
+import { globalStoreHint } from '../lib/global-store-hint.js';
 
 function formatReaders(readers: { roles: string[]; identities: string[] }): string {
   return `roles=${readers.roles.join(',') || '-'} identities=${readers.identities.join(',') || '-'}`;
@@ -122,6 +123,12 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
   if (!target) {
     ctx.logger.error(`Target not found: ${options.target}`);
     ctx.logger.error(pc.dim(`Available targets: ${Object.keys(repository.manifest.targets ?? {}).join(', ') || '(none)'}`));
+    if (options.store.mode !== 'global') {
+      const hint = globalStoreHint(options.target, 'target', options.store.root);
+      if (hint) {
+        ctx.logger.warn(pc.yellow(`\nHint: ${hint}`));
+      }
+    }
     ctx.process.exit(1);
   }
 

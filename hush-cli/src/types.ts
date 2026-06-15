@@ -451,6 +451,20 @@ export interface TargetListOptions {
 
 export type TargetCommandOptions = TargetAddOptions | TargetRemoveOptions | TargetListOptions;
 
+// Import command options
+export interface ImportAddOptions {
+  store: StoreContext;
+  /** Absolute or relative path to the source store root (required). */
+  sourceRoot: string;
+  /** Bundle name to pull from the source store (optional). */
+  bundle?: string;
+  /** File path to pull from the source store (optional). */
+  file?: string;
+  /** Override the derived import name (optional). */
+  importName?: string;
+  json?: boolean;
+}
+
 export interface TraceOptions {
   store: StoreContext;
   env: Environment;

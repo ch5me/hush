@@ -36,6 +36,7 @@ import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
 import { migrateCommand } from './commands/migrate.js';
 import { targetCommand } from './commands/target.js';
+import { importAddCommand } from './commands/import.js';
 import { findProjectRoot } from './config/loader.js';
 import { resolveStoreContext } from './store.js';
 import { checkForUpdate } from './utils/version-check.js';
@@ -236,6 +237,10 @@ export interface ParsedArgs {
   repoLocal: boolean;
   reveal: boolean;
   write: boolean;
+  /** Override the derived import name for `hush import add`. */
+  importName?: string;
+  /** Source store root for `hush import add --source-root <path>`. */
+  sourceRoot?: string;
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -296,6 +301,8 @@ export function parseArgs(args: string[]): ParsedArgs {
   let repoLocal = false;
   let reveal = false;
   let write = false;
+  let importName: string | undefined;
+  let sourceRoot: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -494,6 +501,16 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--import-name') {
+      importName = args[++i];
+      continue;
+    }
+
+    if (arg === '--source-root') {
+      sourceRoot = args[++i];
+      continue;
+    }
+
     if (arg === '--keep-file') {
       keepFile = true;
       continue;
@@ -568,6 +585,15 @@ export function parseArgs(args: string[]): ParsedArgs {
     }
 
     if (command === 'config' && !arg.startsWith('-')) {
+      if (!subcommand) {
+        subcommand = arg;
+      } else {
+        positionalArgs.push(arg);
+      }
+      continue;
+    }
+
+    if ((command === 'import') && !arg.startsWith('-')) {
       if (!subcommand) {
         subcommand = arg;
       } else {
@@ -651,6 +677,8 @@ export function parseArgs(args: string[]): ParsedArgs {
     keepFile,
     files,
     write,
+    importName,
+    sourceRoot,
   };
 }
 
@@ -731,6 +759,8 @@ export async function main(): Promise<void> {
     materializeAs,
     files,
     write,
+    importName,
+    sourceRoot,
   } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
@@ -1063,6 +1093,30 @@ export async function main(): Promise<void> {
           console.error(pc.red(`Unknown target subcommand: ${subcommand ?? 'none'}`));
           console.error(
             'Usage:\n  hush target add <name> --bundle <bundle> --format <format> [--mode process|file|example] [--filename <name>] [--subpath <path>] [--materialize-as <name>]\n  hush target remove <name>\n  hush target list [--json]',
+          );
+          process.exit(1);
+        }
+        break;
+      }
+
+      case 'import': {
+        if (subcommand === 'add') {
+          // --source-root is the source store path; --root is the usual CWD start dir.
+          // The first positional arg (after 'add') may also be the source root if
+          // --source-root was not supplied explicitly.
+          const effectiveSourceRoot = sourceRoot ?? positionalArgs[0] ?? '';
+          await importAddCommand(defaultContext, {
+            store,
+            sourceRoot: effectiveSourceRoot,
+            bundle,
+            file: setFile,
+            importName,
+            json,
+          });
+        } else {
+          console.error(pc.red(`Unknown import subcommand: ${subcommand ?? 'none'}`));
+          console.error(
+            'Usage:\n  hush import add --source-root <source-store-root> [--bundle <name>] [--file <path>] [--import-name <name>] [--json]',
           );
           process.exit(1);
         }

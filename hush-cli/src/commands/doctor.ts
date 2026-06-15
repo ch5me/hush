@@ -1,8 +1,11 @@
 import { resolve, dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import pc from 'picocolors';
 import type { HushContext } from '../types.js';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
-import { resolveStoreContext, type ResolveStoreContextOptions } from '../store.js';
+import { resolveStoreContext, GLOBAL_STORE_ROOT, type ResolveStoreContextOptions } from '../store.js';
 import { resolveAgeKeySource, type ResolvedAgeKeySource } from '../core/sops.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { getProjectIdentifier } from '../project.js';
@@ -57,6 +60,52 @@ function checkSopsKeyMatch(ctx: HushContext, root: string, resolution: ResolvedA
     };
   } catch {
     return { matched: false };
+  }
+}
+
+interface GlobalStoreTopology {
+  /** Whether ~/.hush exists and has a manifest. */
+  exists: boolean;
+  /** Human-readable display path (e.g. ~/.hush). */
+  displayPath: string;
+  /** Count of targets declared in the global manifest (names only, no decrypt). */
+  targetCount: number;
+  /** Count of bundles declared in the global manifest. */
+  bundleCount: number;
+}
+
+/**
+ * Peek at the global store manifest to count targets/bundles.
+ * Safe: reads SOPS YAML skeleton (names only), never decrypts values.
+ */
+function peekGlobalStoreTopology(globalRoot: string): GlobalStoreTopology {
+  const home = process.env.HOME ?? '';
+  const displayPath = home && globalRoot.startsWith(home)
+    ? `~/${globalRoot.slice(home.length + 1)}`
+    : globalRoot;
+
+  const manifestPath = join(globalRoot, '.hush', 'manifest.encrypted');
+  if (!existsSync(manifestPath)) {
+    return { exists: false, displayPath, targetCount: 0, bundleCount: 0 };
+  }
+
+  try {
+    const raw = readFileSync(manifestPath, 'utf-8');
+    const parsed = parseYaml(raw) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== 'object') {
+      return { exists: true, displayPath, targetCount: 0, bundleCount: 0 };
+    }
+    const targets = parsed.targets;
+    const bundles = parsed.bundles;
+    const targetCount = targets && typeof targets === 'object' && !Array.isArray(targets)
+      ? Object.keys(targets as Record<string, unknown>).length
+      : 0;
+    const bundleCount = bundles && typeof bundles === 'object' && !Array.isArray(bundles)
+      ? Object.keys(bundles as Record<string, unknown>).length
+      : 0;
+    return { exists: true, displayPath, targetCount, bundleCount };
+  } catch {
+    return { exists: true, displayPath, targetCount: 0, bundleCount: 0 };
   }
 }
 
@@ -130,8 +179,29 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
     }
   }
 
+  // Global store topology (best-effort, never throws).
+  const globalTopology = store.mode !== 'global'
+    ? peekGlobalStoreTopology(GLOBAL_STORE_ROOT)
+    : null;
+
   if (options.json) {
-    ctx.logger.log(JSON.stringify({ checks }, null, 2));
+    ctx.logger.log(JSON.stringify({
+      checks,
+      storeTopology: {
+        resolvedRoot: store.root,
+        storeMode: store.mode,
+        globalStore: globalTopology
+          ? {
+            path: globalTopology.displayPath,
+            exists: globalTopology.exists,
+            targetCount: globalTopology.targetCount,
+            bundleCount: globalTopology.bundleCount,
+            autoInherited: false,
+            compositionNote: 'not auto-inherited; compose via `hush import add` or pass `--root ~/.hush` for one-off use',
+          }
+          : null,
+      },
+    }, null, 2));
     return;
   }
 
@@ -224,8 +294,22 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
     ctx.logger.log('');
   }
 
-  // 6. Recommendations
-  ctx.logger.log(pc.bold('6. Recommendations'));
+  // 6. Store topology
+  ctx.logger.log(pc.bold('6. Store Topology'));
+  ctx.logger.log(pc.dim(`  Resolved store:     ${store.root}`));
+  ctx.logger.log(pc.dim(`  Store mode:         ${store.mode}`));
+  if (globalTopology) {
+    if (globalTopology.exists) {
+      ctx.logger.log(pc.dim(`  Global store:       ${globalTopology.displayPath} (${globalTopology.targetCount} target(s), ${globalTopology.bundleCount} bundle(s))`));
+    } else {
+      ctx.logger.log(pc.dim(`  Global store:       ${globalTopology.displayPath} (not present)`));
+    }
+    ctx.logger.log(pc.dim('  Inheritance:        NOT auto-inherited — compose via `hush import add --source-root ~/.hush` or `hush --root ~/.hush <cmd>` for one-off use'));
+  }
+  ctx.logger.log('');
+
+  // 7. Recommendations
+  ctx.logger.log(pc.bold('7. Recommendations'));
   const issues: string[] = [];
 
   if (!discovery && !options.newRepo) {

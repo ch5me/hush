@@ -1,0 +1,150 @@
+---
+title: Stores & Composition
+description: How Hush resolves stores, why secrets from ~/.hush don't auto-appear inside a project repo, and how to compose them explicitly.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+## Mental model
+
+Hush uses **explicit, pull-only composition**. There is no ambient inheritance.
+
+Each directory tree has at most one store — the nearest `.hush/` found by walking up from the current directory. When you're inside a project repo (`~/src/my-app/.hush/`), the global store (`~/.hush`) is **completely separate**. Secrets from the global store are not visible inside the project unless you compose them explicitly.
+
+This is intentional:
+
+- Ambient inheritance creates invisible, implicit dependencies that are hard to audit.
+- Explicit composition keeps every resolution traceable to a declared relationship.
+- The ACL and materialization model assumes a single authoritative store per invocation.
+
+```
+~/src/my-app/        ← project store root (resolves from .hush/ here)
+  .hush/
+    manifest.encrypted
+    files/
+      env/project/shared.encrypted
+
+~/.hush/              ← global store (completely separate, NOT auto-inherited)
+  manifest.encrypted
+  files/
+    env/project/shared.encrypted
+```
+
+## Store resolution
+
+Hush walks up from the current directory looking for the first `.hush/manifest.encrypted`. That directory becomes the resolved store root for all commands in that session.
+
+You can override this with:
+
+- `--root <dir>` — force the start directory (store walk begins there instead of `cwd`).
+- `--global` — skip discovery entirely and use `~/.hush` directly.
+
+**Important**: `--root` affects where the walk *starts*, not which store wins. The first `.hush/` found at or above that dir wins.
+
+## Why "not found" errors happen cross-store
+
+If you run `hush run -- my-command` inside a project repo and get a "target not found" error, the most common causes are:
+
+1. The target is declared in `~/.hush` but not in the project's `.hush/`.
+2. The project has its own targets but they have different names.
+
+Hush will now emit a hint when it detects that the missing target/key exists in the global store:
+
+```text
+'runtime' not found in this store (/home/user/src/my-app).
+It exists in the global store ~/.hush — compose it explicitly:
+`hush import add --source-root ~/.hush --bundle project` (persistent),
+or run one-off with `hush --root ~/.hush run -- my-command`.
+```
+
+## Agent decision tree
+
+Use this decision tree to determine the right resolution path:
+
+```
+Do you need a project-specific secret?
+  └─ Yes → hush run --target <t> -- <cmd>
+           (or hush has <KEY> / hush verify-target <t>)
+
+Do you need a shared/global secret from inside a project repo?
+  ├─ One-off → hush --root ~/.hush run -- <cmd>
+  └─ Permanent (same secret in every session for this project) →
+       hush import add --source-root ~/.hush --bundle <bundle>
+       (then hush run -- <cmd> works normally)
+
+Do you need global-only access (no project store)?
+  └─ hush --global run -- <cmd>
+     (or hush --global set KEY / hush --global has KEY)
+```
+
+## Explicit composition with `hush import add`
+
+The `hush import add` command writes an explicit import declaration into the current project's `.hush/manifest.encrypted`. It is the **blessed, persistent composition path**.
+
+```bash
+# Import the 'project' bundle from the global store into this repo.
+hush import add --source-root ~/.hush --bundle project
+
+# Import everything from an adjacent repo's store.
+hush import add --source-root ../shared-services
+
+# Use a custom import name (default is derived from the source root + bundle).
+hush import add --source-root ~/.hush --bundle project --import-name global-project
+```
+
+**Idempotent**: running the same command twice does not create a duplicate.
+
+**Validation**: the command checks that the source root exists and that the named bundle is declared there before writing.
+
+After adding an import, the imported bundle's contents are available to any bundle or target in the current repo that references it.
+
+<Aside type="note" title="Import ≠ copy">
+An import declaration is a reference, not a copy. The actual values are resolved at runtime from the source store — both stores must be present and accessible when you run commands.
+</Aside>
+
+## One-off override with `--root`
+
+For one-off access (e.g. in CI or a quick interactive check), pass `--root` to override the store start dir:
+
+```bash
+# Run with secrets from the global store only.
+hush --root ~/.hush run -- npm start
+
+# Check whether a key exists in the global store from inside a project.
+hush --root ~/.hush has OPENAI_API_KEY
+
+# Resolve a target from the global store.
+hush --root ~/.hush resolve runtime
+```
+
+<Aside type="caution" title="--root vs. --global">
+`--root ~/.hush` starts the walk at `~/.hush` and discovers the store there.
+`--global` is a shorthand that does the same thing.
+Both are equivalent for `~/.hush`. For other external stores, use `--root <path>`.
+</Aside>
+
+## Checking topology with `hush doctor` and `hush status`
+
+`hush doctor` and `hush status` now surface the two-store topology so you can see at a glance whether the global store exists and whether it is being used:
+
+```bash
+hush doctor
+# ...
+# 6. Store Topology
+#   Resolved store:     /home/user/src/my-app
+#   Store mode:         project
+#   Global store:       ~/.hush (3 target(s), 2 bundle(s))
+#   Inheritance:        NOT auto-inherited — compose via `hush import add` or `hush --root ~/.hush <cmd>`
+
+hush status
+# ...
+# Global store:
+#   ~/.hush: 3 target(s), 2 bundle(s)
+#   Not auto-inherited — compose via `hush import add --source-root ~/.hush` or use `hush --root ~/.hush <cmd>` for one-off access.
+```
+
+## Security and auditability notes
+
+- Explicit imports appear in the manifest's `imports:` section and are encrypted at rest.
+- Every resolved read from an imported store is logged in the active store's audit log.
+- There is no way for a store to "push" values into another store without an explicit import declaration in the receiving store.

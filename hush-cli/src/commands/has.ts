@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { appendCommandReadAudit, resolveTargetEnvView } from './v3-command-helpers.js';
 import type { Environment, HushContext, StoreContext } from '../types.js';
+import { globalStoreHint } from '../lib/global-store-hint.js';
 
 export interface HasOptions {
   store: StoreContext;
@@ -38,6 +39,12 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
         ctx.logger.log(pc.yellow(`${key} exists but is empty`));
       } else {
         ctx.logger.log(pc.red(`${key} not found in target ${view.targetName}`));
+        if (store.mode !== 'global') {
+          const hint = globalStoreHint(key, 'key', store.root);
+          if (hint) {
+            ctx.logger.warn(pc.yellow(`\nHint: ${hint}`));
+          }
+        }
       }
     }
 
