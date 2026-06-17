@@ -124,8 +124,8 @@ jobs:
       - name: Type check
         run: bun run type-check
 
-      - name: Run tests with coverage
-        run: bun run cli:test:coverage
+      - name: Run tests
+        run: bun run cli:test
 
   release:
     needs: ci
