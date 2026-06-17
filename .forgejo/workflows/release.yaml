@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 env:
-  SOPS_SHA256: "5488e32bc471de7982ad895dd054bbab3ab91c417a118426134551e9626e4e85"
+  SOPS_SHA256: "775f1384d55decfad228e7196a3f683791914f92a473f78fc47700531c29dfef"
   AGE_SHA256: "2ae71cb3ea761118937a944083f057cfd42f0ef11d197ce72fc2b8780d50c4ef"
 
 jobs:
@@ -100,9 +100,9 @@ jobs:
             fi
           }
 
-          curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
-          echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
-          run_root mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          curl -LO https://github.com/getsops/sops/releases/download/v3.11.0/sops-v3.11.0.linux.amd64
+          echo "$SOPS_SHA256  sops-v3.11.0.linux.amd64" | sha256sum -c -
+          run_root mv sops-v3.11.0.linux.amd64 /usr/local/bin/sops
           run_root chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
@@ -167,9 +167,9 @@ jobs:
             fi
           }
 
-          curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
-          echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
-          run_root mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          curl -LO https://github.com/getsops/sops/releases/download/v3.11.0/sops-v3.11.0.linux.amd64
+          echo "$SOPS_SHA256  sops-v3.11.0.linux.amd64" | sha256sum -c -
+          run_root mv sops-v3.11.0.linux.amd64 /usr/local/bin/sops
           run_root chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
@@ -469,9 +469,9 @@ jobs:
             fi
           }
 
-          curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
-          echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
-          run_root mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          curl -LO https://github.com/getsops/sops/releases/download/v3.11.0/sops-v3.11.0.linux.amd64
+          echo "$SOPS_SHA256  sops-v3.11.0.linux.amd64" | sha256sum -c -
+          run_root mv sops-v3.11.0.linux.amd64 /usr/local/bin/sops
           run_root chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
