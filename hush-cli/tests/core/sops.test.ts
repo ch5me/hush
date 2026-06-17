@@ -62,6 +62,10 @@ describe('sops helpers', () => {
       return join(home, 'Library', 'Application Support', 'sops', 'age', 'keys.txt');
     }
 
+    return join(process.env.XDG_CONFIG_HOME || join(home, '.config'), 'sops', 'age', 'keys.txt');
+  }
+
+  function getCompatKeysPath(home: string): string {
     return join(home, '.config', 'sops', 'age', 'keys.txt');
   }
 
@@ -166,9 +170,6 @@ describe('sops helpers', () => {
   it('reports the resolved identity and attempted key paths on decryption failure', () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), 'hush-sops-home-missing-'));
     const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
-    const standardKeyPathPattern = process.platform === 'darwin'
-      ? escapeRegex(getStandardKeysPath(isolatedHome).replace(isolatedHome, '~'))
-      : '(?:~|/.+)/\\.config/sops/age/keys\\.txt';
     const missingProjectKeyPath = join(isolatedHome, '.config', 'sops', 'age', 'keys', 'missing-key-fixture.txt').replace(isolatedHome, '~');
 
     mkdirSync(dirname(manifestPath), { recursive: true });
@@ -180,14 +181,18 @@ describe('sops helpers', () => {
     process.env.HOME = isolatedHome;
     clearExplicitSopsAgeEnv();
 
+    const attemptedKeyPathPatterns = [
+      missingProjectKeyPath,
+      getStandardKeysPath(isolatedHome).replace(isolatedHome, '~'),
+      getCompatKeysPath(isolatedHome).replace(isolatedHome, '~'),
+      '~/.config/sops/age/key.txt',
+    ].filter((path, index, paths) => paths.indexOf(path) === index).map(escapeRegex);
+
     expect(() => decryptYaml(manifestPath, { root: storeDir, keyIdentity: 'missing-key-fixture' })).toThrowError(
       new RegExp([
         'Key identity: missing-key-fixture',
         'Attempted key paths:',
-        escapeRegex(missingProjectKeyPath),
-        standardKeyPathPattern,
-        '~/.config/sops/age/keys.txt',
-        '~/.config/sops/age/key.txt',
+        ...attemptedKeyPathPatterns,
       ].join('[\\s\\S]*')),
     );
   });
