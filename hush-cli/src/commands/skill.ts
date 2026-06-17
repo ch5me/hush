@@ -7,7 +7,7 @@ const SKILL_FILES = {
   'SKILL.md': `---
 name: hush-secrets
 description: Manage secrets safely with the Hush v3 CLI. Use when working with encrypted config, environment variables, API keys, credentials, or migrating a legacy hush.yaml repo. NEVER read .hush/** directly.
-allowed-tools: Bash(hush inspect:*), Bash(hush has:*), Bash(hush set:*), Bash(hush run:*), Bash(hush config:*), Bash(hush doctor:*), Bash(hush status:*), Bash(hush check:*), Bash(hush verify-target:*), Bash(hush resolve:*), Bash(hush trace:*), Bash(hush diff:*), Bash(hush export-example:*), Bash(hush bootstrap:*), Bash(npx @chriscode/hush inspect:*), Bash(npx @chriscode/hush has:*), Bash(npx @chriscode/hush set:*), Bash(npx @chriscode/hush run:*), Bash(npx @chriscode/hush config:*), Bash(npx @chriscode/hush doctor:*), Bash(npx @chriscode/hush status:*), Bash(npx @chriscode/hush check:*), Bash(npx @chriscode/hush verify-target:*), Bash(npx @chriscode/hush resolve:*), Bash(npx @chriscode/hush trace:*), Bash(npx @chriscode/hush diff:*), Bash(npx @chriscode/hush export-example:*), Bash(npx @chriscode/hush bootstrap:*), Read, Grep, Glob
+allowed-tools: Bash(hush inspect:*), Bash(hush has:*), Bash(hush get:*), Bash(hush set:*), Bash(hush run:*), Bash(hush config:*), Bash(hush doctor:*), Bash(hush status:*), Bash(hush check:*), Bash(hush verify-target:*), Bash(hush resolve:*), Bash(hush trace:*), Bash(hush diff:*), Bash(hush export-example:*), Bash(hush bootstrap:*), Bash(npx @chriscode/hush inspect:*), Bash(npx @chriscode/hush has:*), Bash(npx @chriscode/hush get:*), Bash(npx @chriscode/hush set:*), Bash(npx @chriscode/hush run:*), Bash(npx @chriscode/hush config:*), Bash(npx @chriscode/hush doctor:*), Bash(npx @chriscode/hush status:*), Bash(npx @chriscode/hush check:*), Bash(npx @chriscode/hush verify-target:*), Bash(npx @chriscode/hush resolve:*), Bash(npx @chriscode/hush trace:*), Bash(npx @chriscode/hush diff:*), Bash(npx @chriscode/hush export-example:*), Bash(npx @chriscode/hush bootstrap:*), Read, Grep, Glob
 ---
 
 # Hush v3 skill
@@ -109,6 +109,15 @@ npx @chriscode/hush has DATABASE_URL --json
 \`\`\`
 
 \`--json\` is available on \`inspect\`, \`status\`, and \`doctor\` for machine-readable output. \`inspect --json\` includes a \`value\` field **only** for entries where \`sensitive: false\`; sensitive entries are never exposed.
+
+### Read one secret (single value)
+
+\`\`\`bash
+npx @chriscode/hush get DATABASE_URL          # masked (AI-safe): KEY=******** (from <file>)
+npx @chriscode/hush get DATABASE_URL --json   # structured: {key, value (masked), target, source}
+\`\`\`
+
+\`get\` reads ONE key from a resolved target (default \`runtime\`, or \`--target <name>\`) and shows which file it came from. Masked by default; \`--reveal\` prints the bare plaintext value to stdout so it is scriptable (\`CODE="$(hush get KEY --reveal)"\`). Avoid \`--reveal\` in AI sessions — use plain \`hush get KEY\` to confirm a value is set without exposing it.
 
 ### Add or update one secret
 
@@ -220,6 +229,7 @@ npx @chriscode/hush target remove api-production
 - \`cat .env\`
 - \`cat .hush/**\`
 - \`hush list --reveal\` (plaintext dump; \`hush list\` without it is masked and fine)
+- \`hush get KEY --reveal\` (prints one plaintext value; plain \`hush get KEY\` is masked and fine)
 - \`hush decrypt --force\` unless the user explicitly needs the legacy bulk plaintext dump
 - \`hush edit\`, \`hush push\`, and \`hush materialize\` are deliberately not pre-approved by this skill: they can persist or transmit plaintext, so they require explicit human approval
 

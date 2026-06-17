@@ -1497,6 +1497,34 @@ hush list -e production
 
 ---
 
+## get
+
+Read a **single** variable's value from a resolved target, with the source file it came from. Masked by default (AI-safe, like `list`); `--reveal` prints the bare plaintext value to stdout so it is scriptable.
+
+```bash
+hush get DATABASE_URL                 # masked: DATABASE_URL=******** (from env/project/shared)
+hush get DATABASE_URL --reveal        # prints ONLY the value (scriptable)
+hush get DATABASE_URL --json          # {"key","value","target","source","revealed"}
+hush get API_KEY -t api-production    # read from a specific target
+CODE="$(hush get RELAY_INVITE_CODE --reveal)"
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-t, --target <name>` | Resolve within a specific target (default: `runtime`) |
+| `--reveal` | Print the bare plaintext value to stdout (scriptable) |
+| `--json` | Emit a structured record (value masked unless `--reveal`) |
+
+With `--reveal`, only the value goes to **stdout**; the provenance line and the plaintext warning go to stderr, so `$(hush get KEY --reveal)` captures just the value. A missing key exits non-zero.
+
+<Aside type="caution">
+`--reveal` prints an actual secret value. Omit it (plain `hush get KEY`) to confirm a value is set and see its source without exposing it — that output is AI-safe.
+</Aside>
+
+---
+
 ## Troubleshooting
 
 ### "no identity matched any of the recipients"

@@ -18,6 +18,7 @@ import { initCommand } from './commands/init.js';
 import { bootstrapCommand } from './commands/bootstrap.js';
 import { configCommand } from './commands/config.js';
 import { listCommand } from './commands/list.js';
+import { getCommand } from './commands/get.js';
 import { inspectCommand } from './commands/inspect.js';
 import { hasCommand } from './commands/has.js';
 import { checkCommand } from './commands/check.js';
@@ -75,6 +76,7 @@ ${pc.bold('Commands:')}
   delete-key <KEY>  Delete one key from an encrypted v3 file (--from <file>)
   edit [file]       Edit all secrets in $EDITOR
   list              List all variables (values masked; --reveal to show)
+  get <KEY>         Read one variable (masked; --reveal prints the bare value, scriptable)
   inspect           List all variables (masked values, AI-safe)
   has <key>         Check if a secret exists (exit 0 if set, 1 if not)
   check             Verify secrets are encrypted (for pre-commit hooks)
@@ -121,7 +123,7 @@ ${pc.bold('Options:')}
   --file <path>     Set destination file alias or declared v3 file path (set only)
   --repo-local      Write to repo-local machine overrides (set only)
   --gui             Use a native dialog for input (set only, for AI agents)
-  --reveal          Print plaintext values (list only; avoid in AI sessions)
+  --reveal          Print plaintext values (list/get; avoid in AI sessions)
   --ref <git-ref>   Compare diff output against a git ref (diff only)
   --bundle <name>   Resolve a specific bundle (diff/export-example only)
   --from <version>  Legacy repo version to migrate from (migrate only)
@@ -569,6 +571,11 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (command === 'get' && !arg.startsWith('-') && !key) {
+      key = arg;
+      continue;
+    }
+
     if (command === 'resolve' && !arg.startsWith('-') && !target) {
       target = arg;
       continue;
@@ -853,6 +860,15 @@ export async function main(): Promise<void> {
 
       case 'list':
         await listCommand(defaultContext, { store, env, reveal });
+        break;
+
+      case 'get':
+        if (!key) {
+          console.error(pc.red('Usage: hush get <KEY>'));
+          console.error(pc.dim('Example: hush get DATABASE_URL --reveal'));
+          process.exit(1);
+        }
+        await getCommand(defaultContext, { store, env, key, target, reveal, json });
         break;
 
       case 'inspect':
