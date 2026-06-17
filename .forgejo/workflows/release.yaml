@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@v4
 
       - name: Forbid bare `npx hush` in docs
         run: |
@@ -30,9 +30,9 @@ jobs:
 
       - name: Setup Bun (docs build preview)
         if: github.event_name == 'pull_request'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Install dependencies (docs build preview)
         if: github.event_name == 'pull_request'
@@ -42,16 +42,22 @@ jobs:
         if: github.event_name == 'pull_request'
         run: bun run docs:build
 
-  windows-smoke:
-    runs-on: windows-latest
+  cli-smoke:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@v4
+
+      - name: Install Node 24
+        run: |
+          npm install -g n
+          n 24
+          echo "/usr/local/bin" >> $GITHUB_PATH
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -69,14 +75,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for version calculation
 
+      - name: Install Node 24
+        run: |
+          npm install -g n
+          n 24
+          echo "/usr/local/bin" >> $GITHUB_PATH
+
       - name: Setup Bun
-        uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
-        with:
-          bun-version: latest
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Install sops and age
         run: |
@@ -120,21 +132,25 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ github.token }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
-        with:
-          bun-version: latest
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
-      - name: Setup Node.js (for npm publish)
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+      - name: Install Node 24 and npm auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm install -g n
+          n 24
+          echo "/usr/local/bin" >> $GITHUB_PATH
+          printf '%s\n' "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
+          printf '%s\n' "registry=https://registry.npmjs.org/" >> "$HOME/.npmrc"
 
       - name: Install sops and age
         run: |
@@ -347,12 +363,18 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@v4
+
+      - name: Install Node 24
+        run: |
+          npm install -g n
+          n 24
+          echo "/usr/local/bin" >> $GITHUB_PATH
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -411,12 +433,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@v4
+
+      - name: Install Node 24
+        run: |
+          npm install -g n
+          n 24
+          echo "/usr/local/bin" >> $GITHUB_PATH
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
-        with:
-          bun-version: latest
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: Install sops and age
         run: |
