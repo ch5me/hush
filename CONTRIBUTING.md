@@ -28,7 +28,7 @@ hush/
 
 ```bash
 # Clone the repository
-git clone https://github.com/ch5me/hush.git
+git clone https://git.ch5.me/ch5/hush.git
 cd hush
 
 # Install dependencies
@@ -124,7 +124,7 @@ Releases are automated by CI on push to `main`. When a conventional commit lands
 1. Determines the version bump (patch/minor/major) from commit messages
 2. Updates `hush-cli/package.json` and creates a git tag
 3. Publishes `@chriscode/hush` to npm with provenance
-4. Creates a GitHub Release with changelog notes
+4. Creates a Forgejo Release with changelog notes
 
 **Contributors just write conventional commits.** You do not need to bump versions or publish manually.
 

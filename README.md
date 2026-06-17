@@ -202,7 +202,7 @@ committable `.env.example` so a fresh clone can see which keys it needs before
 it has the decryption key.
 
 Standalone single-file binaries (Linux, macOS, Windows; with SHA256SUMS) are
-attached to each [GitHub Release](https://github.com/ch5me/hush/releases) as an
+attached to each [Forgejo Release](https://git.ch5.me/ch5/hush/releases) as an
 alternative to the npm package.
 
 ## Team setup

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Releases are automated: conventional commits pushed to `main` are versioned,
-published to npm with provenance, and given a GitHub Release by CI.
+published to npm, and given a Forgejo Release by CI.
 
 ## [Unreleased]
 
@@ -17,7 +17,7 @@ published to npm with provenance, and given a GitHub Release by CI.
 - `hush export-example --write`: committable redacted `.env.example` so fresh
   clones can discover required keys before having the decryption key
 - Standalone single-file binaries (Linux/macOS/Windows + SHA256SUMS) attached
-  to GitHub Releases
+  to Forgejo Releases
 - Windows smoke job and a coverage gate in CI; docs now build on every PR
 - Documentation moved to https://hush.ch5.me
 
@@ -39,7 +39,7 @@ Security-focused release preparing Hush for public launch.
 - The daily update check can be disabled (`HUSH_NO_UPDATE_CHECK=1`, also honors
   `NO_UPDATE_NOTIFIER` and `CI`) and no longer inherits secret-bearing
   environment variables
-- GitHub Actions are SHA-pinned and sops/age CI downloads are checksum-verified
+- CI actions are SHA-pinned and sops/age CI downloads are checksum-verified
 - Key names are validated before reaching any subprocess
 - Masked output no longer reveals value prefixes or exact lengths
 
@@ -141,12 +141,12 @@ CLI friction fixes from real-world migration use.
 
 - Initial v2 implementation with SOPS encryption
 
-[Unreleased]: https://github.com/hassoncs/hush/compare/v7.2.4...HEAD
-[7.2.4]: https://github.com/hassoncs/hush/compare/v7.2.3...v7.2.4
-[7.2.3]: https://github.com/hassoncs/hush/compare/v7.2.2...v7.2.3
-[7.2.2]: https://github.com/hassoncs/hush/compare/v7.2.1...v7.2.2
-[7.2.1]: https://github.com/hassoncs/hush/compare/v7.2.0...v7.2.1
-[7.2.0]: https://github.com/hassoncs/hush/compare/v7.1.0...v7.2.0
-[7.1.0]: https://github.com/hassoncs/hush/compare/v7.0.0...v7.1.0
-[7.0.0]: https://github.com/hassoncs/hush/compare/v6.0.0...v7.0.0
-[6.0.0]: https://github.com/hassoncs/hush/releases/tag/v6.0.0
+[Unreleased]: https://git.ch5.me/ch5/hush/compare/v7.2.4...main
+[7.2.4]: https://git.ch5.me/ch5/hush/compare/v7.2.3...v7.2.4
+[7.2.3]: https://git.ch5.me/ch5/hush/compare/v7.2.2...v7.2.3
+[7.2.2]: https://git.ch5.me/ch5/hush/compare/v7.2.1...v7.2.2
+[7.2.1]: https://git.ch5.me/ch5/hush/compare/v7.2.0...v7.2.1
+[7.2.0]: https://git.ch5.me/ch5/hush/compare/v7.1.0...v7.2.0
+[7.1.0]: https://git.ch5.me/ch5/hush/compare/v7.0.0...v7.1.0
+[7.0.0]: https://git.ch5.me/ch5/hush/compare/v6.0.0...v7.0.0
+[6.0.0]: https://git.ch5.me/ch5/hush/releases/tag/v6.0.0

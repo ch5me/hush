@@ -4,7 +4,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ch5me/hush.git"
+    "url": "git+https://git.ch5.me/ch5/hush.git"
   },
   "workspaces": [
     "hush-cli",

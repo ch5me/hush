@@ -23,7 +23,7 @@ This guide no longer uses legacy `hush.yaml`, `hush init`, or `hush encrypt` as 
 your-project/
 ├── packages/ or apps/          # Your code packages
 ├── docs/                       # Astro Starlight docs
-├── .github/workflows/          # CI and release workflows
+├── .forgejo/workflows/         # CI and release workflows
 ├── AGENTS.md                   # AI agent instructions
 ├── .hush/
 │   ├── manifest.encrypted      # Identities, bundles, targets, imports
@@ -101,7 +101,7 @@ npx hush run -- pnpm test
 
 ## Step 7: CI setup
 
-Store the private key as `SOPS_AGE_KEY` in GitHub secrets. The workflow can then decrypt the v3 repository files under `.hush/` during build and release jobs.
+Store the private key as `SOPS_AGE_KEY` in Forgejo Actions secrets. The workflow can then decrypt the v3 repository files under `.hush/` during build and release jobs.
 
 Recommended high-level CI steps:
 

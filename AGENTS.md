@@ -11,7 +11,7 @@ AI-native secrets manager. This file is the repo-local operating contract, not a
 
 - `hush-cli/` — CLI implementation
 - `docs/` — Starlight documentation site
-- `.github/workflows/` — CI / release automation
+- `.forgejo/workflows/` — CI / release automation
 
 ## Non-Negotiables
 

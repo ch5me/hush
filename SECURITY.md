@@ -11,12 +11,11 @@ Only the latest 7.x release is actively maintained and receives security fixes.
 
 ## Reporting a Vulnerability
 
-**Please do not open public GitHub issues for security vulnerabilities.**
+**Please do not open public issues for security vulnerabilities.**
 
 Use one of these channels:
 
-1. **GitHub private vulnerability reporting** — preferred. Go to [https://github.com/ch5me/hush/security/advisories/new](https://github.com/ch5me/hush/security/advisories/new) and submit a private advisory.
-2. **Email** — hassoncs@gmail.com. Include "SECURITY" in the subject line.
+1. **Email** — hassoncs@gmail.com. Include "SECURITY" in the subject line.
 
 ### What to include
 

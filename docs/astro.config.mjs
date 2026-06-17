@@ -7,9 +7,6 @@ export default defineConfig({
     starlight({
       title: 'Hush',
       description: 'SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.',
-      social: {
-        github: 'https://github.com/ch5me/hush',
-      },
       customCss: [
         './src/styles/theme.css',
         './src/styles/terminal.css',

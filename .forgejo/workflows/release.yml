@@ -122,7 +122,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7 # v1
@@ -163,7 +163,7 @@ jobs:
         run: |
           RELEASE_CHANNEL="latest"
           IS_PRERELEASE="false"
-          if [ "${GITHUB_REF}" = "refs/heads/prerelease-next" ]; then
+          if [ "${{ github.ref }}" = "refs/heads/prerelease-next" ]; then
             RELEASE_CHANNEL="next"
             IS_PRERELEASE="true"
           fi
@@ -266,13 +266,15 @@ jobs:
             echo "Updated package.json to version $NEW_VERSION"
           fi
 
-      - name: Publish to npm (trusted publishing)
+      - name: Publish to npm
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
-            npx -y npm@11.5.1 publish --tag "${{ steps.version.outputs.release_channel }}" --access public --provenance
+            npx -y npm@11.5.1 publish --tag "${{ steps.version.outputs.release_channel }}" --access public
           else
-            npx -y npm@11.5.1 publish --access public --provenance
+            npx -y npm@11.5.1 publish --access public
           fi
         working-directory: hush-cli
 
@@ -282,8 +284,8 @@ jobs:
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           TAG="v$NEW_VERSION"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@git.ch5.me"
 
           # Commit the version bump if there are changes
           git add hush-cli/package.json
@@ -298,10 +300,10 @@ jobs:
 
           echo "Created and pushed tag $TAG"
 
-      - name: Create GitHub Release
+      - name: Create Forgejo Release
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORGEJO_TOKEN: ${{ github.token }}
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           TAG="v$NEW_VERSION"
@@ -315,17 +317,26 @@ jobs:
             NOTES="- Initial release"
           fi
 
+          PRERELEASE=false
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --notes "$NOTES" \
-              --prerelease
-          else
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --notes "$NOTES" \
-              --latest
+            PRERELEASE=true
           fi
+
+          jq -n \
+            --arg tag "$TAG" \
+            --arg name "$TAG" \
+            --arg body "$NOTES" \
+            --arg target "main" \
+            --argjson prerelease "$PRERELEASE" \
+            '{tag_name:$tag, target_commitish:$target, name:$name, body:$body, draft:false, prerelease:$prerelease}' \
+            > /tmp/forgejo-release.json
+
+          curl -fsS \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/forgejo-release.json \
+            "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases" \
+            > /tmp/forgejo-release-response.json
 
   binaries:
     needs: release
@@ -372,8 +383,22 @@ jobs:
       - name: Upload binaries to release
         working-directory: hush-cli
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "v${{ needs.release.outputs.new_version }}" dist-bin/hush-* dist-bin/SHA256SUMS --clobber
+          FORGEJO_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ needs.release.outputs.new_version }}"
+          RELEASE_JSON=$(curl -fsS \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${TAG}")
+          RELEASE_ID=$(printf '%s' "$RELEASE_JSON" | jq -r '.id')
+
+          for asset in dist-bin/hush-* dist-bin/SHA256SUMS; do
+            name=$(basename "$asset")
+            curl -fsS \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -F "attachment=@${asset}" \
+              "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${RELEASE_ID}/assets?name=${name}" \
+              > /tmp/forgejo-release-asset.json
+          done
 
   deploy-docs:
     needs: ci

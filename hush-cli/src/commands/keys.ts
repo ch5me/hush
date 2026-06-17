@@ -33,7 +33,7 @@ function getProject(ctx: HushContext, store: StoreContext): string {
   }
 
   ctx.logger.error(pc.red('No project identifier found.'));
-  ctx.logger.error(pc.dim('Add "project: my-project" to hush.yaml or a GitHub repository field to package.json'));
+  ctx.logger.error(pc.dim('Add "project: my-project" to hush.yaml or a Git repository field to package.json'));
   ctx.process.exit(1);
 }
 
