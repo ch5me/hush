@@ -92,17 +92,25 @@ jobs:
 
       - name: Install sops and age
         run: |
+          run_root() {
+            if command -v sudo >/dev/null 2>&1; then
+              sudo "$@"
+            else
+              "$@"
+            fi
+          }
+
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
           echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
-          sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
-          sudo chmod +x /usr/local/bin/sops
+          run_root mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          run_root chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
           echo "$AGE_SHA256  age-v1.2.0-linux-amd64.tar.gz" | sha256sum -c -
           tar -xzf age-v1.2.0-linux-amd64.tar.gz
-          sudo mv age/age /usr/local/bin/
-          sudo mv age/age-keygen /usr/local/bin/
-          sudo chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
+          run_root mv age/age /usr/local/bin/
+          run_root mv age/age-keygen /usr/local/bin/
+          run_root chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -154,17 +162,25 @@ jobs:
 
       - name: Install sops and age
         run: |
+          run_root() {
+            if command -v sudo >/dev/null 2>&1; then
+              sudo "$@"
+            else
+              "$@"
+            fi
+          }
+
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
           echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
-          sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
-          sudo chmod +x /usr/local/bin/sops
+          run_root mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          run_root chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
           echo "$AGE_SHA256  age-v1.2.0-linux-amd64.tar.gz" | sha256sum -c -
           tar -xzf age-v1.2.0-linux-amd64.tar.gz
-          sudo mv age/age /usr/local/bin/
-          sudo mv age/age-keygen /usr/local/bin/
-          sudo chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
+          run_root mv age/age /usr/local/bin/
+          run_root mv age/age-keygen /usr/local/bin/
+          run_root chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -448,17 +464,25 @@ jobs:
 
       - name: Install sops and age
         run: |
+          run_root() {
+            if command -v sudo >/dev/null 2>&1; then
+              sudo "$@"
+            else
+              "$@"
+            fi
+          }
+
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
           echo "$SOPS_SHA256  sops-v3.9.4.linux.amd64" | sha256sum -c -
-          sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
-          sudo chmod +x /usr/local/bin/sops
+          run_root mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          run_root chmod +x /usr/local/bin/sops
 
           curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
           echo "$AGE_SHA256  age-v1.2.0-linux-amd64.tar.gz" | sha256sum -c -
           tar -xzf age-v1.2.0-linux-amd64.tar.gz
-          sudo mv age/age /usr/local/bin/
-          sudo mv age/age-keygen /usr/local/bin/
-          sudo chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
+          run_root mv age/age /usr/local/bin/
+          run_root mv age/age-keygen /usr/local/bin/
+          run_root chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
 
       - name: Setup age key
         run: |
