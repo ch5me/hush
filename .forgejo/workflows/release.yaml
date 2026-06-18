@@ -291,6 +291,19 @@ jobs:
 
           printf '%s\n' "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
           printf '%s\n' "registry=https://registry.npmjs.org/" >> "$HOME/.npmrc"
+
+          if ! npx -y npm@11.5.1 whoami >/dev/null 2>&1; then
+            echo "::warning::NPM_TOKEN is not accepted by npmjs; skipping public npm publish for @chriscode/hush."
+            echo "can_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! npx -y npm@11.5.1 access ls-packages @chriscode >/tmp/npm-chriscode-access.json 2>/tmp/npm-chriscode-access.err; then
+            echo "::warning::NPM_TOKEN cannot list @chriscode scope packages on npmjs; skipping public npm publish for @chriscode/hush."
+            echo "can_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "can_publish=true" >> "$GITHUB_OUTPUT"
 
       - name: Update package.json version
