@@ -8,6 +8,8 @@ Hush is a CLI (`@chriscode/hush`) that manages encrypted configuration. It repla
 
 **Core invariant**: No plaintext secrets ever touch disk during `hush run`. Secrets are decrypted in memory, injected into the child process environment, and cleaned up on exit or signal.
 
+**Release migration invariant**: Forgejo public release jobs must not guess missing authority. If `NPM_TOKEN` is absent, skip npm publish/tag/release/binary fanout and warn; public npm ownership is a deliberate product/security decision. If `SOPS_AGE_KEY` is absent, skip docs deploy and warn; docs deploy still uses Hush to inject Cloudflare secrets once the age key is present.
+
 **Repository layout**:
 ```
 hush/

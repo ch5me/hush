@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
-      released: ${{ steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && 'true' || 'false' }}
+      released: ${{ steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true' && 'true' || 'false' }}
     permissions:
       contents: write
       id-token: write
@@ -147,15 +147,11 @@ jobs:
           curl -fsSL https://bun.sh/install | bash
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
-      - name: Install Node 24 and npm auth
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Install Node 24
         run: |
           npm install -g n
           n 24
           echo "/usr/local/bin" >> $GITHUB_PATH
-          printf '%s\n' "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
-          printf '%s\n' "registry=https://registry.npmjs.org/" >> "$HOME/.npmrc"
 
       - name: Install sops and age
         run: |
@@ -281,8 +277,24 @@ jobs:
             echo "already_published=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update package.json version
+      - name: Configure npm publish auth
+        id: npm_auth
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::warning::NPM_TOKEN is not configured in Forgejo Actions; skipping public npm publish for @chriscode/hush. Configure the token deliberately before enabling public releases."
+            echo "can_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
+          printf '%s\n' "registry=https://registry.npmjs.org/" >> "$HOME/.npmrc"
+          echo "can_publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Update package.json version
+        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true'
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           CURRENT_VERSION=$(node -p "require('./hush-cli/package.json').version")
@@ -297,7 +309,7 @@ jobs:
           fi
 
       - name: Publish to npm
-        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
+        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -309,7 +321,7 @@ jobs:
         working-directory: hush-cli
 
       - name: Create git tag
-        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
+        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true'
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           TAG="v$NEW_VERSION"
@@ -331,7 +343,7 @@ jobs:
           echo "Created and pushed tag $TAG"
 
       - name: Create Forgejo Release
-        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
+        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true'
         env:
           FORGEJO_TOKEN: ${{ github.token }}
         run: |
@@ -482,18 +494,30 @@ jobs:
           run_root chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
 
       - name: Setup age key
+        id: age_key
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         run: |
+          if [ -z "${SOPS_AGE_KEY:-}" ]; then
+            echo "::warning::SOPS_AGE_KEY is not configured in Forgejo Actions; skipping docs deploy because Hush cannot decrypt the Cloudflare target."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           mkdir -p ~/.config/sops/age
-          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/key.txt
+          printf '%s\n' "$SOPS_AGE_KEY" > ~/.config/sops/age/key.txt
           chmod 600 ~/.config/sops/age/key.txt
 
       - name: Install dependencies
+        if: steps.age_key.outputs.available != 'false'
         run: bun install --frozen-lockfile
 
       - name: Build CLI and docs
+        if: steps.age_key.outputs.available != 'false'
         run: bun run build
 
       - name: Deploy docs with Hush secrets
+        if: steps.age_key.outputs.available != 'false'
         working-directory: docs
         run: |
           export SOPS_AGE_KEY_FILE=~/.config/sops/age/key.txt
