@@ -300,6 +300,15 @@ export interface ListOptions {
   reveal?: boolean;
 }
 
+export interface GetOptions {
+  store: StoreContext;
+  env: Environment;
+  key: string;
+  target?: string;
+  reveal?: boolean;
+  json?: boolean;
+}
+
 export interface CheckOptions {
   store: StoreContext;
   warn: boolean;
