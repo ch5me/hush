@@ -3,7 +3,7 @@
 > AI-native secrets manager. Encrypted-at-rest hierarchical config with file-scoped ACLs.
 
 **Package**: `@chriscode/hush`
-**Repository**: https://github.com/ch5me/hush
+**Repository**: https://git.ch5.me/ch5/hush
 **Tech**: TypeScript, SOPS+age encryption, local age key workflow, Cloudflare Workers deploy
 
 ## Structure
