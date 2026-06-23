@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import * as nodeFs from 'node:fs';
 import { loadLegacyV2Inventory } from '../../src/v3/legacy-v2.js';
-import { loadV3Repository, persistV3ManifestDocument } from '../../src/v3/repository.js';
+import { createFileDocument } from '../../src/index.js';
+import { loadV3Repository, persistV3FileDocument, persistV3ManifestDocument } from '../../src/v3/repository.js';
 import { ensureEncryptedFixtureRepo, ensureTestSopsConfig, writeEncryptedYamlFile } from '../helpers/sops-test.js';
 
 const TESTS_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -243,5 +244,33 @@ describe('persistV3ManifestDocument', () => {
     ).toThrowError(/empty/i);
 
     expect(encryptSpy).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the in-memory file cache after file writes', () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+    ensureEncryptedFixtureRepo(fixtureRoot);
+    const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
+    const initial = repository.loadFile('env/app/shared');
+
+    const nextDocument = createFileDocument({
+      ...initial,
+      entries: {},
+    });
+
+    const mockCtx = {
+      sops: {
+        encryptYamlContent: vi.fn(),
+      },
+    } as unknown as Parameters<typeof persistV3FileDocument>[0];
+
+    persistV3FileDocument(
+      mockCtx,
+      { root: fixtureRoot, keyIdentity: fixtureRoot },
+      repository,
+      repository.fileSystemPaths['env/app/shared']!,
+      nextDocument,
+    );
+
+    expect(repository.loadFile('env/app/shared').entries).toEqual({});
   });
 });

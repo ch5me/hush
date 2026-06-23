@@ -143,6 +143,7 @@ export function persistV3FileDocument(
   repository.files = Object.entries(repository.filesByPath)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([, entry]) => entry);
+  repository.cacheFile?.(document);
 
   return nextManifest;
 }
@@ -190,6 +191,9 @@ export function loadV3Repository(root: string, options?: LoadV3RepositoryOptions
       const document = loadRepositoryFile(root, filesRoot, systemPath, options?.keyIdentity);
       fileCache.set(filePath, document);
       return document;
+    },
+    cacheFile(document) {
+      fileCache.set(document.path, document);
     },
   };
 }

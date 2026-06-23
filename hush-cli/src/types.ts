@@ -209,6 +209,7 @@ export interface HushV3Repository {
   filesByPath: Record<HushFilePath, HushFileIndexEntry>;
   fileSystemPaths: Record<HushFilePath, string>;
   loadFile(path: HushFilePath): HushFileDocument;
+  cacheFile?(document: HushFileDocument): void;
 }
 
 export interface HushProjectDiscoveryResult {
