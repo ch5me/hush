@@ -12,6 +12,7 @@ vi.mock('node:readline', () => ({
 
 import { check, checkCommand } from '../src/commands/check.js';
 import { copyKeyCommand } from '../src/commands/copy-key.js';
+import { deleteKeyCommand } from '../src/commands/delete-key.js';
 import { decryptCommand } from '../src/commands/decrypt.js';
 import { editCommand } from '../src/commands/edit.js';
 import { hasCommand } from '../src/commands/has.js';
@@ -544,6 +545,59 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(output).toContain('LEGACY_KEY');
     expect(output).not.toContain('resend-secret');
     expect(output).not.toContain('legacy-secret');
+  }, 60000);
+
+  it('delete-key removes the requested entry from the declared v3 file', async () => {
+    const root = join(TEST_DIR, 'delete-key-project');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        project:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: project
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/project/shared/FOLIO_CI_HUSH_WRITE_SMOKE:
+              value: smoke-value
+              sensitive: true
+        `,
+      },
+    );
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await deleteKeyCommand(ctx, {
+      store,
+      key: 'FOLIO_CI_HUSH_WRITE_SMOKE',
+      from: 'env/project/shared',
+      yes: true,
+      json: true,
+    });
+
+    const updated = loadV3Repository(root, { keyIdentity: root });
+    const shared = updated.loadFile('env/project/shared');
+    const output = getLogOutput(logger);
+
+    expect(shared.entries['env/project/shared/FOLIO_CI_HUSH_WRITE_SMOKE']).toBeUndefined();
+    expect(output).toContain('"action": "delete"');
+    expect(output).toContain('"from": "env/project/shared"');
+    expect(output).not.toContain('smoke-value');
   }, 60000);
 
   it('has and list resolve values from the v3 runtime target view', async () => {

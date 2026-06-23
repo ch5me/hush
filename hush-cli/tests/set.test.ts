@@ -269,6 +269,84 @@ describe('setCommand legacy guard and global bootstrap', () => {
     expect(stagingFile).toContain('env/project/staging/WORKER_ENV');
     expect(stagingFile).toContain('staging');
   }, 90000);
+
+  it('writes stdin values to the declared v3 file path instead of shared', async () => {
+    const root = join(TEST_DIR, 'stdin-staging-path');
+    writeRepo(
+      root,
+      `
+      version: 3
+      activeIdentity: owner-local
+      identities:
+        owner-local:
+          roles: [owner]
+      bundles:
+        project:
+          files:
+            - path: env/project/shared
+            - path: env/project/staging
+      targets:
+        wrangler-deploy-staging:
+          bundle: project
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+        'env/project/staging': `
+          path: env/project/staging
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+      },
+    );
+
+    const ctx = createContext(root);
+    const store = createStore(root);
+    await configCommand(ctx, { store, subcommand: 'active-identity', args: ['owner-local'] });
+
+    const stdinHandlers: Partial<Record<'data' | 'end' | 'error', (chunk?: string | Error) => void>> = {};
+    ctx.process.stdin = {
+      isTTY: false,
+      setEncoding: vi.fn(),
+      on: vi.fn((event: 'data' | 'end' | 'error', handler: (chunk?: string | Error) => void) => {
+        stdinHandlers[event] = handler;
+        return ctx.process.stdin;
+      }),
+      resume: vi.fn(() => {
+        queueMicrotask(() => {
+          stdinHandlers.data?.('smoke-value\n');
+          stdinHandlers.end?.();
+        });
+        return ctx.process.stdin;
+      }),
+      pause: vi.fn(),
+      setRawMode: vi.fn(),
+      removeListener: vi.fn(),
+    } as unknown as NodeJS.ReadStream;
+
+    await setCommand(ctx, {
+      store,
+      file: 'env/project/staging',
+      key: 'FOLIO_CI_HUSH_WRITE_SMOKE',
+    });
+
+    const sharedFile = readDecryptedYamlFile(root, join(root, '.hush', 'files', 'env', 'project', 'shared.encrypted'));
+    const stagingFile = readDecryptedYamlFile(root, join(root, '.hush', 'files', 'env', 'project', 'staging.encrypted'));
+
+    expect(stagingFile).toContain('env/project/staging/FOLIO_CI_HUSH_WRITE_SMOKE');
+    expect(stagingFile).toContain('smoke-value');
+    expect(sharedFile).not.toContain('FOLIO_CI_HUSH_WRITE_SMOKE');
+  }, 90000);
 });
 
 describe('CLI argument parsing for set command', () => {
@@ -322,5 +400,34 @@ describe('CLI argument parsing for set command', () => {
     expect(result.key).toBe('MY_KEY');
     expect(result.value).toBe('my-value');
     expect(result.repoLocal).toBe(true);
+  });
+
+  it('parses hush copy-key KEY --from <file> --to <file> correctly', () => {
+    const result = parseArgs([
+      'copy-key',
+      'MY_KEY',
+      '--from',
+      'env/project/shared',
+      '--to',
+      'env/project/staging',
+    ]);
+
+    expect(result.command).toBe('copy-key');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.from).toBe('env/project/shared');
+    expect(result.outputRoot).toBe('env/project/staging');
+  });
+
+  it('parses hush delete-key KEY --from <file> correctly', () => {
+    const result = parseArgs([
+      'delete-key',
+      'MY_KEY',
+      '--from',
+      'env/project/shared',
+    ]);
+
+    expect(result.command).toBe('delete-key');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.from).toBe('env/project/shared');
   });
 });
