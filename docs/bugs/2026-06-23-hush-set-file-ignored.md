@@ -3,6 +3,7 @@
 Date: 2026-06-23
 Reporter context: Folio Forgejo deploy migration in `/Users/hassoncs/src/ch5/folio-db`
 Observed Hush version: `7.3.0`
+Status: fixed in `7.5.0`
 
 ## Summary
 
