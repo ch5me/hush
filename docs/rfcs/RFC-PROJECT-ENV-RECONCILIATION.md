@@ -4,6 +4,8 @@ Date: 2026-06-24
 Status: proposed
 Trigger incident: Folio deployed to staging/production with `RESEND_API_KEY` present in Hush and Cloudflare, but invalid provider-side. CI checked presence only, and Folio had separate Hush, Wrangler TOML, Worker secret sync, and provider validation paths.
 
+Folio first implementation: `/Users/hassoncs/src/ch5/folio-db/scripts/hush-project-env.mjs` with config at `packages/runtime-config/config/hush-project-env.json`. It is a repo-local prototype of `hush project validate|sync`: Hush remains source of truth for secrets, Wrangler remains current non-secret materialization, and one command reconciles the contract, Hush target, Cloudflare Worker secret metadata, and provider validators.
+
 ## Problem
 
 Hush is meant to be the project runtime authority, but current workflows can still drift:
@@ -215,6 +217,14 @@ Validators must never print tokens or raw provider error bodies that can include
 - JSON output names missing keys, owner system, target, validator, and remediation command.
 - Dry-run output is deterministic and safe for AI agents.
 - Runtime target separation prevents deploy-only keys from being pushed to Worker runtime.
+
+Folio prototype status:
+
+- `scripts/sync-worker-secrets.sh` now delegates to the reconciler.
+- Forgejo validates with `node scripts/hush-project-env.mjs validate <env>`.
+- Forgejo syncs with `node scripts/hush-project-env.mjs sync <env>`.
+- The reconciler uses `hush verify-target` plus `hush run --target ...` to avoid printing secret values.
+- Remaining upstream work: move this from Folio-local script/config into first-class Hush CLI commands and split Folio deploy-driver targets from Worker-runtime targets.
 
 ## Related Bug
 
