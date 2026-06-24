@@ -30,6 +30,7 @@ export const HUSH_COMMANDS = [
   'migrate',
   'move-key',
   'push',
+  'project',
   'resolve',
   'run',
   'set',
@@ -45,6 +46,7 @@ export const HUSH_FLAGS = [
   '--allow-plaintext',
   '--bundle',
   '--cleanup',
+  '--config',
   '--dry-run',
   '--env',
   '--file',
@@ -70,7 +72,10 @@ export const HUSH_FLAGS = [
   '--require-source',
   '--reveal',
   '--root',
+  '--skip-provider',
+  '--skip-remote',
   '--subpath',
+  '--surface',
   '--target',
   '--to',
   '--verbose',
@@ -184,6 +189,9 @@ ${flagLines}
           ;;
         target)
           _describe 'target subcommands' '("add:Add a target" "remove:Remove a target" "list:List targets")'
+          ;;
+        project)
+          _describe 'project subcommands' '("plan:Report contract drift" "validate:Fail on remaining drift" "sync:Push runtime worker secrets")'
           ;;
         *)
           _describe 'hush options' flags

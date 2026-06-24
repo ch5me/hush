@@ -35,6 +35,9 @@ export const defaultContext: HushContext = {
     on: (event, listener) => void process.on(event, listener),
     removeListener: (event, listener) => void process.removeListener(event, listener),
   },
+  network: {
+    fetch: (...args) => fetch(...args),
+  },
   config: {
     loadConfig,
     findProjectRoot,

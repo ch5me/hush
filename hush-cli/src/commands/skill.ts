@@ -7,7 +7,7 @@ const SKILL_FILES = {
   'SKILL.md': `---
 name: hush-secrets
 description: Manage secrets safely with the Hush v3 CLI. Use when working with encrypted config, environment variables, API keys, credentials, or migrating a legacy hush.yaml repo. NEVER read .hush/** directly.
-allowed-tools: Bash(hush inspect:*), Bash(hush has:*), Bash(hush set:*), Bash(hush run:*), Bash(hush config:*), Bash(hush doctor:*), Bash(hush status:*), Bash(hush check:*), Bash(hush verify-target:*), Bash(hush resolve:*), Bash(hush trace:*), Bash(hush diff:*), Bash(hush export-example:*), Bash(hush bootstrap:*), Bash(npx @chriscode/hush inspect:*), Bash(npx @chriscode/hush has:*), Bash(npx @chriscode/hush set:*), Bash(npx @chriscode/hush run:*), Bash(npx @chriscode/hush config:*), Bash(npx @chriscode/hush doctor:*), Bash(npx @chriscode/hush status:*), Bash(npx @chriscode/hush check:*), Bash(npx @chriscode/hush verify-target:*), Bash(npx @chriscode/hush resolve:*), Bash(npx @chriscode/hush trace:*), Bash(npx @chriscode/hush diff:*), Bash(npx @chriscode/hush export-example:*), Bash(npx @chriscode/hush bootstrap:*), Read, Grep, Glob
+allowed-tools: Bash(hush inspect:*), Bash(hush has:*), Bash(hush set:*), Bash(hush run:*), Bash(hush config:*), Bash(hush doctor:*), Bash(hush status:*), Bash(hush check:*), Bash(hush verify-target:*), Bash(hush project:*), Bash(hush resolve:*), Bash(hush trace:*), Bash(hush diff:*), Bash(hush export-example:*), Bash(hush bootstrap:*), Bash(npx @chriscode/hush inspect:*), Bash(npx @chriscode/hush has:*), Bash(npx @chriscode/hush set:*), Bash(npx @chriscode/hush run:*), Bash(npx @chriscode/hush config:*), Bash(npx @chriscode/hush doctor:*), Bash(npx @chriscode/hush status:*), Bash(npx @chriscode/hush check:*), Bash(npx @chriscode/hush verify-target:*), Bash(npx @chriscode/hush project:*), Bash(npx @chriscode/hush resolve:*), Bash(npx @chriscode/hush trace:*), Bash(npx @chriscode/hush diff:*), Bash(npx @chriscode/hush export-example:*), Bash(npx @chriscode/hush bootstrap:*), Read, Grep, Glob
 ---
 
 # Hush v3 skill
@@ -28,6 +28,8 @@ Use these commands instead:
 \`npx @chriscode/hush materialize --target <name> --json --to <dir>\` to write file or binary artifacts for CI/native tooling
 - \
 \`npx @chriscode/hush verify-target <target> --require <KEY>\` before deploys that sync remote runtime secrets
+- \
+\`npx @chriscode/hush project validate <stage> --skip-remote\` to reconcile a project contract against a Hush target, wrangler vars, remote Worker secret metadata, and provider checks
 - \
 \`npx @chriscode/hush doctor\` to diagnose root, key, and store resolution issues
 - \
@@ -104,6 +106,8 @@ npx @chriscode/hush status
 npx @chriscode/hush status --json
 npx @chriscode/hush doctor
 npx @chriscode/hush doctor --json
+npx @chriscode/hush project plan staging --json
+npx @chriscode/hush project validate staging --skip-remote
 npx @chriscode/hush has DATABASE_URL
 npx @chriscode/hush has DATABASE_URL --json
 \`\`\`
@@ -422,6 +426,18 @@ hush verify-target api-production --require RESEND_API_KEY --json
 \`\`\`
 
 JSON output contains target, bundle, files, logical paths, required keys, and missing keys only. It does not contain secret values.
+
+### hush project
+
+Reconcile a project runtime contract against a Hush target, Wrangler vars, remote worker secret metadata, and provider checks.
+
+\`\`\`bash
+hush project plan staging
+hush project validate staging --skip-remote
+hush project sync production --dry-run
+\`\`\`
+
+Use \`--config <path>\` when the contract file lives outside the default discovery paths, and \`--surface <name>\` when one repo declares multiple deploy surfaces.
 
 ### hush materialize
 

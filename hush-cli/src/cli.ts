@@ -30,6 +30,7 @@ import { exportExampleCommand } from './commands/export-example.js';
 import { completionCommand } from './commands/completion.js';
 import { materializeCommand } from './commands/materialize.js';
 import { verifyTargetCommand } from './commands/verify-target.js';
+import { projectCommand } from './commands/project.js';
 import { copyKeyCommand } from './commands/copy-key.js';
 import { deleteKeyCommand } from './commands/delete-key.js';
 import { templateCommand } from './commands/template.js';
@@ -87,6 +88,7 @@ ${pc.bold('Commands:')}
   migrate           Migrate a legacy hush.yaml repo to v3
   materialize       Write target or bundle artifacts to disk for CI/tooling
   verify-target     Verify a target resolves required keys (AI-safe)
+  project <cmd>     Reconcile Hush target, Wrangler vars, remote secrets, and provider checks
 
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
@@ -113,6 +115,7 @@ ${pc.bold('Options:')}
   --warn            Warn but exit 0 on drift (check only)
   --json            Output machine-readable JSON where supported
   --require <key>   Require key for verify-target (repeatable)
+  --config <path>   Project env config file for hush project (project only)
   --only-changed    Only check git-modified files (check only)
   --require-source  Fail if source file is missing (check only)
   --allow-plaintext Allow plaintext .env files (check only, not recommended)
@@ -122,6 +125,9 @@ ${pc.bold('Options:')}
   --repo-local      Write to repo-local machine overrides (set only)
   --gui             Use a native dialog for input (set only, for AI agents)
   --reveal          Print plaintext values (list only; avoid in AI sessions)
+  --skip-remote     Skip remote worker secret metadata checks (project only)
+  --skip-provider   Skip provider validation checks (project only)
+  --surface <name>  Select a project surface from the project config (project only)
   --ref <git-ref>   Compare diff output against a git ref (diff only)
   --bundle <name>   Resolve a specific bundle (diff/export-example only)
   --from <version>  Legacy repo version to migrate from (migrate only)
@@ -180,6 +186,9 @@ ${pc.bold('Examples:')}
   hush diff --ref HEAD~1        Compare current runtime target against HEAD~1
   hush diff --bundle project    Compare a bundle against HEAD
   hush verify-target api-production --require DATABASE_URL --require RESEND_API_KEY
+  hush project plan staging
+  hush project validate staging --skip-remote
+  hush project sync production --dry-run
   hush export-example           Emit a safe example for the default target
   hush export-example --bundle project  Emit a safe example from a bundle
   hush materialize -t runtime --json --to /tmp/hush-out
@@ -241,6 +250,10 @@ export interface ParsedArgs {
   importName?: string;
   /** Source store root for `hush import add --source-root <path>`. */
   sourceRoot?: string;
+  projectConfig?: string;
+  surface?: string;
+  skipRemote: boolean;
+  skipProvider: boolean;
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -303,6 +316,10 @@ export function parseArgs(args: string[]): ParsedArgs {
   let write = false;
   let importName: string | undefined;
   let sourceRoot: string | undefined;
+  let projectConfig: string | undefined;
+  let surface: string | undefined;
+  let skipRemote = false;
+  let skipProvider = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -511,6 +528,26 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--config') {
+      projectConfig = args[++i];
+      continue;
+    }
+
+    if (arg === '--surface') {
+      surface = args[++i];
+      continue;
+    }
+
+    if (arg === '--skip-remote') {
+      skipRemote = true;
+      continue;
+    }
+
+    if (arg === '--skip-provider') {
+      skipProvider = true;
+      continue;
+    }
+
     if (arg === '--keep-file') {
       keepFile = true;
       continue;
@@ -602,7 +639,7 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    if ((command === 'file' || command === 'bundle' || command === 'target') && !arg.startsWith('-')) {
+    if ((command === 'file' || command === 'bundle' || command === 'target' || command === 'project') && !arg.startsWith('-')) {
       if (!subcommand) {
         subcommand = arg;
       } else {
@@ -679,6 +716,10 @@ export function parseArgs(args: string[]): ParsedArgs {
     write,
     importName,
     sourceRoot,
+    projectConfig,
+    surface,
+    skipRemote,
+    skipProvider,
   };
 }
 
@@ -761,6 +802,10 @@ export async function main(): Promise<void> {
     write,
     importName,
     sourceRoot,
+    projectConfig,
+    surface,
+    skipRemote,
+    skipProvider,
   } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
@@ -875,6 +920,34 @@ export async function main(): Promise<void> {
 
       case 'push':
         await pushCommand(defaultContext, { store, dryRun, verbose, target });
+        break;
+
+      case 'project':
+        if (subcommand !== 'plan' && subcommand !== 'validate' && subcommand !== 'sync') {
+          console.error(pc.red(`Unknown project subcommand: ${subcommand ?? 'none'}`));
+          console.error(
+            'Usage:\n'
+            + '  hush project plan <stage> [--config <path>] [--surface <name>] [--json]\n'
+            + '  hush project validate <stage> [--config <path>] [--surface <name>] [--skip-remote] [--skip-provider] [--json]\n'
+            + '  hush project sync <stage> [--config <path>] [--surface <name>] [--dry-run] [--skip-provider] [--json]',
+          );
+          process.exit(1);
+        }
+        if (!positionalArgs[0]) {
+          console.error(pc.red(`Usage: hush project ${subcommand} <stage>`));
+          process.exit(1);
+        }
+        await projectCommand(defaultContext, {
+          store,
+          subcommand,
+          stage: positionalArgs[0],
+          json,
+          dryRun,
+          skipRemote,
+          skipProvider,
+          surface,
+          configPath: projectConfig,
+        });
         break;
 
       case 'status':

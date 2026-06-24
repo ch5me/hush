@@ -20,7 +20,7 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | **Primary (AI-Safe)** | `run`, `materialize`, `set`, `copy-key`, `move-key`, `edit`, `inspect`, `has` | Safe command surfaces that avoid printing secret values |
 | **Setup** | `bootstrap`, `config`, `init`, `migrate`, `encrypt`, `status`, `doctor`, `skill` | Repository setup, diagnostics, and bounded migration, with `encrypt` kept only as a retired legacy bridge |
 | **Topology** | `file`, `bundle`, `target` | Manage the files, bundles, and targets that define what secrets go where |
-| **Deployment** | `push`, `check` | CI/CD and cloud deployment |
+| **Deployment** | `push`, `project`, `check` | CI/CD, runtime secret sync, and cloud deployment |
 | **Debugging** | `resolve`, `trace`, `verify-target`, `diff`, `export-example` | Debug safe output, provenance, target completeness, and example generation |
 
 ### Global Options
@@ -888,6 +888,73 @@ Requires the `wrangler` CLI to be installed and authenticated. Task 8's v3 push 
 
 <Aside type="tip">
 Use `hush push -t <target> --dry-run --verbose` to preview exactly what secrets would be pushed to a specific target.
+</Aside>
+
+---
+
+## project
+
+Reconcile a repo-owned project environment contract against a Hush target, local `wrangler.toml` vars, remote Worker secret metadata, and provider validators such as Resend.
+
+```bash
+# Show current drift without failing the shell
+hush project plan staging
+
+# Fail CI if Hush target or provider checks drift
+hush project validate staging --skip-remote
+
+# Push runtime Worker secrets from Hush to Cloudflare
+hush project sync staging
+
+# Pick an explicit config or surface when auto-discovery is not enough
+hush project validate production --config packages/runtime-config/config/hush-project-env.json --surface api-worker
+```
+
+### Subcommands
+
+| Subcommand | Behavior |
+|------------|----------|
+| `plan` | Report contract drift and planned sync actions without failing |
+| `validate` | Evaluate and exit non-zero when drift remains |
+| `sync` | Push declared runtime Worker secrets from the selected Hush target and exit non-zero when drift remains |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--config <path>` | Explicit project config path. If omitted, Hush auto-discovers `hush-project-env.json`, `.hush/project-env.json`, `config/hush-project-env.json`, or `packages/runtime-config/config/hush-project-env.json` |
+| `--surface <name>` | Named surface inside the project config (default: first surface, commonly `api-worker`) |
+| `--skip-remote` | Skip Cloudflare Worker secret metadata checks |
+| `--skip-provider` | Skip provider validators such as Resend |
+| `--dry-run` | For `sync`, report what would be pushed without calling Wrangler |
+| `--json` | Emit machine-readable status payload |
+
+### Contract Shape
+
+The project config points at two repo-owned JSON documents:
+
+- `runtime-requirements.json` declares secret vs variable delivery and required stages
+- `environment-targets.json` declares derived non-secret values such as URLs or allowed origins
+
+The selected surface then maps that contract onto:
+
+- a Hush target name per stage
+- a `wrangler.toml` directory and optional Wrangler env
+- deploy-only secrets that must still resolve in Hush
+- optional provider validators
+
+### How It Works
+
+1. Loads the project config and resolves the selected stage + surface
+2. Resolves the configured Hush target through the same v3 runtime path used by `hush run`
+3. Verifies required target-visible keys exist without printing values
+4. Compares declared runtime variables against `wrangler.toml`
+5. Optionally checks remote Worker secret names with Wrangler
+6. Optionally validates provider keys such as `RESEND_API_KEY`
+7. For `sync`, pushes runtime secret values with `wrangler secret put`
+
+<Aside type="tip">
+Use `hush project validate <stage> --skip-remote` early in CI, then run `hush project sync <stage>` immediately before the Worker deploy step.
 </Aside>
 
 ---

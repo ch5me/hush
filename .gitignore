@@ -5,7 +5,10 @@ package-lock.json
 .DS_Store
 .astro/
 docs/.astro/
-.sisyphus/
+.sisyphus/*
+!.sisyphus/goals/
+.sisyphus/goals/*
+!.sisyphus/goals/current-goal.md
 .worktrees/
 .mcp_data/
 .env

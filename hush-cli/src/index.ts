@@ -59,6 +59,7 @@ export type {
   DiffOptions,
   PushOptions,
   StatusOptions,
+  ProjectOptions,
   InitOptions,
   BootstrapOptions,
   ConfigOptions,
@@ -180,3 +181,4 @@ export { hasCommand } from './commands/has.js';
 export { diffCommand } from './commands/diff.js';
 export { exportExampleCommand } from './commands/export-example.js';
 export { materializeCommand } from './commands/materialize.js';
+export { projectCommand } from './commands/project.js';

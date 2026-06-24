@@ -483,6 +483,35 @@ export interface VerifyTargetOptions {
   json?: boolean;
 }
 
+export interface ProjectOptions {
+  store: StoreContext;
+  subcommand: 'plan' | 'validate' | 'sync';
+  stage: string;
+  dryRun: boolean;
+  json: boolean;
+  configPath?: string;
+  surface?: string;
+  skipRemote: boolean;
+  skipProvider: boolean;
+  resolveTargetEnvView?: (
+    ctx: HushContext,
+    store: StoreContext,
+    requestedTarget: string | undefined,
+    command: { name: string; args: string[] },
+  ) => {
+    repository: unknown;
+    targetName: string;
+    target: unknown;
+    activeIdentity: string;
+    resolution: unknown;
+    envVars: EnvVar[];
+    env: Record<string, string>;
+    files: string[];
+    logicalPaths: string[];
+    localOverrideFile?: string;
+  };
+}
+
 export interface KeyTransferOptions {
   store: StoreContext;
   key?: string;
@@ -610,6 +639,9 @@ export interface HushContext {
     stdout: NodeJS.WriteStream;
     on?(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
     removeListener?(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
+  };
+  network?: {
+    fetch: typeof fetch;
   };
   config: {
     loadConfig(root: string): LegacyHushConfig;
