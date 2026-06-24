@@ -26,3 +26,4 @@ docs/.astro/
 *.log
 .mutagen.yml
 hush-cli/coverage/
+.hush-materialized/
