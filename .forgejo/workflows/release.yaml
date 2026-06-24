@@ -10,6 +10,8 @@ on:
 env:
   SOPS_SHA256: "775f1384d55decfad228e7196a3f683791914f92a473f78fc47700531c29dfef"
   AGE_SHA256: "2ae71cb3ea761118937a944083f057cfd42f0ef11d197ce72fc2b8780d50c4ef"
+  NPM_REGISTRY_URL: "https://npm.ch5.me/"
+  NPM_REGISTRY_HOST: "npm.ch5.me"
 
 jobs:
   docs-lint:
@@ -197,8 +199,8 @@ jobs:
           echo "release_channel=$RELEASE_CHANNEL" >> $GITHUB_OUTPUT
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
 
-          # Get current npm version
-          CURRENT_NPM_VERSION=$(npx -y npm@11.5.1 view @chriscode/hush version 2>/dev/null || echo "0.0.0")
+          # Get current package version from CH5 Verdaccio, not npmjs.
+          CURRENT_NPM_VERSION=$(npx -y npm@11.5.1 view @chriscode/hush version --registry="${NPM_REGISTRY_URL}" 2>/dev/null || echo "0.0.0")
           echo "current_npm_version=$CURRENT_NPM_VERSION" >> $GITHUB_OUTPUT
 
           # Get current package.json version
@@ -268,8 +270,8 @@ jobs:
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
 
-          # Check if this version exists on npm
-          if npx -y npm@11.5.1 view "@chriscode/hush@$NEW_VERSION" version >/dev/null 2>&1; then
+          # Check if this version exists in CH5 Verdaccio.
+          if npx -y npm@11.5.1 view "@chriscode/hush@$NEW_VERSION" version --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
             echo "Version $NEW_VERSION already published, skipping"
             echo "already_published=true" >> $GITHUB_OUTPUT
           else
@@ -284,22 +286,17 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::warning::NPM_TOKEN is not configured in Forgejo Actions; skipping public npm publish for @chriscode/hush. Configure the token deliberately before enabling public releases."
+            echo "::warning::NPM_TOKEN is not configured in Forgejo Actions; skipping CH5 Verdaccio publish for @chriscode/hush."
             echo "can_publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          printf '%s\n' "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
-          printf '%s\n' "registry=https://registry.npmjs.org/" >> "$HOME/.npmrc"
+          printf '%s\n' "//${NPM_REGISTRY_HOST}/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
+          printf '%s\n' "@chriscode:registry=${NPM_REGISTRY_URL}" >> "$HOME/.npmrc"
+          printf '%s\n' "registry=${NPM_REGISTRY_URL}" >> "$HOME/.npmrc"
 
-          if ! npx -y npm@11.5.1 whoami >/dev/null 2>&1; then
-            echo "::warning::NPM_TOKEN is not accepted by npmjs; skipping public npm publish for @chriscode/hush."
-            echo "can_publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if ! npx -y npm@11.5.1 access ls-packages @chriscode >/tmp/npm-chriscode-access.json 2>/tmp/npm-chriscode-access.err; then
-            echo "::warning::NPM_TOKEN cannot list @chriscode scope packages on npmjs; skipping public npm publish for @chriscode/hush."
+          if ! npx -y npm@11.5.1 whoami --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
+            echo "::warning::NPM_TOKEN is not accepted by CH5 Verdaccio; skipping @chriscode/hush publish."
             echo "can_publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -327,9 +324,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
-            npx -y npm@11.5.1 publish --tag "${{ steps.version.outputs.release_channel }}" --access public
+            npx -y npm@11.5.1 publish --registry="${NPM_REGISTRY_URL}" --tag "${{ steps.version.outputs.release_channel }}" --access public
           else
-            npx -y npm@11.5.1 publish --access public
+            npx -y npm@11.5.1 publish --registry="${NPM_REGISTRY_URL}" --access public
           fi
         working-directory: hush-cli
 

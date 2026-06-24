@@ -117,13 +117,13 @@ Docs are hosted on Cloudflare Pages.
 bun run docs:deploy
 ```
 
-## Publishing to npm
+## Publishing to CH5 Verdaccio
 
 Releases are automated by CI on push to `main`. When a conventional commit lands on `main`, CI:
 
 1. Determines the version bump (patch/minor/major) from commit messages
 2. Updates `hush-cli/package.json` and creates a git tag
-3. Publishes `@chriscode/hush` to npm with provenance
+3. Publishes `@chriscode/hush` to `https://npm.ch5.me/`
 4. Creates a Forgejo Release with changelog notes
 
 **Contributors just write conventional commits.** You do not need to bump versions or publish manually.
