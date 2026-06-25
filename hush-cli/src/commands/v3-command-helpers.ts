@@ -39,7 +39,102 @@ export const DEFAULT_V3_FILE_PATHS = {
 export const LOCAL_OVERRIDE_FILENAME = 'local-overrides.encrypted';
 export const DEFAULT_PERSISTED_OUTPUT_DIRNAME = '.hush-materialized';
 
-type FileKey = keyof typeof DEFAULT_V3_FILE_PATHS;
+export type FileKey = keyof typeof DEFAULT_V3_FILE_PATHS;
+export const FILE_KEYS = Object.keys(DEFAULT_V3_FILE_PATHS) as FileKey[];
+const FILE_ALIASES: Record<string, FileKey> = {
+  shared: 'shared',
+  development: 'development',
+  dev: 'development',
+  production: 'production',
+  prod: 'production',
+  local: 'local',
+};
+
+export interface EditableDestination {
+  fileKey?: FileKey;
+  filePath: string;
+}
+
+export function isFileKey(value: string): value is FileKey {
+  return FILE_KEYS.includes(value as FileKey);
+}
+
+/**
+ * Normalize a user-supplied file selector (registered namespaced path,
+ * `.hush/files/...` path, or `*.encrypted` form) to a bare logical file path.
+ */
+export function normalizeRequestedFilePath(value: string): string {
+  return value
+    .trim()
+    .replace(/\.encrypted$/, '')
+    .replace(/^\.hush\/files\//, '')
+    .replace(/^\/+/, '');
+}
+
+/**
+ * Resolve an explicit `--file`/positional file selector to a concrete write
+ * destination. Accepts short aliases (shared/dev/development/prod/production/
+ * local) AND any file declared in the repository's manifest file index.
+ *
+ * Hard-errors (never silently routes a secret to a fallback file) when the
+ * selector cannot be honored — this is the load-bearing safety property for
+ * `set`/`edit`.
+ */
+export function resolveEditableDestination(
+  file: string,
+  repository: HushV3Repository,
+): EditableDestination {
+  const alias = FILE_ALIASES[file];
+  if (alias) {
+    return { fileKey: alias, filePath: DEFAULT_V3_FILE_PATHS[alias] };
+  }
+
+  const normalized = normalizeRequestedFilePath(file);
+
+  const matchedAlias = (Object.entries(DEFAULT_V3_FILE_PATHS) as [FileKey, string][]).find(
+    ([, candidatePath]) => candidatePath === normalized,
+  );
+  if (matchedAlias) {
+    const [fileKey, filePath] = matchedAlias;
+    return { fileKey, filePath };
+  }
+
+  if (repository.filesByPath[normalized]) {
+    return { filePath: normalized };
+  }
+
+  throw new Error(
+    `Unknown file "${file}". Use one of: shared, development, production, local, ` +
+      `or a declared v3 file path (run "hush file list" to see registered files).`,
+  );
+}
+
+/**
+ * Load (and, for alias destinations, lazily create) the editable file document
+ * for a resolved destination. Declared non-alias paths must already exist.
+ */
+export function loadEditableDestination(
+  ctx: HushContext,
+  store: StoreContext,
+  repository: HushV3Repository,
+  destination: EditableDestination,
+): { document: HushFileDocument; filePath: string; systemPath: string; scope: 'repository' | 'machine-local' } {
+  if (destination.fileKey) {
+    return ensureEditableFileDocument(ctx, store, repository, destination.fileKey);
+  }
+
+  const systemPath = repository.fileSystemPaths[destination.filePath];
+  if (!systemPath) {
+    throw new Error(`File "${destination.filePath}" is not declared in this repository`);
+  }
+
+  return {
+    document: repository.loadFile(destination.filePath),
+    filePath: destination.filePath,
+    systemPath,
+    scope: 'repository',
+  };
+}
 
 export interface V3TargetRuntimeSelection {
   repository: HushV3Repository;

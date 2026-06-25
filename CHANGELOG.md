@@ -51,6 +51,19 @@ Security-focused release preparing Hush for public launch.
 - Per-OS install guidance when sops or age is missing
 - SECURITY.md and a published threat-model guide
 
+### Fixed
+
+- `hush set --file <path>` / `--target` now actually route the write to the
+  named file. Previously an explicit selector for a registered namespaced path
+  (e.g. `env/targets/media/runtime`) was silently dropped and the secret landed
+  in `env/project/shared`. An unhonorable selector now hard-errors instead of
+  silently writing elsewhere.
+- `hush edit <file>` accepts any file declared in the manifest (everything
+  `hush file list` shows), not just the four hardcoded aliases
+  (`shared`/`development`/`production`/`local`). Undeclared paths hard-error with
+  a clear message instead of being rejected with a misleading "Use: shared, …"
+  hint. `set` and `edit` now share one destination resolver.
+
 ### Changed
 
 - Unknown flags and unexpected positional arguments are rejected loudly instead

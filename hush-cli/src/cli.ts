@@ -74,7 +74,7 @@ ${pc.bold('Commands:')}
   copy-key <KEY>    Copy one key between encrypted v3 files without printing it
   move-key <KEY>    Move one key between encrypted v3 files without printing it
   delete-key <KEY>  Delete one key from an encrypted v3 file (--from <file>)
-  edit [file]       Edit all secrets in $EDITOR
+  edit [file]       Edit secrets in $EDITOR (alias or declared v3 file path)
   list              List all variables (values masked; --reveal to show)
   inspect           List all variables (masked values, AI-safe)
   has <key>         Check if a secret exists (exit 0 if set, 1 if not)
@@ -175,6 +175,7 @@ ${pc.bold('Examples:')}
   hush edit                     Edit all shared secrets in $EDITOR
   hush edit development         Edit development secrets in $EDITOR
   hush edit local               Edit personal local overrides
+  hush edit env/targets/media/runtime  Edit a declared v3 file (see hush file list)
   hush inspect                  List all variables (masked, AI-safe)
   hush has DATABASE_URL         Check if DATABASE_URL is set
   hush has API_KEY -q && echo "API_KEY is configured"
@@ -227,7 +228,7 @@ export interface ParsedArgs {
   newRepo: boolean;
   yes: boolean;
   outputRoot?: string;
-  file?: FileKey;
+  file?: string;
   key?: string;
   value?: string;
   setFile?: string;
@@ -296,7 +297,7 @@ export function parseArgs(args: string[]): ParsedArgs {
   let newRepo = false;
   let yes = false;
   let outputRoot: string | undefined;
-  let file: FileKey | undefined;
+  let file: string | undefined;
   let key: string | undefined;
   let value: string | undefined;
   let setFile: string | undefined;
@@ -569,14 +570,10 @@ export function parseArgs(args: string[]): ParsedArgs {
     }
 
     if (command === 'edit' && !arg.startsWith('-')) {
-      const parsed = parseFileKey(arg);
-      if (parsed) {
-        file = parsed;
-      } else {
-        console.error(pc.red(`Invalid file: ${arg}`));
-        console.error(pc.dim('Use: shared, development, production, or local'));
-        process.exit(1);
-      }
+      // Accept short aliases (shared/dev/prod/...) and any declared v3 file path.
+      // Validation against the repository file index happens in editCommand so it
+      // can hard-error with the full list of registered files.
+      file = parseFileKey(arg) ?? arg;
       continue;
     }
 

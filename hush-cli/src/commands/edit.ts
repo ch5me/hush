@@ -2,23 +2,24 @@ import pc from 'picocolors';
 import { appendAuditEvent } from '../index.js';
 import type { EditOptions, HushContext } from '../types.js';
 import {
-  ensureEditableFileDocument,
+  loadEditableDestination,
   openEncryptedDocumentEditor,
   readCurrentIdentity,
   requireMutableIdentity,
   requireV3Repository,
+  resolveEditableDestination,
 } from './v3-command-helpers.js';
 
-type FileKey = 'shared' | 'development' | 'production' | 'local';
-
 export async function editCommand(ctx: HushContext, options: EditOptions): Promise<void> {
-  const fileKey: FileKey = options.file ?? 'shared';
   const repository = requireV3Repository(options.store, 'edit');
+  const destination = resolveEditableDestination(options.file ?? 'shared', repository);
+  const editable = loadEditableDestination(ctx, options.store, repository, destination);
+  const auditArgs = [destination.fileKey ?? editable.filePath];
+
   const activeIdentity = requireMutableIdentity(ctx, options.store, repository, {
     name: 'edit',
-    args: [fileKey],
+    args: auditArgs,
   });
-  const editable = ensureEditableFileDocument(ctx, options.store, repository, fileKey);
 
   try {
     ctx.logger.log(pc.blue(`Editing ${editable.filePath}...`));
@@ -36,7 +37,7 @@ export async function editCommand(ctx: HushContext, options: EditOptions): Promi
       type: 'write',
       activeIdentity,
       success: true,
-      command: { name: 'edit', args: [fileKey] },
+      command: { name: 'edit', args: auditArgs },
       files: [editable.filePath],
       details: {
         scope: editable.scope,
@@ -50,7 +51,7 @@ export async function editCommand(ctx: HushContext, options: EditOptions): Promi
       type: 'write',
       activeIdentity: readCurrentIdentity(ctx, options.store),
       success: false,
-      command: { name: 'edit', args: [fileKey] },
+      command: { name: 'edit', args: auditArgs },
       files: [editable.filePath],
       reason: message,
     });

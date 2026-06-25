@@ -387,6 +387,11 @@ hush edit prod
 # Edit local overrides
 hush edit local
 
+# Edit any file declared in the manifest by its full v3 path
+# (see `hush file list` for the registered files)
+hush edit env/targets/media/runtime
+hush edit env/api/production
+
 # Edit the explicit global store
 hush edit --global
 
@@ -405,9 +410,16 @@ EDITOR=nano hush edit shared
 | `--editor <command>` | Override editor for this session (e.g., `vim`, `code --wait`) |
 | `--global` | Edit secrets in `~/.hush` instead of the current project store |
 
+### File argument
+
+`hush edit [file]` accepts either a short alias (`shared`, `development`/`dev`, `production`/`prod`,
+`local`) or any file declared in the repository manifest, given by its full v3 path
+(e.g. `env/targets/media/runtime`). Run `hush file list` to see the registered files. An undeclared
+path hard-errors instead of silently falling back to another file.
+
 ### How It Works
 
-1. Resolves the target v3 document (`shared`, `development`, `production`, or machine-local `local`)
+1. Resolves the target v3 document — a short alias or any declared v3 file path (machine-local for `local`)
 2. Decrypts that document to a temporary YAML file
 3. Opens the temp file in `$EDITOR` (or `--editor` override), validates it on close, then re-encrypts it back to the `.encrypted` path
 4. Logs the resolved editor command for debugging

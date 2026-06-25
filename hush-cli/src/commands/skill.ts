@@ -400,11 +400,14 @@ hush set DEBUG --local
 ### hush edit
 
 Edit one v3 document through a decrypted temporary YAML file that Hush re-encrypts on save.
+Accepts the short aliases (\`shared\`/\`development\`/\`production\`/\`local\`) or any file declared in the
+repository manifest (see \`hush file list\`). An unknown path hard-errors instead of editing a fallback file.
 
 \`\`\`bash
 hush edit
 hush edit development
 hush edit local
+hush edit env/targets/media/runtime
 \`\`\`
 
 ### hush run

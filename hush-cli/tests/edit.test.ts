@@ -1,13 +1,51 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import * as nodeFs from 'node:fs';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { parseArgs } from '../src/cli.js';
 import { bootstrapCommand } from '../src/commands/bootstrap.js';
 import { configCommand } from '../src/commands/config.js';
 import { editCommand } from '../src/commands/edit.js';
 import * as helpers from '../src/commands/v3-command-helpers.js';
+import { createFileDocument, createFileIndexEntry, createManifestDocument } from '../src/index.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
-import type { HushContext, StoreContext } from '../src/types.js';
-import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsEnv } from './helpers/sops-test.js';
+import type { HushContext, HushManifestDocument, StoreContext } from '../src/types.js';
+import {
+  TEST_AGE_PRIVATE_KEY,
+  TEST_AGE_PUBLIC_KEY,
+  ensureTestSopsEnv,
+  writeEncryptedYamlFile,
+} from './helpers/sops-test.js';
+
+function normalizeYaml(content: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  while (lines[0] !== undefined && lines[0].trim() === '') {
+    lines.shift();
+  }
+  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === '') {
+    lines.pop();
+  }
+  const indent = lines
+    .filter((line) => line.trim().length > 0)
+    .reduce<number>((smallest, line) => {
+      const match = line.match(/^\s*/);
+      return Math.min(smallest, match?.[0].length ?? 0);
+    }, Number.POSITIVE_INFINITY);
+  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join('\n');
+}
+
+function writeRepo(root: string, manifest: string, files: Record<string, string>): void {
+  nodeFs.mkdirSync(join(root, '.hush', 'files'), { recursive: true });
+  const parsedFiles = Object.values(files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
+  const manifestDocument = createManifestDocument({
+    ...(parseYaml(normalizeYaml(manifest)) as Record<string, unknown>),
+    fileIndex: Object.fromEntries(parsedFiles.map((file) => [file.path, createFileIndexEntry(file)])),
+  } as HushManifestDocument);
+  writeEncryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'), stringifyYaml(manifestDocument, { indent: 2 }));
+  for (const [relativePath, content] of Object.entries(files)) {
+    writeEncryptedYamlFile(root, join(root, '.hush', 'files', `${relativePath}.encrypted`), normalizeYaml(content));
+  }
+}
 
 const TEST_DIR = join('/tmp', 'hush-test-edit-command');
 
@@ -170,5 +208,79 @@ describe('editCommand', () => {
       'sed -n 1p',
     );
     expect(ctx.logger.info).not.toHaveBeenCalled();
+  });
+
+  it('parseArgs passes a declared v3 file path through to edit instead of rejecting it', () => {
+    const result = parseArgs(['edit', 'env/targets/media/runtime']);
+    expect(result.command).toBe('edit');
+    expect(result.file).toBe('env/targets/media/runtime');
+  });
+
+  it('edits a declared (non-alias) v3 file path', async () => {
+    const root = join(TEST_DIR, 'declared-path-edit');
+    writeRepo(
+      root,
+      `
+      version: 3
+      activeIdentity: owner-local
+      identities:
+        owner-local:
+          roles: [owner]
+      bundles:
+        media:
+          files:
+            - path: env/project/shared
+            - path: env/targets/media/runtime
+      targets:
+        media:
+          bundle: media
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+        'env/targets/media/runtime': `
+          path: env/targets/media/runtime
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+      },
+    );
+
+    const ctx = createContext(root);
+    const store = createStore(root);
+    await configCommand(ctx, { store, subcommand: 'active-identity', args: ['owner-local'] });
+
+    const openEncryptedDocumentEditorSpy = vi
+      .spyOn(helpers, 'openEncryptedDocumentEditor')
+      .mockImplementation(() => ({}) as never);
+
+    await editCommand(ctx, { store, file: 'env/targets/media/runtime' });
+
+    expect(openEncryptedDocumentEditorSpy).toHaveBeenCalledWith(
+      ctx,
+      store,
+      expect.stringContaining(join('env', 'targets', 'media', 'runtime')),
+      expect.anything(),
+      undefined,
+    );
+  }, 90000);
+
+  it('hard-errors on an unknown (undeclared) file path instead of silently routing elsewhere', async () => {
+    const { ctx, store } = await bootstrapEditableRepo('edit-unknown-path');
+
+    await expect(editCommand(ctx, {
+      store,
+      file: 'env/targets/does-not-exist/runtime',
+    })).rejects.toThrow(/Unknown file/i);
   });
 });

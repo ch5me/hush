@@ -5,20 +5,21 @@ import type { HushContext, HushFileDocument, HushV3Repository, SetOptions } from
 import { ensureGlobalStoreBootstrap } from '../global-store.js';
 import {
   DEFAULT_V3_FILE_PATHS,
-  ensureEditableFileDocument,
+  FILE_KEYS,
+  isFileKey,
+  loadEditableDestination,
   loadMachineLocalOverrides,
   readCurrentIdentity,
   requireMutableIdentity,
   requireV3Repository,
+  resolveEditableDestination,
   setEnvValueInDocument,
   writeMachineLocalOverrides,
   writeEditableFileDocument,
 } from './v3-command-helpers.js';
+import type { EditableDestination, FileKey } from './v3-command-helpers.js';
 
-type FileKey = keyof typeof DEFAULT_V3_FILE_PATHS;
-const FILE_KEYS = Object.keys(DEFAULT_V3_FILE_PATHS) as FileKey[];
-const POSITIONAL_FILE_ALIASES = new Set<FileKey>(FILE_KEYS);
-type SetDestination = { fileKey?: FileKey; filePath: string };
+type SetDestination = EditableDestination;
 
 function hasStdinPipe(ctx: HushContext): boolean {
   try {
@@ -200,14 +201,6 @@ function normalizePromptValue(value: string): string {
   return trimTrailingLineEndings(value);
 }
 
-function isFileKey(value: string): value is FileKey {
-  return POSITIONAL_FILE_ALIASES.has(value as FileKey);
-}
-
-function normalizeRequestedFilePath(value: string): string {
-  return value.trim().replace(/\.encrypted$/, '').replace(/^\.hush\/files\//, '').replace(/^\/+/, '');
-}
-
 function resolveSetDestination(
   file: string | undefined,
   repoLocal: boolean | undefined,
@@ -217,28 +210,10 @@ function resolveSetDestination(
     return { fileKey: 'local', filePath: DEFAULT_V3_FILE_PATHS.local };
   }
 
-  const selected = file ?? 'shared';
-  if (isFileKey(selected)) {
-    return {
-      fileKey: selected,
-      filePath: DEFAULT_V3_FILE_PATHS[selected],
-    };
-  }
-
-  const normalized = normalizeRequestedFilePath(selected);
-  const matchedEntry = Object.entries(DEFAULT_V3_FILE_PATHS).find(([, candidatePath]) => candidatePath === normalized);
-  if (matchedEntry) {
-    const [fileKey, filePath] = matchedEntry as [FileKey, string];
-    return { fileKey, filePath };
-  }
-
-  if (repository.filesByPath[normalized]) {
-    return { filePath: normalized };
-  }
-
-  throw new Error(
-    `Unknown set destination "${selected}". Use one of: shared, development, production, local, or a declared v3 file path like env/project/staging.`,
-  );
+  // Shared resolver: honors explicit --file aliases AND declared v3 paths, and
+  // hard-errors (never silently falls back) when the selector is unknown. Same
+  // class fix covers `set` and `edit`.
+  return resolveEditableDestination(file ?? 'shared', repository);
 }
 
 function getScopeLabel(fileKey: FileKey | undefined, scope: 'repository' | 'machine-local'): string {
@@ -311,29 +286,6 @@ function findSharedConflicts(ctx: HushContext, store: SetOptions['store'], repos
       return getDocumentValue(repository.loadFile(filePath), filePath, key) !== undefined;
     })
     .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey]);
-}
-
-function loadEditableDestination(
-  ctx: HushContext,
-  store: SetOptions['store'],
-  repository: HushV3Repository,
-  destination: SetDestination,
-): { document: HushFileDocument; filePath: string; systemPath: string; scope: 'repository' | 'machine-local' } {
-  if (destination.fileKey) {
-    return ensureEditableFileDocument(ctx, store, repository, destination.fileKey);
-  }
-
-  const systemPath = repository.fileSystemPaths[destination.filePath];
-  if (!systemPath) {
-    throw new Error(`File "${destination.filePath}" is not declared in this repository`);
-  }
-
-  return {
-    document: repository.loadFile(destination.filePath),
-    filePath: destination.filePath,
-    systemPath,
-    scope: 'repository',
-  };
 }
 
 async function promptForValue(ctx: HushContext, key: string, forceGui: boolean): Promise<string> {
@@ -459,7 +411,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       ctx.logger.log(pc.yellow('Cancelled'));
       ctx.process.exit(1);
     }
-    if (err.message.startsWith('Invalid syntax:') || err.message.startsWith('Unknown set destination')) {
+    if (err.message.startsWith('Invalid syntax:') || err.message.startsWith('Unknown file')) {
       appendAuditEvent(ctx, store, {
         type: 'write',
         activeIdentity: readCurrentIdentity(ctx, store),

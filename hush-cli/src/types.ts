@@ -239,7 +239,7 @@ export interface DecryptOptions {
 
 export interface EditOptions {
   store: StoreContext;
-  file?: 'shared' | 'development' | 'production' | 'local';
+  file?: 'shared' | 'development' | 'production' | 'local' | string;
   editor?: string;
 }
 
