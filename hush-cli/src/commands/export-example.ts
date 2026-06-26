@@ -24,7 +24,7 @@ function isArtifactEntry(entry: unknown): entry is HushArtifactEntry {
 }
 
 function isOutputFormat(format: string): format is OutputFormat {
-  return format === 'dotenv' || format === 'wrangler' || format === 'json' || format === 'shell' || format === 'yaml';
+  return format === 'dotenv' || format === 'wrangler' || format === 'vercel' || format === 'json' || format === 'shell' || format === 'yaml';
 }
 
 function toSafeScalarValue(value: unknown): string {

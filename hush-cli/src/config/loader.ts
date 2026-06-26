@@ -138,8 +138,9 @@ export function checkSchemaVersion(config: LegacyHushConfig): { needsMigration: 
 
 export function validateConfig(config: LegacyHushConfig): string[] {
   const errors: string[] = [];
-  const validFormats = ['dotenv', 'wrangler', 'json', 'shell', 'yaml'];
-  const validPushTypes = ['cloudflare-workers', 'cloudflare-pages'];
+  const validFormats = ['dotenv', 'wrangler', 'vercel', 'json', 'shell', 'yaml'];
+  const validPushTypes = ['cloudflare-workers', 'cloudflare-pages', 'vercel'];
+  const validVercelEnvironments = ['production', 'preview', 'development'];
 
   if (!config.sources.shared) {
     errors.push('sources.shared is required');
@@ -175,6 +176,20 @@ export function validateConfig(config: LegacyHushConfig): string[] {
         const pagesConfig = target.push_to as { type: string; project?: string };
         if (!pagesConfig.project) {
           errors.push(`${prefix}: push_to.project is required for cloudflare-pages`);
+        }
+      } else if (target.push_to.type === 'vercel') {
+        const vercelConfig = target.push_to as {
+          type: string;
+          projectId?: string;
+          environments?: unknown;
+        };
+        if (!vercelConfig.projectId) {
+          errors.push(`${prefix}: push_to.projectId is required for vercel`);
+        }
+        if (!Array.isArray(vercelConfig.environments) || vercelConfig.environments.length === 0) {
+          errors.push(`${prefix}: push_to.environments must contain at least one Vercel environment`);
+        } else if (vercelConfig.environments.some((environment) => !validVercelEnvironments.includes(String(environment)))) {
+          errors.push(`${prefix}: push_to.environments must be drawn from ${validVercelEnvironments.join(', ')}`);
         }
       }
     }

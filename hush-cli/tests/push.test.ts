@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { parseArgs } from '../src/cli.js';
 import type { HushContext, HushV3Repository, StoreContext } from '../src/types.js';
 
 const mocks = vi.hoisted(() => ({
@@ -18,7 +19,7 @@ vi.mock('../src/commands/v3-command-helpers.js', async (importOriginal) => {
   };
 });
 
-import { pushCommand } from '../src/commands/push.js';
+import { pushCommand, pushVercelSecrets } from '../src/commands/push.js';
 
 function createStore(): StoreContext {
   return {
@@ -69,6 +70,9 @@ function createContext(): HushContext {
       loadConfig: vi.fn(),
       findProjectRoot: vi.fn(),
     },
+    network: {
+      fetch: vi.fn<typeof globalThis.fetch>(),
+    },
     age: {
       ageAvailable: vi.fn(() => true),
       ageGenerate: vi.fn(),
@@ -88,6 +92,32 @@ function createContext(): HushContext {
       isSopsInstalled: vi.fn(() => true),
     },
   };
+}
+
+function createEnvView() {
+  return {
+    env: {
+      API_KEY: 'secret-value',
+      PUBLIC_URL: 'https://example.com',
+    },
+    resolution: {
+      values: {
+        'env/project/shared/API_KEY': {
+          entry: { value: 'secret-value', sensitive: true },
+        },
+        'env/project/shared/PUBLIC_URL': {
+          entry: { value: 'https://example.com', sensitive: false },
+        },
+      },
+    },
+  } as const;
+}
+
+function createJsonResponse(body: unknown, init: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  });
 }
 
 describe('pushCommand', () => {
@@ -182,5 +212,173 @@ describe('pushCommand', () => {
         input: 'secret-value',
       }),
     );
+  });
+});
+
+describe('pushVercelSecrets', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('posts sensitive and plain env vars to Vercel with upsert and team id', async () => {
+    const ctx = createContext();
+    const fetchMock = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(createJsonResponse({ ok: true }, { status: 200 }));
+    ctx.network = { fetch: fetchMock };
+
+    const result = await pushVercelSecrets(ctx, {
+      envView: createEnvView(),
+      config: {
+        type: 'vercel',
+        projectId: 'prj_123',
+        teamId: 'team_456',
+        environments: ['production', 'preview'],
+      },
+      token: 'vercel-token',
+      dryRun: false,
+    });
+
+    expect(result.failed).toEqual([]);
+    expect(result.success).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.vercel.com/v10/projects/prj_123/env?upsert=true&teamId=team_456',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer vercel-token',
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify({
+          key: 'API_KEY',
+          value: 'secret-value',
+          type: 'sensitive',
+          target: ['production', 'preview'],
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://api.vercel.com/v10/projects/prj_123/env?upsert=true&teamId=team_456',
+      expect.objectContaining({
+        body: JSON.stringify({
+          key: 'PUBLIC_URL',
+          value: 'https://example.com',
+          type: 'encrypted',
+          target: ['production', 'preview'],
+        }),
+      }),
+    );
+  });
+
+  it('uses dry-run output and makes zero fetch calls', async () => {
+    const ctx = createContext();
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    ctx.network = { fetch: fetchMock };
+
+    const result = await pushVercelSecrets(ctx, {
+      envView: createEnvView(),
+      config: {
+        type: 'vercel',
+        projectId: 'prj_123',
+        environments: ['development'],
+      },
+      token: 'vercel-token',
+      dryRun: true,
+    });
+
+    expect(result.success).toBe(2);
+    expect(result.failed).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(ctx.logger.log).toHaveBeenCalledWith(expect.stringContaining('[dry-run] API_KEY'));
+  });
+
+  it('collects non-2xx failures without leaking secret values', async () => {
+    const ctx = createContext();
+    const fetchMock = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ error: { message: 'No access to project' } }, { status: 403, statusText: 'Forbidden' }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }, { status: 200 }));
+    ctx.network = { fetch: fetchMock };
+
+    const result = await pushVercelSecrets(ctx, {
+      envView: createEnvView(),
+      config: {
+        type: 'vercel',
+        projectId: 'prj_123',
+        environments: ['production'],
+      },
+      token: 'vercel-token',
+      dryRun: false,
+    });
+
+    expect(result.success).toBe(1);
+    expect(result.failed).toEqual([
+      {
+        key: 'API_KEY',
+        type: 'sensitive',
+        target: ['production'],
+        error: 'HTTP 403 No access to project',
+      },
+    ]);
+    expect(ctx.logger.error).toHaveBeenCalledWith(expect.stringContaining('API_KEY'));
+    expect(ctx.logger.error).not.toHaveBeenCalledWith(expect.stringContaining('secret-value'));
+  });
+
+  it('throws a clear error when token is missing', async () => {
+    const ctx = createContext();
+
+    await expect(pushVercelSecrets(ctx, {
+      envView: createEnvView(),
+      config: {
+        type: 'vercel',
+        projectId: 'prj_123',
+        environments: ['production'],
+      },
+      dryRun: false,
+    })).rejects.toThrow(/VERCEL_TOKEN/i);
+  });
+
+  it('throws a clear error when project id is missing', async () => {
+    const ctx = createContext();
+
+    await expect(pushVercelSecrets(ctx, {
+      envView: createEnvView(),
+      config: {
+        type: 'vercel',
+        projectId: '',
+        environments: ['production'],
+      },
+      token: 'vercel-token',
+      dryRun: false,
+    })).rejects.toThrow(/projectId/i);
+  });
+});
+
+describe('parseArgs(push)', () => {
+  it('parses explicit Vercel push flags', () => {
+    const parsed = parseArgs([
+      'push',
+      '--vercel',
+      '--target',
+      'web',
+      '--project',
+      'prj_123',
+      '--team',
+      'team_456',
+      '--environment',
+      'production',
+      '--environment',
+      'preview',
+      '--dry-run',
+    ]);
+
+    expect(parsed.command).toBe('push');
+    expect(parsed.vercel).toBe(true);
+    expect(parsed.target).toBe('web');
+    expect(parsed.project).toBe('prj_123');
+    expect(parsed.team).toBe('team_456');
+    expect(parsed.environments).toEqual(['production', 'preview']);
+    expect(parsed.dryRun).toBe(true);
   });
 });

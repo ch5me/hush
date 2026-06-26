@@ -844,13 +844,13 @@ DATABASE_URL not found in target runtime
 
 ## push
 
-Push resolved v3 target output to Cloudflare Workers.
+Push resolved v3 target output to configured remote runtimes.
 
 ```bash
 # Push all configured targets
 hush push
 
-# Push a specific target
+# Push a specific configured target
 hush push -t api
 hush push -t app
 
@@ -860,6 +860,9 @@ hush push --dry-run
 # Detailed preview showing each variable
 hush push --dry-run --verbose
 hush push -t app --dry-run --verbose
+
+# Ad-hoc Vercel projection
+hush push --vercel -t web --project prj_123 --environment production --dry-run
 ```
 
 ### Options
@@ -869,12 +872,18 @@ hush push -t app --dry-run --verbose
 | `-t, --target <name>` | Push only the specified target |
 | `--dry-run` | Preview what would be pushed without making changes |
 | `--verbose` | Show detailed output (with `--dry-run`) |
+| `--vercel` | Treat the selected target as a Vercel projection and call the Vercel REST API directly |
+| `--project <id>` | Override the Vercel project id (`push_to.projectId` or explicit ad-hoc mode) |
+| `--team <id>` | Optional Vercel team id for scoped project access |
+| `--environment <name>` | Vercel environment target (`production`, `preview`, `development`); repeat to target more than one |
 
 ### Supported Destinations
 
-| Target Type | Configuration | Wrangler Command |
-|-------------|---------------|------------------|
+| Target Type | Configuration | Transport |
+|-------------|---------------|-----------|
 | **Cloudflare Workers** | `format: wrangler` | `wrangler secret put` |
+| **Cloudflare Pages** | `push_to.type: cloudflare-pages` | `wrangler pages secret put` |
+| **Vercel** | `push_to.type: vercel` or `format: vercel` | `POST /v10/projects/{projectId}/env?upsert=true` |
 
 ### Configuration Examples
 
@@ -886,20 +895,34 @@ targets:
     format: wrangler
 ```
 
-Legacy `push_to: cloudflare-pages` mappings are not part of the v3 runtime target model. Migrate those repos first, then rewrite the deployment flow explicitly.
+**Vercel (migrated legacy `push_to.type: vercel` metadata):**
+```yaml
+targets:
+  web:
+    bundle: web-runtime
+    format: vercel
+    push_to:
+      type: vercel
+      projectId: prj_123
+      teamId: team_456
+      environments: [production, preview]
+```
+
+Today the structured `push_to` metadata comes from migrated legacy config. In a pure v3 repo without that metadata, use `format: vercel` plus the explicit CLI flags (`--project`, `--team`, `--environment`) for ad-hoc projection.
 
 ### How It Works
 
-1. Loads the v3 repository and resolves a wrangler-formatted target through the shared materializer
-2. Emits the same audit-safe materialization flow used by `hush run`
-3. Pushes each resolved environment variable with `wrangler secret put`
+1. Loads the v3 repository and selects configured push targets, or a single explicit `--vercel` target
+2. Resolves the target env through the shared runtime pipeline and emits audit-safe read/materialize events
+3. For Cloudflare targets, pushes each resolved env var through `wrangler`
+4. For Vercel targets, maps each env key to `sensitive` or `encrypted` and upserts it through the Vercel REST API
 
 <Aside type="note">
-Requires the `wrangler` CLI to be installed and authenticated. Task 8's v3 push path currently supports wrangler targets only.
+Cloudflare push requires the `wrangler` CLI to be installed and authenticated. Vercel push requires a `VERCEL_TOKEN`, either in `push_to.token`, the resolved Hush target, or the parent process environment.
 </Aside>
 
 <Aside type="tip">
-Use `hush push -t <target> --dry-run --verbose` to preview exactly what secrets would be pushed to a specific target.
+Use `hush push -t <target> --dry-run --verbose` to preview exactly what Hush would send to a configured target, or `hush push --vercel ... --dry-run` for ad-hoc Vercel projection.
 </Aside>
 
 ---

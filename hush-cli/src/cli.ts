@@ -2,7 +2,7 @@
 import { createRequire } from 'node:module';
 import pc from 'picocolors';
 import { pathToFileURL } from 'node:url';
-import type { Environment, StoreMode } from './types.js';
+import type { Environment, StoreMode, VercelEnvironment } from './types.js';
 import { defaultContext } from './context.js';
 import { encryptCommand } from './commands/encrypt.js';
 import { decryptCommand } from './commands/decrypt.js';
@@ -79,7 +79,7 @@ ${pc.bold('Commands:')}
   inspect           List all variables (masked values, AI-safe)
   has <key>         Check if a secret exists (exit 0 if set, 1 if not)
   check             Verify secrets are encrypted (for pre-commit hooks)
-  push              Push secrets to Cloudflare (Workers and Pages)
+  push              Push secrets to Cloudflare (Workers/Pages) or Vercel
   status            Show configuration and status
   doctor            Diagnose root, key, and store resolution for the current directory
   skill             Install Claude Code / OpenCode skill
@@ -112,6 +112,10 @@ ${pc.bold('Options:')}
   -q, --quiet       Suppress output (has/check commands)
   --dry-run         Preview changes without applying
   --verbose         Show detailed output (push --dry-run only)
+  --vercel          Push the selected Hush target to Vercel
+  --project <id>    Vercel project id (push --vercel only)
+  --team <id>       Vercel team id (push --vercel only)
+  --environment <e> Vercel environment: production, preview, development (repeatable; push --vercel only)
   --warn            Warn but exit 0 on drift (check only)
   --json            Output machine-readable JSON where supported
   --require <key>   Require key for verify-target (repeatable)
@@ -180,8 +184,9 @@ ${pc.bold('Examples:')}
   hush has DATABASE_URL         Check if DATABASE_URL is set
   hush has API_KEY -q && echo "API_KEY is configured"
   hush check                    Verify secrets are encrypted
-  hush push --dry-run           Preview push to Cloudflare
+  hush push --dry-run           Preview configured remote push targets
   hush push -t app              Push only the 'app' target
+  hush push --vercel -t web --project prj_123 --environment production --dry-run
   hush status                   Show current status
   hush diff                     Compare current runtime target against HEAD
   hush diff --ref HEAD~1        Compare current runtime target against HEAD~1
@@ -255,6 +260,10 @@ export interface ParsedArgs {
   surface?: string;
   skipRemote: boolean;
   skipProvider: boolean;
+  vercel: boolean;
+  project?: string;
+  team?: string;
+  environments: VercelEnvironment[];
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -267,6 +276,13 @@ function parseFileKey(value: string): FileKey | null {
   if (value === 'shared' || value === 'development' || value === 'production' || value === 'local') return value;
   if (value === 'dev') return 'development';
   if (value === 'prod') return 'production';
+  return null;
+}
+
+function parseVercelEnvironment(value: string): VercelEnvironment | null {
+  if (value === 'production' || value === 'preview' || value === 'development') {
+    return value;
+  }
   return null;
 }
 
@@ -321,6 +337,10 @@ export function parseArgs(args: string[]): ParsedArgs {
   let surface: string | undefined;
   let skipRemote = false;
   let skipProvider = false;
+  let vercel = false;
+  let project: string | undefined;
+  let team: string | undefined;
+  let environments: VercelEnvironment[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -346,6 +366,22 @@ export function parseArgs(args: string[]): ParsedArgs {
         console.error(pc.dim('Use: development, dev, production, or prod'));
         process.exit(1);
       }
+      continue;
+    }
+
+    if (arg === '--environment') {
+      const nextArg = args[++i];
+      const parsedValues = (nextArg ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map((value) => parseVercelEnvironment(value));
+      if (parsedValues.length === 0 || parsedValues.some((value) => value === null)) {
+        console.error(pc.red(`Invalid Vercel environment: ${nextArg}`));
+        console.error(pc.dim('Use: production, preview, or development'));
+        process.exit(1);
+      }
+      environments.push(...parsedValues as VercelEnvironment[]);
       continue;
     }
 
@@ -539,6 +575,21 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--vercel') {
+      vercel = true;
+      continue;
+    }
+
+    if (arg === '--project') {
+      project = args[++i];
+      continue;
+    }
+
+    if (arg === '--team') {
+      team = args[++i];
+      continue;
+    }
+
     if (arg === '--skip-remote') {
       skipRemote = true;
       continue;
@@ -717,6 +768,10 @@ export function parseArgs(args: string[]): ParsedArgs {
     surface,
     skipRemote,
     skipProvider,
+    vercel,
+    project,
+    team,
+    environments: Array.from(new Set(environments)),
   };
 }
 
@@ -803,6 +858,10 @@ export async function main(): Promise<void> {
     surface,
     skipRemote,
     skipProvider,
+    vercel,
+    project,
+    team,
+    environments,
   } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
@@ -916,7 +975,7 @@ export async function main(): Promise<void> {
 
 
       case 'push':
-        await pushCommand(defaultContext, { store, dryRun, verbose, target });
+        await pushCommand(defaultContext, { store, dryRun, verbose, target, vercel, project, team, environments });
         break;
 
       case 'project':

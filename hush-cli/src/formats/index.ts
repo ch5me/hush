@@ -11,6 +11,8 @@ export function formatVars(vars: EnvVar[], format: OutputFormat): string {
       return formatDotenv(vars);
     case 'wrangler':
       return formatWrangler(vars);
+    case 'vercel':
+      return formatDotenv(vars);
     case 'json':
       return formatJson(vars);
     case 'shell':

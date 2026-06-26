@@ -176,4 +176,22 @@ describe('validateConfig', () => {
     const errors = validateConfig(config);
     expect(errors.some(e => e.includes('invalid format'))).toBe(true);
   });
+
+  it('accepts vercel push_to config with required project metadata', () => {
+    const config: LegacyHushConfig = {
+      sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
+      targets: [{
+        name: 'web',
+        path: '.',
+        format: 'vercel',
+        push_to: {
+          type: 'vercel',
+          projectId: 'prj_123',
+          environments: ['production', 'preview'],
+        },
+      }],
+    };
+
+    expect(validateConfig(config)).toEqual([]);
+  });
 });

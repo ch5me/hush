@@ -354,6 +354,15 @@ function isPushConfig(value: unknown): value is PushConfig {
     return true;
   }
 
+  if (value.type === 'vercel') {
+    return typeof value.projectId === 'string'
+      && Array.isArray(value.environments)
+      && value.environments.length > 0
+      && value.environments.every((environment) => environment === 'production' || environment === 'preview' || environment === 'development')
+      && (value.token === undefined || typeof value.token === 'string')
+      && (value.teamId === undefined || typeof value.teamId === 'string');
+  }
+
   return value.type === 'cloudflare-pages' && typeof value.project === 'string';
 }
 

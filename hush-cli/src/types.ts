@@ -152,9 +152,10 @@ export {
   stripEncryptedFileExtension,
 } from './v3/paths.js';
 
-export type OutputFormat = 'dotenv' | 'wrangler' | 'json' | 'shell' | 'yaml';
+export type OutputFormat = 'dotenv' | 'wrangler' | 'vercel' | 'json' | 'shell' | 'yaml';
 export type Environment = 'development' | 'production';
-export type PushDestinationType = 'cloudflare-workers' | 'cloudflare-pages';
+export type VercelEnvironment = 'production' | 'preview' | 'development';
+export type PushDestinationType = 'cloudflare-workers' | 'cloudflare-pages' | 'vercel';
 
 export interface CloudflareWorkersPushConfig {
   type: 'cloudflare-workers';
@@ -165,7 +166,15 @@ export interface CloudflarePagesPushConfig {
   project: string;
 }
 
-export type PushConfig = CloudflareWorkersPushConfig | CloudflarePagesPushConfig;
+export interface VercelPushConfig {
+  type: 'vercel';
+  token?: string;
+  teamId?: string;
+  projectId: string;
+  environments: VercelEnvironment[];
+}
+
+export type PushConfig = CloudflareWorkersPushConfig | CloudflarePagesPushConfig | VercelPushConfig;
 
 export interface LegacyTarget {
   name: string;
@@ -265,6 +274,10 @@ export interface PushOptions {
   dryRun: boolean;
   verbose: boolean;
   target?: string;
+  vercel?: boolean;
+  project?: string;
+  team?: string;
+  environments?: VercelEnvironment[];
 }
 
 export interface StatusOptions {
@@ -590,6 +603,10 @@ export const FORMAT_OUTPUT_FILES: Record<OutputFormat, Record<Environment, strin
   wrangler: {
     development: '.dev.vars',
     production: '.dev.vars',
+  },
+  vercel: {
+    development: '.env.vercel',
+    production: '.env.vercel',
   },
   json: {
     development: '.env.development.json',

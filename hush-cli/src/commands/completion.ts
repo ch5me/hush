@@ -49,6 +49,7 @@ export const HUSH_FLAGS = [
   '--config',
   '--dry-run',
   '--env',
+  '--environment',
   '--file',
   '--files',
   '--force',
@@ -65,6 +66,7 @@ export const HUSH_FLAGS = [
   '--new-repo',
   '--only-changed',
   '--output-root',
+  '--project',
   '--quiet',
   '--ref',
   '--repo-local',
@@ -76,8 +78,10 @@ export const HUSH_FLAGS = [
   '--skip-remote',
   '--subpath',
   '--surface',
+  '--team',
   '--target',
   '--to',
+  '--vercel',
   '--verbose',
   '--version',
   '--warn',
@@ -122,11 +126,14 @@ _hush_completion() {
     -e|--env)
       COMPREPLY=( \$(compgen -W "development production dev prod" -- "\${cur}") )
       return ;;
-    -t|--target|--bundle|--from|--to)
+    -t|--target|--bundle|--from|--to|--project|--team)
       COMPREPLY=()
       return ;;
+    --environment)
+      COMPREPLY=( \$(compgen -W "production preview development" -- "\${cur}") )
+      return ;;
     --format)
-      COMPREPLY=( \$(compgen -W "dotenv wrangler json shell yaml" -- "\${cur}") )
+      COMPREPLY=( \$(compgen -W "dotenv wrangler vercel json shell yaml" -- "\${cur}") )
       return ;;
     --mode)
       COMPREPLY=( \$(compgen -W "process file example" -- "\${cur}") )
@@ -231,18 +238,21 @@ ${commandCompletions}
 
 # Flags
 complete -c hush -l 'env' -r -d 'Environment: development or production'
+complete -c hush -l 'environment' -r -d 'Vercel environment'
 complete -c hush -l 'root' -r -d 'Start directory'
 complete -c hush -l 'target' -r -d 'Target name'
 complete -c hush -l 'bundle' -r -d 'Bundle name'
 complete -c hush -l 'from' -r -d 'Source file or version'
 complete -c hush -l 'to' -r -d 'Destination file or directory'
 complete -c hush -l 'output-root' -r -d 'Output root directory'
+complete -c hush -l 'project' -r -d 'Vercel project id'
 complete -c hush -l 'ref' -r -d 'Git ref'
 complete -c hush -l 'require' -r -d 'Required key'
 complete -c hush -l 'format' -r -d 'Output format'
 complete -c hush -l 'mode' -r -d 'Materialization mode'
 complete -c hush -l 'file' -r -d 'Set destination file'
 complete -c hush -l 'files' -r -d 'File list (csv)'
+complete -c hush -l 'team' -r -d 'Vercel team id'
 complete -c hush -l 'json' -d 'Machine-readable JSON output'
 complete -c hush -l 'dry-run' -d 'Preview changes without applying'
 complete -c hush -l 'verbose' -d 'Verbose output'
@@ -261,12 +271,14 @@ complete -c hush -l 'keep-file' -d 'Keep file on remove'
 complete -c hush -l 'only-changed' -d 'Only check modified files'
 complete -c hush -l 'require-source' -d 'Fail if source is missing'
 complete -c hush -l 'allow-plaintext' -d 'Allow plaintext files'
+complete -c hush -l 'vercel' -d 'Push to Vercel'
 complete -c hush -l 'help' -d 'Show help'
 complete -c hush -l 'version' -d 'Show version'
 
 # Env value completions
 complete -c hush -l 'env' -r -a 'development production dev prod' -d 'Environment'
-complete -c hush -l 'format' -r -a 'dotenv wrangler json shell yaml' -d 'Output format'
+complete -c hush -l 'environment' -r -a 'production preview development' -d 'Vercel environment'
+complete -c hush -l 'format' -r -a 'dotenv wrangler vercel json shell yaml' -d 'Output format'
 complete -c hush -l 'mode' -r -a 'process file example' -d 'Materialization mode'
 `;
 }

@@ -44,7 +44,7 @@ export interface HushArtifactShapeResult {
 }
 
 function isOutputFormat(format: HushArtifactFormat): format is OutputFormat {
-  return format === 'dotenv' || format === 'wrangler' || format === 'json' || format === 'shell' || format === 'yaml';
+  return format === 'dotenv' || format === 'wrangler' || format === 'vercel' || format === 'json' || format === 'shell' || format === 'yaml';
 }
 
 function toEnvVarValue(value: HushResolvedNode['entry']['value']): string {
@@ -129,6 +129,8 @@ function formatToExtension(format: HushArtifactFormat): string {
       return '.env';
     case 'wrangler':
       return '.dev.vars';
+    case 'vercel':
+      return '.env';
     case 'json':
       return '.json';
     case 'shell':

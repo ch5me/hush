@@ -419,6 +419,18 @@ hush run -- npm start
 hush run -t api -- wrangler dev
 \`\`\`
 
+### hush push
+
+Project a resolved Hush target into configured Cloudflare or Vercel runtimes.
+
+\`\`\`bash
+hush push --dry-run
+hush push -t api
+hush push --vercel -t web --project prj_123 --environment production --dry-run
+\`\`\`
+
+Configured Vercel targets map each env key to \`sensitive\` or \`encrypted\` before calling the Vercel REST API. Explicit \`--vercel\` mode is for ad-hoc projection when the manifest does not already declare \`push_to.type: vercel\`.
+
 ### hush verify-target
 
 Verify that a target resolves and contains required keys before release automation syncs remote runtime secrets.
