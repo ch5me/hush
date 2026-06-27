@@ -347,6 +347,65 @@ describe('setCommand legacy guard and global bootstrap', () => {
     expect(stagingFile).toContain('smoke-value');
     expect(sharedFile).not.toContain('FOLIO_CI_HUSH_WRITE_SMOKE');
   }, 90000);
+
+  it('writes explicit env/project/local paths to the repository file, not machine-local overrides', async () => {
+    const root = join(TEST_DIR, 'explicit-local-path');
+    writeRepo(
+      root,
+      `
+      version: 3
+      activeIdentity: owner-local
+      identities:
+        owner-local:
+          roles: [owner]
+      bundles:
+        local-runtime:
+          files:
+            - path: env/project/shared
+            - path: env/project/local
+      targets:
+        root-runtime-local:
+          bundle: local-runtime
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+        'env/project/local': `
+          path: env/project/local
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries: {}
+        `,
+      },
+    );
+
+    const ctx = createContext(root);
+    const store = createStore(root);
+    await configCommand(ctx, { store, subcommand: 'active-identity', args: ['owner-local'] });
+
+    await setCommand(ctx, {
+      store,
+      file: 'env/project/local',
+      key: 'ELFAUTH_KID',
+      value: 'local-kid',
+    });
+
+    const localFile = readDecryptedYamlFile(root, join(root, '.hush', 'files', 'env', 'project', 'local.encrypted'));
+    const machineLocalOverride = join(root, '.state-root', 'projects', 'hush-global-test', 'user', 'local-overrides.encrypted');
+
+    expect(localFile).toContain('env/project/local/ELFAUTH_KID');
+    expect(localFile).toContain('local-kid');
+    expect(nodeFs.existsSync(machineLocalOverride)).toBe(false);
+  }, 90000);
 });
 
 describe('CLI argument parsing for set command', () => {

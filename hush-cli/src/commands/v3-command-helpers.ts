@@ -91,16 +91,16 @@ export function resolveEditableDestination(
 
   const normalized = normalizeRequestedFilePath(file);
 
+  if (repository.filesByPath[normalized]) {
+    return { filePath: normalized };
+  }
+
   const matchedAlias = (Object.entries(DEFAULT_V3_FILE_PATHS) as [FileKey, string][]).find(
     ([, candidatePath]) => candidatePath === normalized,
   );
   if (matchedAlias) {
     const [fileKey, filePath] = matchedAlias;
     return { fileKey, filePath };
-  }
-
-  if (repository.filesByPath[normalized]) {
-    return { filePath: normalized };
   }
 
   throw new Error(
