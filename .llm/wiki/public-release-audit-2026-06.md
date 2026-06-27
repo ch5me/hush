@@ -114,7 +114,7 @@ agent mode (e.g. `HUSH_AGENT=1` denying `list --reveal`/`decrypt --force`/`edit`
 - `--gui` on Linux/Windows echoes the typed secret on screen: `zenity --entry` (not
   `--password`), `kdialog --inputbox`, WinForms TextBox without `UseSystemPasswordChar`
   (`set.ts:103-147`). macOS is correct. Cheap fix, core to the thesis.
-- CI supply chain: GitHub Actions pinned to floating tags not SHAs, in a workflow holding
+- CI supply chain: Forgejo Actions pinned to floating tags not SHAs, in a workflow holding
   `id-token: write` npm publish rights; sops/age binaries curl'd with no checksum
   verification in all three jobs (`release.yml`). Pin SHAs + `sha256sum -c`.
 - Tests: encrypt test never asserts plaintext is **absent** from ciphertext

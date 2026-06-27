@@ -31,17 +31,17 @@ jobs:
           echo 'OK: no bare `npx hush` usage.'
 
       - name: Setup Bun (docs build preview)
-        if: github.event_name == 'pull_request'
+        if: forgejo.event_name == 'pull_request'
         run: |
           curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install dependencies (docs build preview)
-        if: github.event_name == 'pull_request'
+        if: forgejo.event_name == 'pull_request'
         run: bun install --frozen-lockfile
 
       - name: Build docs (PR preview verify)
-        if: github.event_name == 'pull_request'
+        if: forgejo.event_name == 'pull_request'
         run: bun run docs:build
 
   cli-smoke:
@@ -54,12 +54,12 @@ jobs:
         run: |
           npm install -g n
           n 24
-          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
           curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -85,12 +85,12 @@ jobs:
         run: |
           npm install -g n
           n 24
-          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
           curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install sops and age
         run: |
@@ -128,7 +128,7 @@ jobs:
 
   release:
     needs: ci
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prerelease-next') && github.event_name == 'push'
+    if: (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/prerelease-next') && forgejo.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
@@ -142,18 +142,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ github.token }}
+          token: ${{ forgejo.token }}
 
       - name: Setup Bun
         run: |
           curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install Node 24
         run: |
           npm install -g n
           n 24
-          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Install sops and age
         run: |
@@ -191,21 +191,21 @@ jobs:
         run: |
           RELEASE_CHANNEL="latest"
           IS_PRERELEASE="false"
-          if [ "${{ github.ref }}" = "refs/heads/prerelease-next" ]; then
+          if [ "${{ forgejo.ref }}" = "refs/heads/prerelease-next" ]; then
             RELEASE_CHANNEL="next"
             IS_PRERELEASE="true"
           fi
 
-          echo "release_channel=$RELEASE_CHANNEL" >> $GITHUB_OUTPUT
-          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "release_channel=$RELEASE_CHANNEL" >> $FORGEJO_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $FORGEJO_OUTPUT
 
-          # Get current package version from CH5 Verdaccio, not npmjs.
+          # Get current package version from CH5 Verdaccio.
           CURRENT_NPM_VERSION=$(npx -y npm@11.5.1 view @chriscode/hush version --registry="${NPM_REGISTRY_URL}" 2>/dev/null || echo "0.0.0")
-          echo "current_npm_version=$CURRENT_NPM_VERSION" >> $GITHUB_OUTPUT
+          echo "current_npm_version=$CURRENT_NPM_VERSION" >> $FORGEJO_OUTPUT
 
           # Get current package.json version
           PACKAGE_VERSION=$(node -p "require('./hush-cli/package.json').version")
-          echo "package_version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          echo "package_version=$PACKAGE_VERSION" >> $FORGEJO_OUTPUT
 
           # Find the tag for the current npm version
           LAST_TAG="v$CURRENT_NPM_VERSION"
@@ -232,12 +232,12 @@ jobs:
             BUMP="patch"
           fi
 
-          echo "bump=$BUMP" >> $GITHUB_OUTPUT
+          echo "bump=$BUMP" >> $FORGEJO_OUTPUT
 
           if [ "$BUMP" = "none" ]; then
             echo "No conventional commits found, skipping release"
-            echo "new_version=$CURRENT_NPM_VERSION" >> $GITHUB_OUTPUT
-            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "new_version=$CURRENT_NPM_VERSION" >> $FORGEJO_OUTPUT
+            echo "should_release=false" >> $FORGEJO_OUTPUT
           else
             # Calculate new version
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_NPM_VERSION"
@@ -260,8 +260,8 @@ jobs:
               NEW_VERSION="$BASE_VERSION"
             fi
 
-            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "new_version=$NEW_VERSION" >> $FORGEJO_OUTPUT
+            echo "should_release=true" >> $FORGEJO_OUTPUT
             echo "Calculated new version: $NEW_VERSION ($BUMP bump, channel=$RELEASE_CHANNEL)"
           fi
 
@@ -273,10 +273,10 @@ jobs:
           # Check if this version exists in CH5 Verdaccio.
           if npx -y npm@11.5.1 view "@chriscode/hush@$NEW_VERSION" version --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
             echo "Version $NEW_VERSION already published, skipping"
-            echo "already_published=true" >> $GITHUB_OUTPUT
+            echo "already_published=true" >> $FORGEJO_OUTPUT
           else
             echo "Version $NEW_VERSION not yet published"
-            echo "already_published=false" >> $GITHUB_OUTPUT
+            echo "already_published=false" >> $FORGEJO_OUTPUT
           fi
 
       - name: Configure npm publish auth
@@ -287,7 +287,7 @@ jobs:
         run: |
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
             echo "::warning::NPM_TOKEN is not configured in Forgejo Actions; skipping CH5 Verdaccio publish for @chriscode/hush."
-            echo "can_publish=false" >> "$GITHUB_OUTPUT"
+            echo "can_publish=false" >> "$FORGEJO_OUTPUT"
             exit 0
           fi
 
@@ -297,11 +297,11 @@ jobs:
 
           if ! npx -y npm@11.5.1 whoami --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
             echo "::warning::NPM_TOKEN is not accepted by CH5 Verdaccio; skipping @chriscode/hush publish."
-            echo "can_publish=false" >> "$GITHUB_OUTPUT"
+            echo "can_publish=false" >> "$FORGEJO_OUTPUT"
             exit 0
           fi
 
-          echo "can_publish=true" >> "$GITHUB_OUTPUT"
+          echo "can_publish=true" >> "$FORGEJO_OUTPUT"
 
       - name: Update package.json version
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true'
@@ -355,7 +355,7 @@ jobs:
       - name: Create Forgejo Release
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true'
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_TOKEN: ${{ forgejo.token }}
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           TAG="v$NEW_VERSION"
@@ -408,12 +408,12 @@ jobs:
         run: |
           npm install -g n
           n 24
-          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
           curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -445,7 +445,7 @@ jobs:
       - name: Upload binaries to release
         working-directory: hush-cli
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_TOKEN: ${{ forgejo.token }}
         run: |
           TAG="v${{ needs.release.outputs.new_version }}"
           RELEASE_JSON=$(curl -fsS \
@@ -464,7 +464,7 @@ jobs:
 
   deploy-docs:
     needs: ci
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: forgejo.ref == 'refs/heads/main' && forgejo.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -478,12 +478,12 @@ jobs:
         run: |
           npm install -g n
           n 24
-          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
           curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+          echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install sops and age
         run: |
@@ -514,7 +514,7 @@ jobs:
         run: |
           if [ -z "${SOPS_AGE_KEY:-}" ]; then
             echo "::warning::SOPS_AGE_KEY is not configured in Forgejo Actions; skipping docs deploy because Hush cannot decrypt the Cloudflare target."
-            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "available=false" >> "$FORGEJO_OUTPUT"
             exit 0
           fi
 
