@@ -84,7 +84,7 @@ ${pc.bold('Commands:')}
   doctor            Diagnose root, key, and store resolution for the current directory
   skill             Install Claude Code / OpenCode skill
   completion        Generate shell completion script (bash|zsh|fish)
-  keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
+  keys <cmd>        Manage SOPS age keys (setup, generate, list, pull --from vercel)
   migrate           Migrate a legacy hush.yaml repo to v3
   materialize       Write target or bundle artifacts to disk for CI/tooling
   verify-target     Verify a target resolves required keys (AI-safe)
@@ -114,8 +114,10 @@ ${pc.bold('Options:')}
   --verbose         Show detailed output (push --dry-run only)
   --vercel          Push the selected Hush target to Vercel
   --project <id>    Vercel project id (push --vercel only)
-  --team <id>       Vercel team id (push --vercel only)
+  --team <id>       Vercel team id (push --vercel and keys pull --from vercel)
   --environment <e> Vercel environment: production, preview, development (repeatable; push --vercel only)
+  --wrangler-env <e> Wrangler environment for stage-scoped Cloudflare push (e.g. staging, production)
+  --token <tok>     Vercel token for keys pull --from vercel (falls back to VERCEL_TOKEN)
   --warn            Warn but exit 0 on drift (check only)
   --json            Output machine-readable JSON where supported
   --require <key>   Require key for verify-target (repeatable)
@@ -176,6 +178,7 @@ ${pc.bold('Examples:')}
   hush delete-key OLD_KEY --from env/project/shared
   hush keys setup               Verify local age key
   hush keys generate            Generate new local age key
+  hush keys pull --from vercel --project prj_123  Recover age key from Vercel SOPS_AGE_KEY
   hush edit                     Edit all shared secrets in $EDITOR
   hush edit development         Edit development secrets in $EDITOR
   hush edit local               Edit personal local overrides
@@ -187,6 +190,7 @@ ${pc.bold('Examples:')}
   hush push --dry-run           Preview configured remote push targets
   hush push -t app              Push only the 'app' target
   hush push --vercel -t web --project prj_123 --environment production --dry-run
+  hush push -t worker --wrangler-env staging --dry-run   Stage-scoped Cloudflare push
   hush status                   Show current status
   hush diff                     Compare current runtime target against HEAD
   hush diff --ref HEAD~1        Compare current runtime target against HEAD~1
@@ -264,6 +268,10 @@ export interface ParsedArgs {
   project?: string;
   team?: string;
   environments: VercelEnvironment[];
+  /** Wrangler --env for stage-scoped Cloudflare push (e.g. "staging", "production"). */
+  wranglerEnv?: string;
+  /** Token for `hush keys pull --from vercel` (falls back to VERCEL_TOKEN). */
+  keysToken?: string;
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -341,6 +349,8 @@ export function parseArgs(args: string[]): ParsedArgs {
   let project: string | undefined;
   let team: string | undefined;
   let environments: VercelEnvironment[] = [];
+  let wranglerEnv: string | undefined;
+  let keysToken: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -590,6 +600,16 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--wrangler-env') {
+      wranglerEnv = args[++i];
+      continue;
+    }
+
+    if (arg === '--token') {
+      keysToken = args[++i];
+      continue;
+    }
+
     if (arg === '--skip-remote') {
       skipRemote = true;
       continue;
@@ -772,6 +792,8 @@ export function parseArgs(args: string[]): ParsedArgs {
     project,
     team,
     environments: Array.from(new Set(environments)),
+    wranglerEnv,
+    keysToken,
   };
 }
 
@@ -862,6 +884,8 @@ export async function main(): Promise<void> {
     project,
     team,
     environments,
+    wranglerEnv,
+    keysToken,
   } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
@@ -975,7 +999,7 @@ export async function main(): Promise<void> {
 
 
       case 'push':
-        await pushCommand(defaultContext, { store, dryRun, verbose, target, vercel, project, team, environments });
+        await pushCommand(defaultContext, { store, dryRun, verbose, target, vercel, project, team, environments, wranglerEnv });
         break;
 
       case 'project':
@@ -1030,10 +1054,10 @@ export async function main(): Promise<void> {
       case 'keys':
         if (!subcommand) {
           console.error(pc.red('Usage: hush keys <command>'));
-          console.error(pc.dim('Commands: setup, generate, list'));
+          console.error(pc.dim('Commands: setup, generate, list, pull'));
           process.exit(1);
         }
-        await keysCommand(defaultContext, { store, subcommand, force });
+        await keysCommand(defaultContext, { store, subcommand, force, from, project, team, token: keysToken });
         break;
 
       case 'resolve':

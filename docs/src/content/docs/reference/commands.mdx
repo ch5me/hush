@@ -863,6 +863,10 @@ hush push -t app --dry-run --verbose
 
 # Ad-hoc Vercel projection
 hush push --vercel -t web --project prj_123 --environment production --dry-run
+
+# Stage-scoped Cloudflare Workers push (passes --env <name> to wrangler secret put)
+hush push -t worker --wrangler-env staging --dry-run
+hush push -t worker --wrangler-env production
 ```
 
 ### Options
@@ -876,6 +880,7 @@ hush push --vercel -t web --project prj_123 --environment production --dry-run
 | `--project <id>` | Override the Vercel project id (`push_to.projectId` or explicit ad-hoc mode) |
 | `--team <id>` | Optional Vercel team id for scoped project access |
 | `--environment <name>` | Vercel environment target (`production`, `preview`, `development`); repeat to target more than one |
+| `--wrangler-env <name>` | Wrangler environment name passed as `--env` to each `wrangler secret put` call; enables staging vs production stage routing for Cloudflare Workers targets |
 
 ### Supported Destinations
 
@@ -1640,6 +1645,23 @@ hush status   # Look at "Local key:" line
 # Save to the path shown in hush status, then run:
 hush keys setup
 ```
+
+If the key was stored as `SOPS_AGE_KEY` in a Vercel project, recover it in one command:
+
+```bash
+# Requires VERCEL_TOKEN in env or --token flag
+hush keys pull --from vercel --project prj_123
+hush keys pull --from vercel --project prj_123 --team team_abc
+hush keys pull --from vercel --project prj_123 --force  # overwrite existing local key
+
+# Confirm recovery
+hush doctor
+hush inspect
+```
+
+`keys pull --from vercel` fetches `SOPS_AGE_KEY` via the Vercel REST API (with `decrypt=true`), validates the
+value is an age private key, derives the public key safely, and writes to
+`~/.config/sops/age/keys/{project}.txt`. Private key values are never printed to output.
 
 ### Key exists but wrong project
 

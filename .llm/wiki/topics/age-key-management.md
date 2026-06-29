@@ -50,9 +50,30 @@ keys.ts lines 58-97:
   → optional .sops.yaml creation/update hint
 ```
 
-### Removed commands
+### `hush keys pull --from vercel`
 
-`hush keys pull` and `hush keys push` now fail fast with a message explaining that Hush no longer integrates with 1Password.
+Recovers the project age key from a Vercel project env var (`SOPS_AGE_KEY`) and installs it locally.
+Closes the gap exposed when the key was stored only in Vercel CI and was not backed up to an operator machine.
+
+Workflow:
+1. Resolves token from `--token` flag or `VERCEL_TOKEN` env var.
+2. Calls `GET /v10/projects/{projectId}/env?decrypt=true` on the Vercel API.
+3. Finds the entry with `key === "SOPS_AGE_KEY"`.
+4. Validates the value starts with `AGE-SECRET-KEY-`.
+5. Derives the public key via `ctx.age.agePublicFromPrivate()` — never prints the private key.
+6. Saves to `~/.config/sops/age/keys/{project}.txt` via `ctx.age.keySave()`.
+7. Refuses to overwrite an existing key unless `--force` is passed.
+
+```
+hush keys pull --from vercel --project prj_123
+hush keys pull --from vercel --project prj_123 --team team_abc [--token tok]
+hush keys pull --from vercel --project prj_123 --force
+```
+
+After recovery, run `hush doctor` to confirm the key resolves correctly.
+
+`keys pull` without `--from` exits 1 with an error; the only supported platform is `vercel` for now.
+`hush keys push` still exits 1 (removed; 1Password integration no longer exists).
 
 ### `hush keys list`
 

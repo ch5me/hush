@@ -381,4 +381,126 @@ describe('parseArgs(push)', () => {
     expect(parsed.environments).toEqual(['production', 'preview']);
     expect(parsed.dryRun).toBe(true);
   });
+
+  it('parses --wrangler-env for stage-scoped Cloudflare push', () => {
+    const parsed = parseArgs(['push', '--target', 'worker', '--wrangler-env', 'staging', '--dry-run']);
+
+    expect(parsed.command).toBe('push');
+    expect(parsed.target).toBe('worker');
+    expect(parsed.wranglerEnv).toBe('staging');
+    expect(parsed.dryRun).toBe(true);
+  });
+});
+
+describe('pushCommand wrangler-env', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('passes --env to wrangler when wranglerEnv is set', async () => {
+    const ctx = createContext();
+    const repository = {
+      manifest: {
+        targets: {
+          worker: { format: 'wrangler', mode: 'runtime' },
+        },
+        metadata: {
+          legacyMigration: {
+            targets: [
+              { name: 'worker', path: './apps/worker', push_to: { type: 'cloudflare-workers' } },
+            ],
+          },
+        },
+      },
+    } as unknown as import('../src/types.js').HushV3Repository;
+
+    mocks.requireV3Repository.mockReturnValue(repository);
+    mocks.withMaterializedTarget.mockImplementation((_ctx, _options, handler) =>
+      handler({ env: { MY_SECRET: 'val' } }),
+    );
+
+    await pushCommand(ctx, {
+      store: createStore(),
+      dryRun: false,
+      verbose: false,
+      wranglerEnv: 'staging',
+    });
+
+    expect(ctx.exec.spawnSync).toHaveBeenCalledWith(
+      'wrangler',
+      ['secret', 'put', 'MY_SECRET', '--env', 'staging'],
+      expect.objectContaining({ input: 'val' }),
+    );
+  });
+
+  it('omits --env from wrangler args when wranglerEnv is not set', async () => {
+    const ctx = createContext();
+    const repository = {
+      manifest: {
+        targets: {
+          worker: { format: 'wrangler', mode: 'runtime' },
+        },
+        metadata: {
+          legacyMigration: {
+            targets: [
+              { name: 'worker', path: './apps/worker', push_to: { type: 'cloudflare-workers' } },
+            ],
+          },
+        },
+      },
+    } as unknown as import('../src/types.js').HushV3Repository;
+
+    mocks.requireV3Repository.mockReturnValue(repository);
+    mocks.withMaterializedTarget.mockImplementation((_ctx, _options, handler) =>
+      handler({ env: { MY_SECRET: 'val' } }),
+    );
+
+    await pushCommand(ctx, {
+      store: createStore(),
+      dryRun: false,
+      verbose: false,
+    });
+
+    expect(ctx.exec.spawnSync).toHaveBeenCalledWith(
+      'wrangler',
+      ['secret', 'put', 'MY_SECRET'],
+      expect.objectContaining({ input: 'val' }),
+    );
+  });
+
+  it('shows env label in dry-run output when wranglerEnv is set', async () => {
+    const ctx = createContext();
+    const repository = {
+      manifest: {
+        targets: {
+          worker: { format: 'wrangler', mode: 'runtime' },
+        },
+        metadata: {
+          legacyMigration: {
+            targets: [
+              { name: 'worker', path: './apps/worker', push_to: { type: 'cloudflare-workers' } },
+            ],
+          },
+        },
+      },
+    } as unknown as import('../src/types.js').HushV3Repository;
+
+    mocks.requireV3Repository.mockReturnValue(repository);
+    mocks.withMaterializedTarget.mockImplementation((_ctx, _options, handler) =>
+      handler({ env: { STAGED_KEY: 'hidden' } }),
+    );
+
+    await pushCommand(ctx, {
+      store: createStore(),
+      dryRun: true,
+      verbose: false,
+      wranglerEnv: 'production',
+    });
+
+    expect(ctx.exec.spawnSync).not.toHaveBeenCalled();
+    const logCalls = (ctx.logger.log as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+    const dryRunLine = logCalls.find((line) => line.includes('STAGED_KEY'));
+    expect(dryRunLine).toBeTruthy();
+    expect(dryRunLine).toContain('production');
+  });
 });

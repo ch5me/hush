@@ -281,6 +281,19 @@ npx @chriscode/hush inspect
 
 Hush prefers explicit SOPS env when present, then the expected repo-scoped key in \`~/.config/sops/age/keys/<project>.txt\`, then any local project key that matches the \`.sops.yaml\` recipient, then the standard SOPS keyring (\`~/Library/Application Support/sops/age/keys.txt\` on macOS, \`~/.config/sops/age/keys.txt\` on Linux), and finally the legacy compatibility path \`~/.config/sops/age/key.txt\`.
 
+## Age key recovery from Vercel
+
+If the operator key was stored only in Vercel (as \`SOPS_AGE_KEY\`), recover it with:
+
+\`\`\`bash
+# Requires VERCEL_TOKEN in env or --token; project is the Vercel project ID
+npx @chriscode/hush keys pull --from vercel --project prj_123
+npx @chriscode/hush keys pull --from vercel --project prj_123 --team team_abc
+npx @chriscode/hush keys pull --from vercel --project prj_123 --force  # overwrite existing
+\`\`\`
+
+The command fetches \`SOPS_AGE_KEY\` with \`decrypt=true\`, verifies the value looks like an age private key, derives the public key safely (without printing the private key), and saves to \`~/.config/sops/age/keys/<project>.txt\`. Run \`hush doctor\` after recovery to confirm resolution.
+
 ## Global store
 
 \`\`\`bash
@@ -427,9 +440,14 @@ Project a resolved Hush target into configured Cloudflare or Vercel runtimes.
 hush push --dry-run
 hush push -t api
 hush push --vercel -t web --project prj_123 --environment production --dry-run
+# Stage-scoped Cloudflare Workers push (passes --env <name> to wrangler secret put)
+hush push -t worker --wrangler-env staging --dry-run
+hush push -t worker --wrangler-env production
 \`\`\`
 
 Configured Vercel targets map each env key to \`sensitive\` or \`encrypted\` before calling the Vercel REST API. Explicit \`--vercel\` mode is for ad-hoc projection when the manifest does not already declare \`push_to.type: vercel\`.
+
+\`--wrangler-env\` passes \`--env <name>\` to every \`wrangler secret put\` call for the target, enabling staging vs production stage routing without separate target declarations.
 
 ### hush verify-target
 

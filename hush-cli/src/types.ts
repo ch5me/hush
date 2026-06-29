@@ -278,6 +278,8 @@ export interface PushOptions {
   project?: string;
   team?: string;
   environments?: VercelEnvironment[];
+  /** Wrangler --env value for stage-scoped Cloudflare Workers/Pages secret push. */
+  wranglerEnv?: string;
 }
 
 export interface StatusOptions {

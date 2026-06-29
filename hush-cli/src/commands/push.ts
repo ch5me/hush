@@ -65,16 +65,19 @@ function pushWorkerSecret(
   pagesProject: string | undefined,
   dryRun: boolean,
   verbose: boolean,
+  wranglerEnv?: string,
 ): boolean {
   if (dryRun) {
-    ctx.logger.log(verbose ? pc.green(`    + ${key}`) : pc.dim(`    [dry-run] ${key}`));
+    const envLabel = wranglerEnv ? ` (--env ${wranglerEnv})` : '';
+    ctx.logger.log(verbose ? pc.green(`    + ${key}${envLabel}`) : pc.dim(`    [dry-run] ${key}${envLabel}`));
     return true;
   }
 
   try {
+    const envArgs: string[] = wranglerEnv ? ['--env', wranglerEnv] : [];
     const wranglerArgs = pushMode === 'pages'
-      ? ['pages', 'secret', 'put', key, '--project-name', pagesProject ?? '']
-      : ['secret', 'put', key];
+      ? ['pages', 'secret', 'put', key, '--project-name', pagesProject ?? '', ...envArgs]
+      : ['secret', 'put', key, ...envArgs];
     const result = ctx.exec.spawnSync('wrangler', wranglerArgs, {
       cwd: targetDir,
       input: value,
@@ -261,6 +264,9 @@ function buildCommandArgs(options: PushOptions): string[] {
       args.push('--environment', environment);
     }
   }
+  if (options.wranglerEnv) {
+    args.push('--wrangler-env', options.wranglerEnv);
+  }
   if (options.dryRun) {
     args.push('--dry-run');
   }
@@ -426,7 +432,7 @@ function pushConfiguredCloudflareTarget(
     let failed = 0;
 
     for (const { key, value } of envPairs) {
-      if (pushWorkerSecret(ctx, key, value, deployment.cwd, pushMode, pagesProject, options.dryRun, options.verbose)) {
+      if (pushWorkerSecret(ctx, key, value, deployment.cwd, pushMode, pagesProject, options.dryRun, options.verbose, options.wranglerEnv)) {
         if (!options.dryRun) {
           ctx.logger.log(pc.green(`    ${key}`));
         }
