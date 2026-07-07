@@ -51,7 +51,7 @@
   },
   "homepage": "https://hush.ch5.me",
   "engines": {
-    "node": ">=18"
+    "node": ">=24 <25"
   },
   "dependencies": {
     "picocolors": "^1.0.0",
