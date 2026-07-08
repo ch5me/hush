@@ -1,0 +1,3 @@
+# CH5 risk posture — resolved by ch5-company scripts/ch5-policy posture (nearest .ch5/posture.yaml wins).
+stage: pre-launch
+criticality: high # shared infra: breakage halts agent work
