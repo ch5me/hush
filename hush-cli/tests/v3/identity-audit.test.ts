@@ -206,4 +206,22 @@ describe('v3 identity and audit primitives', () => {
     expect(auditLines[0].type).toBe('read_attempt');
     expect(auditLines[1].type).toBe('materialize');
   });
+
+  it('reports degraded audit telemetry without converting the operation into a failure', () => {
+    const ctx = createContext();
+    const store = createStore();
+    ctx.fs.writeFileSync = vi.fn(() => {
+      throw new Error('synthetic audit sink failure');
+    });
+
+    expect(() => appendAuditEvent(ctx, store, {
+      type: 'write',
+      activeIdentity: 'owner-local',
+      success: true,
+      command: { name: 'set', args: ['KEY'] },
+    })).not.toThrow();
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('synthetic audit sink failure'),
+    );
+  });
 });

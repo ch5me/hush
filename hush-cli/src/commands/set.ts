@@ -18,6 +18,7 @@ import {
   writeEditableFileDocument,
 } from './v3-command-helpers.js';
 import type { EditableDestination, FileKey } from './v3-command-helpers.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 type SetDestination = EditableDestination;
 
@@ -333,6 +334,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     gui,
     repoLocal,
     showLength,
+    json,
   } = options;
 
   if (store.mode === 'global') {
@@ -357,6 +359,11 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     repository = requireV3Repository(store, 'set');
     destination = resolveSetDestination(file, repoLocal, repository);
 
+    const activeIdentity = requireMutableIdentity(ctx, store, repository, {
+      name: 'set',
+      args: [destination.fileKey ?? destination.filePath, key],
+    });
+
     const value = inlineValue ?? await promptForValue(ctx, key, gui ?? false);
 
     if (!value) {
@@ -364,22 +371,32 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       ctx.process.exit(1);
     }
 
-    if (inlineValue === undefined && showLength) {
+    if (!json && inlineValue === undefined && showLength) {
       ctx.logger.log(pc.dim(`input length: ${value.length} chars`));
     }
 
-    ctx.logger.log(pc.dim(`will write ${key} -> ${destination.filePath}`));
+    if (!json) ctx.logger.log(pc.dim(`will write ${key} -> ${destination.filePath}`));
 
-    const activeIdentity = requireMutableIdentity(ctx, store, repository, {
-      name: 'set',
-      args: [destination.fileKey ?? destination.filePath, key],
-    });
     const editable = loadEditableDestination(ctx, store, repository, destination);
+
+    const previousValue = getDocumentValue(editable.document, editable.filePath, key);
+    if (previousValue === value) {
+      const payload = {
+        action: 'set',
+        changed: false,
+        key,
+        requestedScope: { file: file ?? (repoLocal ? 'repo-local' : 'shared') },
+        resolvedScope: { file: editable.filePath, scope: editable.scope },
+      };
+      if (json) writeJsonSuccess(ctx, 'set', payload);
+      else ctx.logger.log(pc.green(`${key} is already set in ${editable.filePath} (no change).`));
+      return;
+    }
 
     if (destination.filePath === DEFAULT_V3_FILE_PATHS.shared) {
       const conflicts = findSharedConflicts(ctx, store, repository, key);
       if (conflicts.length > 0) {
-        ctx.logger.warn(pc.yellow(`warning: ${key} already exists in ${conflicts.join(', ')}; shared may not win at runtime.`));
+        if (!json) ctx.logger.warn(pc.yellow(`warning: ${key} already exists in ${conflicts.join(', ')}; shared may not win at runtime.`));
       }
     }
 
@@ -399,12 +416,23 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       logicalPaths: [`${editable.filePath}/${key}`],
       details: {
         scope: editable.scope,
+        requestedFile: file ?? (repoLocal ? 'repo-local' : 'shared'),
+        resolvedFile: editable.filePath,
         chars: value.length,
       },
     });
 
     const scopeLabel = getScopeLabel(destination.fileKey, editable.scope);
-    ctx.logger.log(pc.green(`\n${key} set in ${editable.filePath} (${scopeLabel}, ${value.length} chars)`));
+    const payload = {
+      action: 'set',
+      changed: true,
+      key,
+      requestedScope: { file: file ?? (repoLocal ? 'repo-local' : 'shared') },
+      resolvedScope: { file: editable.filePath, scope: editable.scope },
+      chars: value.length,
+    };
+    if (json) writeJsonSuccess(ctx, 'set', payload);
+    else ctx.logger.log(pc.green(`\n${key} set in ${editable.filePath} (${scopeLabel}, ${value.length} chars)`));
   } catch (error) {
     const err = error as Error;
     if (err.message === 'Cancelled') {

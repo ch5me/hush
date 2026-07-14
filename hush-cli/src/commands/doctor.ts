@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import pc from 'picocolors';
+import { writeJsonSuccess } from '../lib/command-output.js';
 import type { HushContext } from '../types.js';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
 import { resolveStoreContext, GLOBAL_STORE_ROOT, type ResolveStoreContextOptions } from '../store.js';
@@ -185,7 +186,7 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
     : null;
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify({
+    writeJsonSuccess(ctx, 'doctor', {
       checks,
       storeTopology: {
         resolvedRoot: store.root,
@@ -201,7 +202,7 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
           }
           : null,
       },
-    }, null, 2));
+    });
     return;
   }
 

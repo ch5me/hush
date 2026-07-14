@@ -114,6 +114,8 @@ That is the supported bridge from legacy repositories to the current v3 model.
 
 ## AI-safe workflow
 
+Start unfamiliar operations with `hush <command> --help`. Help does not decrypt a repository or contact providers, and it lists only the options accepted by that command. For automation, prefer `--json`; stdout is result data and stderr is diagnostics.
+
 For AI assistants, the safe loop is:
 
 ```bash

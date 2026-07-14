@@ -41,6 +41,7 @@ import { importAddCommand } from './commands/import.js';
 import { findProjectRoot } from './config/loader.js';
 import { resolveStoreContext } from './store.js';
 import { checkForUpdate } from './utils/version-check.js';
+import { jsonError } from './lib/command-output.js';
 
 // Injected at single-binary compile time via `bun build --compile --define HUSH_EMBEDDED_VERSION=...`;
 // undefined when running from the npm package under node.
@@ -104,11 +105,12 @@ ${pc.bold('Advanced Commands:')}
   file <cmd>        Manage encrypted files (add, remove, list, readers)
   bundle <cmd>      Manage bundles (add, add-file, remove-file, remove, list)
   target <cmd>      Manage targets (add, remove, list)
+  import add        Bind a bundle or file from another encrypted repository
 
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (set and legacy commands; not valid for run)
   -r, --root <dir>  Start directory for project mode, execution directory for run (default: current directory)
-  -t, --target <t>  Target name from the v3 repository (run/resolve/push)
+  -t, --target <t>  Target selection (run/resolve/push/materialize/diff/export-example/verify-target; not set)
   -q, --quiet       Suppress output (has/check commands)
   --dry-run         Preview changes without applying
   --verbose         Show detailed output (push --dry-run only)
@@ -211,6 +213,9 @@ ${pc.bold('Examples:')}
 type FileKey = 'shared' | 'development' | 'production' | 'local';
 
 export interface ParsedArgs {
+  /** Canonical option names explicitly supplied by the operator. */
+  suppliedOptions: string[];
+  helpRequested: boolean;
   command: string;
   subcommand?: string;
   env: Environment;
@@ -274,6 +279,196 @@ export interface ParsedArgs {
   keysToken?: string;
 }
 
+const OPTION_ALIASES: Readonly<Record<string, string>> = {
+  '-e': '--env', '-f': '--force', '-q': '--quiet', '-r': '--root', '--cwd': '--root',
+  '-t': '--target', '-y': '--yes', '--output-root': '--to',
+};
+
+const RECOGNIZED_OPTIONS = new Set([
+  '--env', '--environment', '--root', '--cwd', '--dry-run', '--verbose', '--quiet', '--warn', '--json',
+  '--only-changed', '--require-source', '--require', '--allow-plaintext', '--global', '--local', '--force',
+  '--gui', '--repo-local', '--reveal', '--write', '--roles', '--identities', '--ref', '--bundle', '--file',
+  '--files', '--from', '--cleanup', '--new-repo', '--yes', '--output-root', '--to', '--format', '--mode',
+  '--filename', '--subpath', '--materialize-as', '--import-name', '--source-root', '--config', '--surface',
+  '--vercel', '--project', '--team', '--wrangler-env', '--token', '--skip-remote', '--skip-provider',
+  '--keep-file', '--target', '-e', '-f', '-q', '-r', '-t', '-y',
+]);
+
+const SUBCOMMANDS: Readonly<Record<string, readonly string[]>> = {
+  config: ['show', 'active-identity', 'readers'], keys: ['setup', 'generate', 'list', 'pull'],
+  project: ['plan', 'validate', 'sync'], file: ['add', 'remove', 'list', 'readers'],
+  bundle: ['add', 'add-file', 'remove-file', 'remove', 'list'], target: ['add', 'remove', 'list'],
+  import: ['add'], completion: ['bash', 'zsh', 'fish'],
+};
+
+function editDistance(left: string, right: string): number {
+  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i++) {
+    let previous = row[0]; row[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const current = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (left[i - 1] === right[j - 1] ? 0 : 1));
+      previous = current;
+    }
+  }
+  return row[right.length];
+}
+
+export function suggestUnique(input: string, candidates: readonly string[]): string | null {
+  const ranked = candidates.map((candidate) => ({ candidate, distance: editDistance(input, candidate) }))
+    .sort((a, b) => a.distance - b.distance || a.candidate.localeCompare(b.candidate));
+  if (!ranked[0] || ranked[0].distance > 2 || ranked[1]?.distance === ranked[0].distance) return null;
+  return ranked[0].candidate;
+}
+
+function failCli(args: { code: string; message: string; command?: string; rejectedInput?: string; suggestion?: string; json: boolean }): never {
+  if (args.json) {
+    console.error(jsonError(args.command ?? 'cli', {
+      code: args.code,
+      message: args.message,
+      rejectedInput: args.rejectedInput,
+      suggestion: args.suggestion,
+    }));
+  } else {
+    console.error(pc.red(`Error: ${args.message}`));
+    if (args.suggestion) console.error(pc.dim(`Did you mean: ${args.suggestion}`));
+  }
+  process.exit(1);
+}
+
+function failUnknownSubcommand(command: string, subcommand: string | undefined, json: boolean): never {
+  const rejected = subcommand ?? '(none)';
+  const suggestion = subcommand ? suggestUnique(subcommand, SUBCOMMANDS[command] ?? []) : null;
+  return failCli({ code: 'UNKNOWN_SUBCOMMAND', message: `Unknown ${command} subcommand: ${rejected}`,
+    command, rejectedInput: subcommand, suggestion: suggestion ? `hush ${command} ${suggestion}` : undefined, json });
+}
+
+function collectSuppliedOptions(args: string[]): string[] {
+  const supplied = new Set<string>();
+  for (const arg of args) {
+    if (arg === '--') break;
+    if (RECOGNIZED_OPTIONS.has(arg)) supplied.add(OPTION_ALIASES[arg] ?? arg);
+  }
+  return [...supplied];
+}
+
+const COMMON_STORE_OPTIONS = ['--root', '--global'] as const;
+const COMMAND_OPTIONS: Readonly<Record<string, readonly string[]>> = {
+  init: COMMON_STORE_OPTIONS,
+  bootstrap: [...COMMON_STORE_OPTIONS, '--new-repo', '--yes'],
+  config: [...COMMON_STORE_OPTIONS, '--roles', '--identities', '--json'],
+  encrypt: COMMON_STORE_OPTIONS,
+  decrypt: [...COMMON_STORE_OPTIONS, '--env', '--force'],
+  run: [...COMMON_STORE_OPTIONS, '--target', '--json'],
+  set: [...COMMON_STORE_OPTIONS, '--env', '--local', '--file', '--gui', '--repo-local', '--json'],
+  'copy-key': [...COMMON_STORE_OPTIONS, '--from', '--to', '--json'],
+  'move-key': [...COMMON_STORE_OPTIONS, '--from', '--to', '--json'],
+  'delete-key': [...COMMON_STORE_OPTIONS, '--from', '--yes', '--json'],
+  edit: COMMON_STORE_OPTIONS,
+  list: [...COMMON_STORE_OPTIONS, '--env', '--reveal', '--json'],
+  inspect: [...COMMON_STORE_OPTIONS, '--env', '--json'],
+  has: [...COMMON_STORE_OPTIONS, '--env', '--quiet', '--json'],
+  check: [...COMMON_STORE_OPTIONS, '--warn', '--json', '--quiet', '--only-changed', '--require-source', '--allow-plaintext'],
+  push: [...COMMON_STORE_OPTIONS, '--dry-run', '--verbose', '--target', '--vercel', '--project', '--team', '--environment', '--wrangler-env'],
+  project: [...COMMON_STORE_OPTIONS, '--config', '--surface', '--json', '--dry-run', '--skip-remote', '--skip-provider'],
+  status: [...COMMON_STORE_OPTIONS, '--json'],
+  doctor: ['--root', '--new-repo', '--json'],
+  skill: ['--root', '--global', '--local'],
+  completion: [],
+  keys: [...COMMON_STORE_OPTIONS, '--force', '--from', '--project', '--team', '--token'],
+  resolve: [...COMMON_STORE_OPTIONS, '--env', '--target', '--json'],
+  trace: [...COMMON_STORE_OPTIONS, '--env', '--json'],
+  'verify-target': [...COMMON_STORE_OPTIONS, '--env', '--target', '--require', '--json'],
+  diff: [...COMMON_STORE_OPTIONS, '--env', '--target', '--bundle', '--ref', '--json'],
+  'export-example': [...COMMON_STORE_OPTIONS, '--env', '--target', '--bundle', '--write', '--to', '--force', '--json'],
+  template: ['--root', '--env'],
+  expansions: ['--root', '--env'],
+  migrate: ['--root', '--dry-run', '--from', '--cleanup'],
+  materialize: [...COMMON_STORE_OPTIONS, '--target', '--bundle', '--json', '--to', '--cleanup'],
+  file: [...COMMON_STORE_OPTIONS, '--roles', '--identities', '--keep-file', '--json'],
+  bundle: [...COMMON_STORE_OPTIONS, '--files', '--json'],
+  target: [...COMMON_STORE_OPTIONS, '--bundle', '--format', '--mode', '--filename', '--subpath', '--materialize-as', '--json'],
+  import: [...COMMON_STORE_OPTIONS, '--source-root', '--bundle', '--file', '--import-name', '--json'],
+};
+
+const COMMAND_SUMMARIES: Readonly<Record<string, string>> = {
+  init: 'Deprecated alias for bootstrap.', bootstrap: 'Create or adopt a v3 encrypted repository.',
+  config: 'Inspect or update repository identities and readers.', encrypt: 'Encrypt legacy plaintext environment files.',
+  decrypt: 'Decrypt legacy files to disk as an explicit last resort.', run: 'Resolve a target and run a child process with values in memory.',
+  set: 'Write one value to one explicit repository or machine-local destination.', 'copy-key': 'Copy a key between declared files.',
+  'move-key': 'Move a key between declared files.', 'delete-key': 'Delete a key from a declared file.', edit: 'Edit one encrypted file.',
+  list: 'List keys without revealing values by default.', inspect: 'Inspect repository structure and metadata.', has: 'Test whether a key exists.',
+  check: 'Check source and repository policy.', push: 'Push a resolved target to a configured provider.',
+  project: 'Plan, validate, or synchronize a project environment.', status: 'Show repository status.', doctor: 'Diagnose repository and key configuration.',
+  skill: 'Install the generated Hush AI skill.', completion: 'Generate shell completion.', keys: 'Manage local age keys.',
+  resolve: 'Show the values and sources selected for a target.', trace: 'Trace one key through files, bundles, and targets.',
+  'verify-target': 'Verify that a target resolves required keys.', diff: 'Compare resolved state with a Git reference.',
+  'export-example': 'Emit a redacted example for a target or bundle.', template: 'Retired legacy helper.', expansions: 'Retired legacy helper.',
+  migrate: 'Migrate a legacy v2 repository to v3.', materialize: 'Materialize target artifacts and optionally run a command.',
+  file: 'Add, remove, list, or update readers for encrypted files.', bundle: 'Add, remove, list, or modify bundles.',
+  target: 'Add, remove, or list targets.', import: 'Bind a bundle or file from another encrypted repository.',
+};
+
+const COMMAND_USAGE: Readonly<Record<string, string>> = {
+  set: 'hush set <KEY> [VALUE] [--file <path> | --repo-local | --env <development|production>]',
+  run: 'hush run [--target <name>] -- <command> [args...]',
+  resolve: 'hush resolve <target> [--json]', trace: 'hush trace <KEY> [--json]',
+  'verify-target': 'hush verify-target <target> [--require <KEY> ...] [--json]',
+  'copy-key': 'hush copy-key <KEY> --from <file> --to <file> [--json]',
+  'move-key': 'hush move-key <KEY> --from <file> --to <file> [--json]',
+  'delete-key': 'hush delete-key <KEY> --from <file> [--yes] [--json]',
+  file: 'hush file <add|remove|list|readers> [args] [options]', bundle: 'hush bundle <add|add-file|remove-file|remove|list> [args] [options]',
+  target: 'hush target <add|remove|list> [args] [options]', config: 'hush config <show|active-identity|readers> [args] [options]',
+  keys: 'hush keys <setup|generate|list|pull> [options]', project: 'hush project <plan|validate|sync> <stage> [options]',
+  import: 'hush import add --source-root <path> (--bundle <name> | --file <path>) [--import-name <name>] [--json]',
+  completion: 'hush completion <bash|zsh|fish>', materialize: 'hush materialize [--target <name> | --bundle <name>] [--to <dir>] [--json] [-- <command>]',
+};
+
+const OPTION_HELP: Readonly<Record<string, string>> = {
+  '--root': '<dir> Start directory (alias: --cwd).', '--global': 'Use the explicit global store.',
+  '--env': '<development|production> Select an environment file.', '--target': '<name> Select a declared target.',
+  '--bundle': '<name> Select a declared bundle.', '--file': '<path> Select a declared namespaced file.', '--from': '<path> Select the source.',
+  '--to': '<path> Select the destination (alias: --output-root).', '--json': 'Emit machine-readable JSON.', '--force': 'Confirm an explicit overwrite or unsafe operation.',
+  '--yes': 'Skip the confirmation prompt.', '--local': 'Use local scope.', '--repo-local': 'Use the repository-local override file.',
+  '--gui': 'Read the value from a native GUI prompt.', '--require': '<KEY> Require a resolved key; repeatable.', '--format': '<dotenv|wrangler|vercel|json|shell|yaml> Set target output format.',
+  '--mode': '<process|file|example> Set target materialization mode.', '--environment': '<production|preview|development> Select a Vercel environment; repeatable.',
+  '--wrangler-env': '<name> Select a Wrangler environment.', '--source-root': '<path> Source repository root.', '--import-name': '<name> Stable local import name.',
+  '--roles': '<csv> Reader roles.', '--identities': '<csv> Reader identities.', '--files': '<csv> Bundle files.', '--filename': '<name> Materialized filename.',
+};
+
+export function renderCommandHelp(command: string): string | null {
+  const options = COMMAND_OPTIONS[command];
+  const summary = COMMAND_SUMMARIES[command];
+  if (!options || !summary) return null;
+  const usage = COMMAND_USAGE[command] ?? `hush ${command} [options]`;
+  const optionLines = options.length === 0
+    ? '  (none)'
+    : options.map((option) => `  ${option.padEnd(18)} ${OPTION_HELP[option] ?? 'Command option.'}`).join('\n');
+  const setSafety = command === 'set'
+    ? '\nSafety:\n  --target is not accepted. Resolve the target, then choose exactly one destination with --file, --repo-local, or --env.\n'
+    : '';
+  return `${summary}\n\nUsage:\n  ${usage}\n\nOptions:\n${optionLines}${setSafety}`;
+}
+
+export function validateCommandOptions(parsed: ParsedArgs): string | null {
+  const allowed = COMMAND_OPTIONS[parsed.command];
+  if (!allowed) return null;
+  const rejected = parsed.suppliedOptions.find((option) => !allowed.includes(option));
+  if (rejected) {
+    if (parsed.command === 'set' && rejected === '--target') {
+      return '`hush set` does not accept --target. Choose a destination explicitly with: hush set KEY --file <namespaced-path>';
+    }
+    return `\`hush ${parsed.command}\` does not accept ${rejected}.`;
+  }
+  if (parsed.command === 'set') {
+    const selectors = parsed.suppliedOptions.filter((option) => ['--file', '--repo-local', '--local', '--env'].includes(option));
+    if (selectors.length > 1) {
+      return `\`hush set\` received conflicting destination selectors: ${selectors.join(', ')}. Choose exactly one of --file, --repo-local, or --env.`;
+    }
+  }
+  return null;
+}
+
 function parseEnvironment(value: string): Environment | null {
   if (value === 'development' || value === 'dev') return 'development';
   if (value === 'production' || value === 'prod') return 'production';
@@ -295,6 +490,8 @@ function parseVercelEnvironment(value: string): VercelEnvironment | null {
 }
 
 export function parseArgs(args: string[]): ParsedArgs {
+  const suppliedOptions = collectSuppliedOptions(args);
+  let helpRequested = false;
   let command = '';
   let subcommand: string | undefined;
   let env: Environment = 'development';
@@ -356,8 +553,8 @@ export function parseArgs(args: string[]): ParsedArgs {
     const arg = args[i];
 
     if (arg === '-h' || arg === '--help') {
-      printHelp();
-      process.exit(0);
+      helpRequested = true;
+      continue;
     }
 
     if (arg === '-v' || arg === '--version') {
@@ -724,9 +921,10 @@ export function parseArgs(args: string[]): ParsedArgs {
     // Fail loud instead of silently ignoring input. Silently swallowed flags
     // previously made documented-but-unwired options look like they worked.
     if (arg.startsWith('-')) {
-      console.error(pc.red(`Unknown option: ${arg}`));
-      console.error(pc.dim("Run 'hush --help' to see supported options."));
-      process.exit(1);
+      const optionCandidates = [...RECOGNIZED_OPTIONS].filter((option) => option.startsWith('--'));
+      const suggestion = suggestUnique(arg, optionCandidates);
+      failCli({ code: 'UNKNOWN_OPTION', message: `Unknown option: ${arg}`, command: command || undefined,
+        rejectedInput: arg, suggestion: suggestion ? `hush ${command} ${suggestion}` : undefined, json: args.includes('--json') });
     }
 
     console.error(pc.red(`Unexpected argument: ${arg}`));
@@ -738,6 +936,8 @@ export function parseArgs(args: string[]): ParsedArgs {
   }
 
   return {
+    suppliedOptions,
+    helpRequested,
     command,
     subcommand,
     env,
@@ -798,12 +998,22 @@ export function parseArgs(args: string[]): ParsedArgs {
 }
 
 
-function checkMigrationNeeded(root: string, command: string): void {
+function checkMigrationNeeded(root: string, command: string, json: boolean): void {
   const skipCommands = ['', 'help', 'version', 'bootstrap', 'config', 'init', 'skill', 'migrate'];
   if (skipCommands.includes(command)) return;
 
   const project = findProjectRoot(root);
   if (project?.repositoryKind === 'legacy-v2') {
+    if (json) {
+      failCli({
+        code: 'MIGRATION_REQUIRED',
+        message: 'This repository still uses legacy hush.yaml runtime authority.',
+        command,
+        rejectedInput: project.projectRoot,
+        suggestion: 'Run `hush migrate --from v2 --dry-run`, then `hush migrate --from v2`.',
+        json: true,
+      });
+    }
     console.log('');
     console.log(pc.yellow('━'.repeat(60)));
     console.log(pc.yellow(pc.bold('  Migration Required')));
@@ -829,6 +1039,45 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const parsed = parseArgs(args);
+  if (parsed.helpRequested) {
+    if (!parsed.command) {
+      printHelp();
+    } else {
+      const commandHelp = renderCommandHelp(parsed.command);
+      if (!commandHelp) {
+        const suggestion = suggestUnique(parsed.command, Object.keys(COMMAND_OPTIONS));
+        failCli({
+          code: 'UNKNOWN_COMMAND',
+          message: `Unknown command: ${parsed.command}`,
+          command: parsed.command,
+          rejectedInput: parsed.command,
+          suggestion: suggestion ? `hush ${suggestion} --help` : undefined,
+          json: parsed.json,
+        });
+      }
+      console.log(commandHelp);
+    }
+    process.exit(0);
+  }
+  const optionError = validateCommandOptions(parsed);
+  if (optionError) {
+    const rejected = parsed.suppliedOptions.find((option) => !(COMMAND_OPTIONS[parsed.command] ?? []).includes(option));
+    failCli({ code: 'UNSUPPORTED_OPTION', message: optionError, command: parsed.command,
+      rejectedInput: rejected, json: parsed.json });
+  }
+  if (!parsed.command) {
+    failCli({ code: 'MISSING_COMMAND', message: 'No command provided.', json: parsed.json });
+  }
+  if (!COMMAND_OPTIONS[parsed.command]) {
+    const suggestion = suggestUnique(parsed.command, Object.keys(COMMAND_OPTIONS));
+    failCli({ code: 'UNKNOWN_COMMAND', message: `Unknown command: ${parsed.command}`, command: parsed.command,
+      rejectedInput: parsed.command, suggestion: suggestion ? `hush ${suggestion}` : undefined, json: parsed.json });
+  }
+  const allowedSubcommands = SUBCOMMANDS[parsed.command];
+  if (allowedSubcommands && (!parsed.subcommand || !allowedSubcommands.includes(parsed.subcommand))) {
+    failUnknownSubcommand(parsed.command, parsed.subcommand, parsed.json);
+  }
   const {
     command,
     subcommand,
@@ -886,7 +1135,7 @@ export async function main(): Promise<void> {
     environments,
     wranglerEnv,
     keysToken,
-  } = parseArgs(args);
+  } = parsed;
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
 
@@ -894,7 +1143,7 @@ export async function main(): Promise<void> {
     checkForUpdate(VERSION);
   }
 
-  checkMigrationNeeded(store.root, command);
+  checkMigrationNeeded(store.root, command, json);
 
   try {
     switch (command) {
@@ -935,7 +1184,7 @@ export async function main(): Promise<void> {
           console.error(pc.dim('List available targets with: hush target list'));
           process.exit(1);
         }
-        await runCommand(defaultContext, { store, cwd: root, target, command: cmdArgs });
+        await runCommand(defaultContext, { store, cwd: root, target, command: cmdArgs, json });
         break;
 
       case 'set': {
@@ -959,6 +1208,7 @@ export async function main(): Promise<void> {
           value,
           gui,
           repoLocal: resolvedRepoLocal,
+          json,
         });
         break;
       }
@@ -977,7 +1227,7 @@ export async function main(): Promise<void> {
         break;
 
       case 'list':
-        await listCommand(defaultContext, { store, env, reveal });
+        await listCommand(defaultContext, { store, env, reveal, json });
         break;
 
       case 'inspect':
@@ -1004,14 +1254,7 @@ export async function main(): Promise<void> {
 
       case 'project':
         if (subcommand !== 'plan' && subcommand !== 'validate' && subcommand !== 'sync') {
-          console.error(pc.red(`Unknown project subcommand: ${subcommand ?? 'none'}`));
-          console.error(
-            'Usage:\n'
-            + '  hush project plan <stage> [--config <path>] [--surface <name>] [--json]\n'
-            + '  hush project validate <stage> [--config <path>] [--surface <name>] [--skip-remote] [--skip-provider] [--json]\n'
-            + '  hush project sync <stage> [--config <path>] [--surface <name>] [--dry-run] [--skip-provider] [--json]',
-          );
-          process.exit(1);
+          failUnknownSubcommand('project', subcommand, json);
         }
         if (!positionalArgs[0]) {
           console.error(pc.red(`Usage: hush project ${subcommand} <stage>`));
@@ -1053,9 +1296,7 @@ export async function main(): Promise<void> {
 
       case 'keys':
         if (!subcommand) {
-          console.error(pc.red('Usage: hush keys <command>'));
-          console.error(pc.dim('Commands: setup, generate, list, pull'));
-          process.exit(1);
+          failUnknownSubcommand('keys', subcommand, json);
         }
         await keysCommand(defaultContext, { store, subcommand, force, from, project, team, token: keysToken });
         break;
@@ -1088,11 +1329,11 @@ export async function main(): Promise<void> {
         break;
 
       case 'diff':
-        await diffCommand(defaultContext, { store, env, target, bundle, ref });
+        await diffCommand(defaultContext, { store, env, target, bundle, ref, json });
         break;
 
       case 'export-example':
-        await exportExampleCommand(defaultContext, { store, env, target, bundle, write, writePath: outputRoot, force });
+        await exportExampleCommand(defaultContext, { store, env, target, bundle, write, writePath: outputRoot, force, json });
         break;
 
       case 'template':
@@ -1151,11 +1392,7 @@ export async function main(): Promise<void> {
             json,
           });
         } else {
-          console.error(pc.red(`Unknown file subcommand: ${subcommand ?? 'none'}`));
-          console.error(
-            'Usage:\n  hush file add <namespaced-path> [--roles <csv>] [--identities <csv>]\n  hush file remove <namespaced-path> [--keep-file]\n  hush file list [--json]\n  hush file readers <namespaced-path> [--roles <csv>] [--identities <csv>]',
-          );
-          process.exit(1);
+          failUnknownSubcommand('file', subcommand, json);
         }
         break;
       }
@@ -1200,16 +1437,7 @@ export async function main(): Promise<void> {
             json,
           });
         } else {
-          console.error(pc.red(`Unknown bundle subcommand: ${subcommand ?? 'none'}`));
-          console.error(
-            'Usage:\n'
-            + '  hush bundle add <name> [--files <csv>]\n'
-            + '  hush bundle add-file <bundle-name> <file-path>\n'
-            + '  hush bundle remove-file <bundle-name> <file-path>\n'
-            + '  hush bundle remove <name>\n'
-            + '  hush bundle list [--json]',
-          );
-          process.exit(1);
+          failUnknownSubcommand('bundle', subcommand, json);
         }
         break;
       }
@@ -1243,11 +1471,7 @@ export async function main(): Promise<void> {
             json,
           });
         } else {
-          console.error(pc.red(`Unknown target subcommand: ${subcommand ?? 'none'}`));
-          console.error(
-            'Usage:\n  hush target add <name> --bundle <bundle> --format <format> [--mode process|file|example] [--filename <name>] [--subpath <path>] [--materialize-as <name>]\n  hush target remove <name>\n  hush target list [--json]',
-          );
-          process.exit(1);
+          failUnknownSubcommand('target', subcommand, json);
         }
         break;
       }
@@ -1267,21 +1491,18 @@ export async function main(): Promise<void> {
             json,
           });
         } else {
-          console.error(pc.red(`Unknown import subcommand: ${subcommand ?? 'none'}`));
-          console.error(
-            'Usage:\n  hush import add --source-root <source-store-root> [--bundle <name>] [--file <path>] [--import-name <name>] [--json]',
-          );
-          process.exit(1);
+          failUnknownSubcommand('import', subcommand, json);
         }
         break;
       }
 
       default:
         if (command) {
-          console.error(pc.red(`Unknown command: ${command}`));
+          const suggestion = suggestUnique(command, Object.keys(COMMAND_OPTIONS));
+          failCli({ code: 'UNKNOWN_COMMAND', message: `Unknown command: ${command}`, command,
+            rejectedInput: command, suggestion: suggestion ? `hush ${suggestion}` : undefined, json });
         }
-        printHelp();
-        process.exit(1);
+        failCli({ code: 'MISSING_COMMAND', message: 'No command provided.', json });
     }
   } catch (error) {
     const err = error as Error;

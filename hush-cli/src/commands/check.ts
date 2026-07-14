@@ -4,6 +4,7 @@ import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
 import { loadV3Repository } from '../v3/repository.js';
 import type { CheckFileResult, CheckOptions, CheckResult, HushContext, PlaintextFileResult } from '../types.js';
 import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from './v3-command-helpers.js';
+import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
 
 const LEFTOVER_ARTIFACT_NAMES = new Set([
   'hush.yaml',
@@ -195,15 +196,23 @@ function formatTextOutput(result: CheckResult): string {
   return lines.join('\n');
 }
 
-function formatJsonOutput(result: CheckResult): string {
-  return JSON.stringify(result, null, 2);
-}
-
 export async function checkCommand(ctx: HushContext, options: CheckOptions): Promise<void> {
   const result = await check(ctx, options);
 
   if (!options.quiet) {
-    ctx.logger.log(options.json ? formatJsonOutput(result) : formatTextOutput(result));
+    if (options.json) {
+      if (result.status === 'error') {
+        writeJsonError(ctx, 'check', {
+          code: 'REPOSITORY_CHECK_FAILED',
+          message: result.files.find((file) => file.error)?.encrypted ?? 'Repository integrity check failed',
+          details: result,
+        });
+      } else {
+        writeJsonSuccess(ctx, 'check', result);
+      }
+    } else {
+      ctx.logger.log(formatTextOutput(result));
+    }
   }
 
   if (result.status === 'plaintext' && !options.warn) {

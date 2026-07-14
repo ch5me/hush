@@ -15,6 +15,7 @@ import {
 } from '../index.js';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
 import { loadV3Repository, persistV3FileDocument } from '../v3/repository.js';
+import type { HushImportRepositoryMap } from '../v3/imports.js';
 import type {
   EnvVar,
   PushConfig,
@@ -49,6 +50,19 @@ const FILE_ALIASES: Record<string, FileKey> = {
   prod: 'production',
   local: 'local',
 };
+
+function loadImportedRepositories(repository: HushV3Repository): HushImportRepositoryMap {
+  return Object.fromEntries(
+    Object.entries(repository.manifest.imports ?? {}).map(([name, definition]) => {
+      if (!definition.sourceRoot) {
+        throw new Error(
+          `Import "${name}" has no sourceRoot binding. Re-add it with hush import add --source-root <path>.`,
+        );
+      }
+      return [name, loadV3Repository(definition.sourceRoot, { keyIdentity: definition.sourceRoot })];
+    }),
+  );
+}
 
 export interface EditableDestination {
   fileKey?: FileKey;
@@ -597,6 +611,7 @@ export function resolveTargetEnvView(
   const resolution = resolveV3Target(ctx, {
     store,
     repository,
+    importedRepositories: loadImportedRepositories(repository),
     targetName,
     command,
   });

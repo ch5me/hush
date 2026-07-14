@@ -404,10 +404,22 @@ hush migrate --from v2 --cleanup
 
 Write one secret into a v3 file document or machine-local override document.
 
+Before using an unfamiliar command or option, run \`hush <command> --help\`. Command help is repository-free, lists only accepted options, and shows value domains and safe alternatives.
+
 \`\`\`bash
 hush set DATABASE_URL "postgres://db"
 hush set API_KEY --gui
 hush set DEBUG --local
+\`\`\`
+
+\`hush set\` accepts exactly one destination selector. Use \`--file <namespaced-path>\`, \`--repo-local\`/\`--local\`, or \`--env <development|production>\`. It intentionally rejects \`--target\`; inspect target precedence with \`hush resolve <target>\`, then choose the destination file explicitly.
+
+### hush import add
+
+Bind a bundle or file from another Hush repository. Hush persists the absolute source root inside the encrypted manifest; commands that resolve the import require the source repository's age key to be available locally.
+
+\`\`\`bash
+hush import add --source-root /absolute/path/to/source --bundle shared-runtime
 \`\`\`
 
 ### hush edit

@@ -4,6 +4,7 @@ import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { isIdentityAllowed, type HushFileDocument, type HushFileEntry, type HushFileIndexEntry } from '../v3/domain.js';
 import type { HushContext, StoreContext } from '../types.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 export interface InspectOptions {
   store: StoreContext;
@@ -102,7 +103,7 @@ export async function inspectCommand(ctx: HushContext, options: InspectOptions):
       logicalPaths: logicalPaths.sort(),
     });
 
-    ctx.logger.log(JSON.stringify({ target: options.store.root, entries }, null, 2));
+    writeJsonSuccess(ctx, 'inspect', { target: options.store.root, entries });
     return;
   }
 

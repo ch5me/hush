@@ -60,6 +60,15 @@ export function normalizeHushPath(path: string): string {
     throw new Error(`Hush path "${path}" cannot contain empty segments`);
   }
 
+  const segments = withoutTrailingSlash.split('/');
+  if (segments.some((segment) => segment === '.' || segment === '..')) {
+    throw new Error(`Hush path "${path}" cannot contain "." or ".." segments`);
+  }
+
+  if (withoutTrailingSlash.includes('\\')) {
+    throw new Error(`Hush path "${path}" must use forward slashes`);
+  }
+
   return withoutTrailingSlash;
 }
 

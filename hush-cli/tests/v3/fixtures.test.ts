@@ -37,7 +37,7 @@ describe('v3 fixture corpus', () => {
     for (const relativePath of encryptedFiles) {
       const absolutePath = join(fileDocsRoot, relativePath);
       const fileDocument = createFileDocument(parseYaml(readDecryptedYamlFile(fixtureRoot, absolutePath)));
-      expect(absolutePath).toContain(getV3EncryptedFilePath('', fileDocument.path));
+      expect(absolutePath).toBe(getV3EncryptedFilePath(fixtureRoot, fileDocument.path));
     }
   });
 

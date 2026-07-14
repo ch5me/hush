@@ -202,7 +202,9 @@ describe('status --json', () => {
     await statusCommand(ctx, { store, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as Record<string, unknown>;
+    const envelope = JSON.parse(raw) as { version: number; ok: boolean; command: string; data: Record<string, unknown> };
+    expect(envelope).toMatchObject({ version: 1, ok: true, command: 'status' });
+    const payload = envelope.data;
 
     expect(payload).toHaveProperty('repository', 'ready');
     expect(payload).toHaveProperty('root');
@@ -254,7 +256,7 @@ describe('status --json', () => {
     await statusCommand(ctx, { store, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as {
+    const envelope = JSON.parse(raw) as { data: {
       counts: {
         manifestFiles: number;
         encryptedFiles: number;
@@ -263,9 +265,9 @@ describe('status --json', () => {
         targets: number;
         imports: number;
       };
-    };
+    } };
 
-    const { counts } = payload;
+    const { counts } = envelope.data;
     expect(counts).toHaveProperty('manifestFiles');
     expect(counts).toHaveProperty('encryptedFiles');
     expect(counts).toHaveProperty('identities');
@@ -308,7 +310,7 @@ describe('status --json', () => {
     await statusCommand(ctx, { store, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as {
+    const envelope = JSON.parse(raw) as { data: {
       machineLocal: {
         projectSlug: string;
         stateRoot: string;
@@ -317,9 +319,9 @@ describe('status --json', () => {
         auditLogPath: string;
         auditLogPresent: boolean;
       };
-    };
+    } };
 
-    const { machineLocal } = payload;
+    const { machineLocal } = envelope.data;
     expect(machineLocal).toHaveProperty('projectSlug');
     expect(machineLocal).toHaveProperty('stateRoot');
     expect(machineLocal).toHaveProperty('activeIdentityPath');
@@ -352,9 +354,9 @@ describe('status --json', () => {
     await statusCommand(ctx, { store, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as Record<string, unknown>;
+    const envelope = JSON.parse(raw) as { ok: boolean; command: string; data: Record<string, unknown> };
 
-    // Should have some repository indicator (missing or error)
-    expect(payload).toHaveProperty('repository');
+    expect(envelope).toMatchObject({ ok: true, command: 'status' });
+    expect(envelope.data).toHaveProperty('repository');
   });
 });

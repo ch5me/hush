@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import * as nodeFs from 'node:fs';
-import { completionCommand, HUSH_COMMANDS } from '../src/commands/completion.js';
+import { completionCommand, HUSH_COMMANDS, HUSH_FLAGS } from '../src/commands/completion.js';
 import type { HushContext, LegacyHushConfig } from '../src/types.js';
 
 function createContext() {
@@ -83,6 +83,12 @@ function getLogOutput(logger: { log: ReturnType<typeof vi.fn> }): string {
 }
 
 describe('completion command', () => {
+  it('keeps commands and recognized parser flags in the completion contract', () => {
+    expect(HUSH_COMMANDS).toContain('import');
+    for (const flag of ['--cwd', '--filename', '--identities', '--import-name', '--roles', '--source-root', '--token', '--wrangler-env', '--write']) {
+      expect(HUSH_FLAGS).toContain(flag);
+    }
+  });
   it('bash completion output contains all command names', async () => {
     const { ctx, logger } = createContext();
     await completionCommand(ctx, { shell: 'bash' });

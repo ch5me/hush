@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import * as nodeFs from 'node:fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { parseArgs } from '../src/cli.js';
+import { parseArgs, validateCommandOptions } from '../src/cli.js';
 import { bootstrapCommand } from '../src/commands/bootstrap.js';
 import { setCommand } from '../src/commands/set.js';
 import { configCommand } from '../src/commands/config.js';
@@ -409,6 +409,31 @@ describe('setCommand legacy guard and global bootstrap', () => {
 });
 
 describe('CLI argument parsing for set command', () => {
+  it('rejects --target and recommends an explicit file', () => {
+    const parsed = parseArgs(['set', 'MY_KEY', '--target', 'production']);
+    expect(validateCommandOptions(parsed)).toMatch(/does not accept --target.*--file/);
+  });
+
+  it('rejects --target even when --file is also supplied', () => {
+    const parsed = parseArgs(['set', 'MY_KEY', 'value', '--target', 'production', '--file', 'env/project/production']);
+    expect(validateCommandOptions(parsed)).toMatch(/does not accept --target/);
+  });
+
+  it('rejects conflicting destination selectors', () => {
+    const parsed = parseArgs(['set', 'MY_KEY', '--file', 'env/project/production', '--repo-local']);
+    expect(validateCommandOptions(parsed)).toMatch(/conflicting destination selectors.*--file.*--repo-local/);
+  });
+
+  it('rejects recognized options that set does not consume', () => {
+    const parsed = parseArgs(['set', 'MY_KEY', '--bundle', 'runtime']);
+    expect(validateCommandOptions(parsed)).toBe('`hush set` does not accept --bundle.');
+  });
+
+  it('enforces the option contract for other mutating commands', () => {
+    const parsed = parseArgs(['delete-key', 'MY_KEY', '--target', 'production']);
+    expect(validateCommandOptions(parsed)).toBe('`hush delete-key` does not accept --target.');
+  });
+
   it('parses hush set KEY VALUE correctly', () => {
     const result = parseArgs(['set', 'MY_KEY', 'my-value']);
 

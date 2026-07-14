@@ -239,14 +239,15 @@ describe('global store runtime regressions', () => {
     });
 
     const payload = JSON.parse(getLastLogOutput(logger));
-    expect(payload).toMatchObject({
+    expect(payload).toMatchObject({ version: 1, ok: true, command: 'materialize' });
+    expect(payload.data).toMatchObject({
       kind: 'target',
       target: 'runtime',
       outputRoot,
       files: ['env/project/shared'],
       logicalPaths: ['env/project/shared/TEST_KEY'],
     });
-    expect(payload.targetArtifact.path).toBe(join(outputRoot, 'targets', 'runtime.env'));
-    expect(nodeFs.existsSync(payload.targetArtifact.path)).toBe(true);
+    expect(payload.data.targetArtifact.path).toBe(join(outputRoot, 'targets', 'runtime.env'));
+    expect(nodeFs.existsSync(payload.data.targetArtifact.path)).toBe(true);
   });
 });

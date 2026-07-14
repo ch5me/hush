@@ -11,6 +11,8 @@ import {
   writeEditableFileDocument,
 } from './v3-command-helpers.js';
 import type { DeleteKeyOptions, HushContext, HushFileDocument, HushFileEntry } from '../types.js';
+import { withSuggestion } from './mutation-feedback.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 function logicalPathKey(logicalPath: string): string {
   return logicalPath.split('/').filter(Boolean).at(-1) ?? logicalPath;
@@ -74,22 +76,17 @@ export async function deleteKeyCommand(ctx: HushContext, options: DeleteKeyOptio
     const filePath = assertNamespacedPath(from);
     const systemPath = repository.fileSystemPaths[filePath];
     if (!systemPath) {
-      throw new Error(`File "${filePath}" is not declared in this repository`);
+      throw new Error(withSuggestion(
+        `File "${filePath}" is not declared in this repository. Nothing was deleted.`,
+        filePath,
+        Object.keys(repository.fileSystemPaths),
+      ));
     }
     const document = repository.loadFile(filePath);
     const { nextDocument, logicalPath } = removeEnvValueFromDocument(document, key);
     const preview = `This will delete ${key} from ${filePath}`;
 
-    if (options.json) {
-      ctx.logger.log(JSON.stringify({
-        ok: true,
-        action: 'preview-delete',
-        key,
-        from: filePath,
-        logicalPath,
-        preview,
-      }, null, 2));
-    } else {
+    if (!options.json) {
       ctx.logger.log(pc.yellow(preview));
     }
 
@@ -97,13 +94,15 @@ export async function deleteKeyCommand(ctx: HushContext, options: DeleteKeyOptio
       const confirmed = await confirmDeletion(ctx, key, filePath);
       if (!confirmed) {
         if (options.json) {
-          ctx.logger.log(JSON.stringify({
-            ok: false,
+          writeJsonSuccess(ctx, 'delete-key', {
             action: 'delete',
+            changed: false,
             key,
+            requestedScope: { from: options.from },
+            resolvedScope: { from: filePath },
             from: filePath,
             cancelled: true,
-          }, null, 2));
+          });
         } else {
           ctx.logger.log(pc.yellow('Cancelled'));
         }
@@ -130,13 +129,16 @@ export async function deleteKeyCommand(ctx: HushContext, options: DeleteKeyOptio
     const payload = {
       ok: true,
       action: 'delete',
+      changed: true,
       key,
+      requestedScope: { from: options.from },
+      resolvedScope: { from: filePath },
       from: filePath,
       logicalPath,
     };
 
     if (options.json) {
-      ctx.logger.log(JSON.stringify(payload, null, 2));
+      writeJsonSuccess(ctx, 'delete-key', payload);
       return;
     }
 

@@ -165,7 +165,9 @@ describe('doctor --json', () => {
     await doctorCommand(ctx, { startDir: root, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as { checks: Array<{ name: string; ok: boolean; detail: string }> };
+    const envelope = JSON.parse(raw) as { version: number; ok: boolean; command: string; data: { checks: Array<{ name: string; ok: boolean; detail: string }> } };
+    expect(envelope).toMatchObject({ version: 1, ok: true, command: 'doctor' });
+    const payload = envelope.data;
 
     expect(payload).toHaveProperty('checks');
     expect(Array.isArray(payload.checks)).toBe(true);
@@ -201,7 +203,7 @@ describe('doctor --json', () => {
     await doctorCommand(ctx, { startDir: root, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as { checks: Array<{ name: string; ok: boolean; detail: string }> };
+    const payload = (JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }).data;
 
     for (const check of payload.checks) {
       expect(check).toHaveProperty('name');
@@ -242,7 +244,7 @@ describe('doctor --json', () => {
     await doctorCommand(ctx, { startDir: root, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as { checks: Array<{ name: string; ok: boolean; detail: string }> };
+    const payload = (JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }).data;
 
     const repoCheck = payload.checks.find((c) => c.name === 'repository_found');
     expect(repoCheck).toBeDefined();
@@ -277,7 +279,7 @@ describe('doctor --json', () => {
     await doctorCommand(ctx, { startDir: root, json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as { checks: Array<{ name: string; ok: boolean; detail: string }> };
+    const payload = (JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }).data;
 
     const keyCheck = payload.checks.find((c) => c.name === 'age_key_found');
     expect(keyCheck).toBeDefined();

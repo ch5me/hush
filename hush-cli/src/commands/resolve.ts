@@ -6,6 +6,7 @@ import { loadV3Repository } from '../v3/repository.js';
 import { formatCompactRecord, toCompactRecord } from './v3-command-helpers.js';
 import type { HushBundleConflictDetail, HushCompactRecord, HushContext, HushResolvedNode, ResolveOptions } from '../types.js';
 import { globalStoreHint } from '../lib/global-store-hint.js';
+import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
 
 function formatReaders(readers: { roles: string[]; identities: string[] }): string {
   return `roles=${readers.roles.join(',') || '-'} identities=${readers.identities.join(',') || '-'}`;
@@ -121,6 +122,15 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
   const target = repository.manifest.targets?.[options.target];
 
   if (!target) {
+    if (options.json || compactJsonMode) {
+      writeJsonError(ctx, 'resolve', {
+        code: 'TARGET_NOT_FOUND',
+        message: `Target not found: ${options.target}`,
+        rejectedInput: options.target,
+        details: { availableTargets: Object.keys(repository.manifest.targets ?? {}).sort() },
+      });
+      ctx.process.exit(1);
+    }
     ctx.logger.error(`Target not found: ${options.target}`);
     ctx.logger.error(pc.dim(`Available targets: ${Object.keys(repository.manifest.targets ?? {}).join(', ') || '(none)'}`));
     if (options.store.mode !== 'global') {
@@ -161,12 +171,12 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
     });
 
     if (compactJsonMode) {
-      ctx.logger.log(JSON.stringify(compactRecords, null, 2));
+      writeJsonSuccess(ctx, 'resolve', compactRecords);
       return;
     }
 
     if (options.json) {
-      ctx.logger.log(JSON.stringify(toSafeResolutionJson(resolution, target, options.only), null, 2));
+      writeJsonSuccess(ctx, 'resolve', toSafeResolutionJson(resolution, target, options.only));
       return;
     }
 

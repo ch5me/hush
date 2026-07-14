@@ -720,7 +720,7 @@ describe.sequential('v3 materialization runtime', () => {
       cleanup: false,
     });
 
-    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}');
+    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}').data;
     expect(payload.status).toBe('materialized');
     expect(payload.repositoryRoot).toBeUndefined();
     expect(payload.files).toBeUndefined();
@@ -787,7 +787,7 @@ describe.sequential('v3 materialization runtime', () => {
       cleanup: false,
     });
 
-    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}');
+    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}').data;
     expect(payload.repositoryRoot).toBe(root);
     expect(payload.files).toEqual(['env/app/shared']);
     expect(payload.logicalPaths).toEqual(['env/apps/api/env/API_URL']);

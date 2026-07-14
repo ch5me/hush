@@ -139,6 +139,14 @@ describe('findProjectRoot', () => {
     expect(result?.repositoryKind).toBe('v3');
     expect(result?.configPath).toBeNull();
   });
+
+  it('does not inherit a Hush repository across a nested Git boundary by default', () => {
+    nodeFs.writeFileSync(join(TEST_DIR, 'hush.yaml'), 'sources:\n  shared: root.env\n');
+    nodeFs.mkdirSync(join(TEST_DIR, 'apps/web/.git'), { recursive: true });
+
+    expect(findProjectRoot(join(TEST_DIR, 'apps/web/src'))).toBeNull();
+    expect(findProjectRoot(join(TEST_DIR, 'apps/web/src'), { stopAtGitRoot: false })?.projectRoot).toBe(TEST_DIR);
+  });
 });
 
 describe('validateConfig', () => {

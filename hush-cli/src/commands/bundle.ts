@@ -10,6 +10,8 @@ import type {
 import { appendAuditEvent, assertNamespacedPath, createBundleDefinition, createManifestDocument } from '../index.js';
 import { persistV3ManifestDocument } from '../v3/repository.js';
 import { requireMutableIdentity, requireV3Repository } from './v3-command-helpers.js';
+import { withSuggestion } from './mutation-feedback.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 type BundleCommandOptions =
   | BundleAddOptions
@@ -35,7 +37,15 @@ async function handleBundleAdd(ctx: HushContext, options: BundleAddOptions): Pro
 
   const bundles = repository.manifest.bundles ?? {};
   if (bundles[bundleName]) {
-    throw new Error(`Bundle "${bundleName}" already exists`);
+    const existingFiles = (bundles[bundleName]!.files ?? []).map((entry) => entry.path).sort();
+    const requestedFiles = (options.files ?? '').split(',').map((entry) => entry.trim()).filter(Boolean).sort();
+    if (JSON.stringify(existingFiles) === JSON.stringify(requestedFiles)) {
+      const payload = { action: 'add-bundle', changed: false, bundle: bundleName, files: bundles[bundleName]!.files ?? [] };
+      if (options.json) writeJsonSuccess(ctx, 'bundle', payload);
+      else ctx.logger.log(stringifyYaml(payload, { indent: 2 }).trimEnd());
+      return;
+    }
+    throw new Error(`Bundle "${bundleName}" already exists with different files. Nothing was changed. Remove it explicitly before replacing it.`);
   }
 
   const fileRefs: Array<{ path: string }> = [];
@@ -49,7 +59,11 @@ async function handleBundleAdd(ctx: HushContext, options: BundleAddOptions): Pro
       }
       seenPaths.add(trimmedPath);
       if (!repository.filesByPath[trimmedPath]) {
-        throw new Error(`File "${trimmedPath}" does not exist in file index`);
+        throw new Error(withSuggestion(
+          `File "${trimmedPath}" does not exist in file index. Nothing was changed.`,
+          trimmedPath,
+          Object.keys(repository.filesByPath),
+        ));
       }
       const normalizedPath = assertNamespacedPath(trimmedPath);
       fileRefs.push({ path: normalizedPath });
@@ -77,9 +91,9 @@ async function handleBundleAdd(ctx: HushContext, options: BundleAddOptions): Pro
     },
   });
 
-  const payload = { name: bundleName, files: fileRefs };
+  const payload = { action: 'add-bundle', changed: true, bundle: bundleName, name: bundleName, files: fileRefs };
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'bundle', payload);
     return;
   }
 
@@ -99,17 +113,24 @@ async function handleBundleAddFile(ctx: HushContext, options: BundleAddFileOptio
   const bundles = repository.manifest.bundles ?? {};
   const existingBundle = bundles[bundleName];
   if (!existingBundle) {
-    throw new Error(`Bundle "${bundleName}" does not exist`);
+    throw new Error(withSuggestion(`Bundle "${bundleName}" does not exist. Nothing was changed.`, bundleName, Object.keys(bundles)));
   }
 
   const normalizedFilePath = assertNamespacedPath(options.file);
   if (!repository.filesByPath[normalizedFilePath]) {
-    throw new Error(`File "${normalizedFilePath}" does not exist in file index`);
+    throw new Error(withSuggestion(
+      `File "${normalizedFilePath}" does not exist in file index. Nothing was changed.`,
+      normalizedFilePath,
+      Object.keys(repository.filesByPath),
+    ));
   }
 
   const existingFiles = existingBundle.files ?? [];
   if (existingFiles.some((ref) => ref.path === normalizedFilePath)) {
-    throw new Error(`File "${normalizedFilePath}" is already in bundle "${bundleName}"`);
+    const payload = { action: 'add-file-to-bundle', changed: false, bundle: bundleName, file: normalizedFilePath };
+    if (options.json) writeJsonSuccess(ctx, 'bundle', payload);
+    else ctx.logger.log(stringifyYaml(payload, { indent: 2 }).trimEnd());
+    return;
   }
 
   const nextManifest = createManifestDocument({
@@ -139,7 +160,7 @@ async function handleBundleAddFile(ctx: HushContext, options: BundleAddFileOptio
 
   const payload = { bundle: bundleName, file: normalizedFilePath, added: true };
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'bundle', payload);
     return;
   }
 
@@ -159,7 +180,7 @@ async function handleBundleRemoveFile(ctx: HushContext, options: BundleRemoveFil
   const bundles = repository.manifest.bundles ?? {};
   const existingBundle = bundles[bundleName];
   if (!existingBundle) {
-    throw new Error(`Bundle "${bundleName}" does not exist`);
+    throw new Error(withSuggestion(`Bundle "${bundleName}" does not exist. Nothing was changed.`, bundleName, Object.keys(bundles)));
   }
 
   const normalizedFilePath = assertNamespacedPath(options.file);
@@ -196,7 +217,7 @@ async function handleBundleRemoveFile(ctx: HushContext, options: BundleRemoveFil
 
   const payload = { bundle: bundleName, file: normalizedFilePath, removed: true };
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'bundle', payload);
     return;
   }
 
@@ -215,7 +236,7 @@ async function handleBundleRemove(ctx: HushContext, options: BundleRemoveOptions
 
   const bundles = repository.manifest.bundles ?? {};
   if (!bundles[bundleName]) {
-    throw new Error(`Bundle "${bundleName}" does not exist`);
+    throw new Error(withSuggestion(`Bundle "${bundleName}" does not exist. Nothing was changed.`, bundleName, Object.keys(bundles)));
   }
 
   // Block removal if any target still references this bundle
@@ -249,7 +270,7 @@ async function handleBundleRemove(ctx: HushContext, options: BundleRemoveOptions
 
   const payload = { name: bundleName, removed: true };
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'bundle', payload);
     return;
   }
 
@@ -279,7 +300,7 @@ async function handleBundleList(ctx: HushContext, options: BundleListOptions): P
   });
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify(bundleEntries, null, 2));
+    writeJsonSuccess(ctx, 'bundle', { bundles: bundleEntries });
     return;
   }
 

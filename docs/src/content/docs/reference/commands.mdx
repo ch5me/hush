@@ -33,6 +33,8 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
+Every command supports repository-free command help: `hush <command> --help`. Command help lists only options accepted by that command, including known value domains and safe alternatives; it does not decrypt files or contact providers.
+
 ### Update check
 
 Hush checks for new versions once per day via a standard HTTP request to the npm registry. No telemetry is sent. To disable, set `HUSH_NO_UPDATE_CHECK=1` (also respects `NO_UPDATE_NOTIFIER=1` and any `CI` environment variable).
@@ -175,6 +177,27 @@ Use `hush materialize -- <command>` as the default for maintained file-based wor
 
 ---
 
+## import add
+
+Bind a bundle or file from another Hush repository.
+
+```bash
+hush import add --source-root /absolute/path/to/source --bundle shared-runtime
+hush import add --source-root /absolute/path/to/source --file env/project/shared --import-name shared-config
+```
+
+The absolute source root is persisted inside the encrypted destination manifest. Commands that resolve the import require the source repository and its age key to be available locally. Use `--import-name` to set a stable local name; otherwise Hush derives one from the source.
+
+| Option | Description |
+|--------|-------------|
+| `--source-root <path>` | Absolute or resolvable path to the source Hush repository |
+| `--bundle <name>` | Import one source bundle |
+| `--file <path>` | Import one source file |
+| `--import-name <name>` | Override the derived local import name |
+| `--json` | Emit machine-readable output |
+
+---
+
 ## set
 
 Set a secret. Supports inline values, interactive prompts, or piped input.
@@ -222,6 +245,8 @@ cat cert.pem | hush set CERTIFICATE
 | `--repo-local` | Shorthand for `--file env/project/local` |
 | `--gui` | Use a native GUI dialog for input instead of terminal or piped input |
 | `--global` | Set the secret in `~/.hush` instead of the current project store |
+
+Supply exactly one destination selector. `--file`, `--repo-local`/`--local`, and `--env` cannot be combined. `hush set` intentionally rejects `--target` before reading a value because a target can contain multiple files; inspect precedence with `hush resolve <target>`, then select the intended file with `--file`.
 
 ### Input Methods (Priority Order)
 

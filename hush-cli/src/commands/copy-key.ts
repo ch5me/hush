@@ -1,10 +1,12 @@
 import { stringify as stringifyYaml } from 'yaml';
 import { appendAuditEvent } from '../v3/audit.js';
 import { createFileDocument } from '../v3/domain.js';
-import { loadV3Repository, persistV3FileDocument } from '../v3/repository.js';
+import { loadV3Repository, persistV3FileDocument, persistV3FileDocuments } from '../v3/repository.js';
 import { assertNamespacedPath } from '../v3/schema.js';
 import { requireMutableIdentity } from './v3-command-helpers.js';
+import { withSuggestion } from './mutation-feedback.js';
 import type { HushContext, HushFileDocument, HushFileEntry, KeyTransferOptions } from '../types.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 function logicalPathKey(logicalPath: string): string {
   return logicalPath.split('/').filter(Boolean).at(-1) ?? logicalPath;
@@ -25,7 +27,11 @@ function findEntryByLeafKey(document: HushFileDocument, key: string): { logicalP
 function getSystemPath(repository: ReturnType<typeof loadV3Repository>, filePath: string): string {
   const systemPath = repository.fileSystemPaths[filePath];
   if (!systemPath) {
-    throw new Error(`File "${filePath}" is not declared in this repository`);
+    throw new Error(withSuggestion(
+      `File "${filePath}" is not declared in this repository. No keys were changed.`,
+      filePath,
+      Object.keys(repository.fileSystemPaths),
+    ));
   }
   return systemPath;
 }
@@ -91,9 +97,13 @@ export async function copyKeyCommand(ctx: HushContext, options: KeyTransferOptio
   const targetDocument = repository.loadFile(to);
   const { nextSource, nextTarget, sourceLogicalPath, targetLogicalPath } = transferEntry(sourceDocument, targetDocument, key, options.move);
 
-  persistV3FileDocument(ctx, options.store, repository, getSystemPath(repository, to), nextTarget);
   if (options.move) {
-    persistV3FileDocument(ctx, options.store, repository, getSystemPath(repository, from), nextSource);
+    persistV3FileDocuments(ctx, options.store, repository, [
+      { systemPath: getSystemPath(repository, to), document: nextTarget },
+      { systemPath: getSystemPath(repository, from), document: nextSource },
+    ]);
+  } else {
+    persistV3FileDocument(ctx, options.store, repository, getSystemPath(repository, to), nextTarget);
   }
 
   appendAuditEvent(ctx, options.store, {
@@ -114,7 +124,10 @@ export async function copyKeyCommand(ctx: HushContext, options: KeyTransferOptio
   const payload = {
     ok: true,
     action: options.move ? 'move' : 'copy',
+    changed: true,
     key,
+    requestedScope: { from: options.from, to: options.to },
+    resolvedScope: { from, to },
     from,
     to,
     sourceLogicalPath,
@@ -122,7 +135,7 @@ export async function copyKeyCommand(ctx: HushContext, options: KeyTransferOptio
   };
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, commandName, payload);
     return;
   }
 

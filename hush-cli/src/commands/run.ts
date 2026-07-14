@@ -4,6 +4,7 @@ import { withMaterializedTarget } from '../index.js';
 import { requireV3Repository, selectRuntimeTarget } from './v3-command-helpers.js';
 import type { HushContext, RunOptions } from '../types.js';
 import { globalStoreHint } from '../lib/global-store-hint.js';
+import { writeJsonError } from '../lib/command-output.js';
 
 function warnWranglerConflict(ctx: HushContext, cwd: string): void {
   const devVarsPath = join(cwd, '.dev.vars');
@@ -19,6 +20,15 @@ function warnWranglerConflict(ctx: HushContext, cwd: string): void {
 
 export async function runCommand(ctx: HushContext, options: RunOptions): Promise<void> {
   const { store, cwd, target, command } = options;
+
+  if (options.json) {
+    writeJsonError(ctx, 'run', {
+      code: 'UNSUPPORTED_MACHINE_MODE',
+      message: '`run --json` is not supported because the child process owns stdout.',
+      suggestion: 'Use `hush materialize --json` to obtain machine-readable environment metadata without executing a child process.',
+    });
+    ctx.process.exit(2);
+  }
 
   if (!command || command.length === 0) {
     ctx.logger.error('Usage: hush run -- <command>');

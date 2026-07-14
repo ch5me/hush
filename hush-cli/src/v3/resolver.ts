@@ -48,6 +48,10 @@ function getIdentityRoles(repository: HushV3Repository, identity: HushIdentityNa
 }
 
 function canReadFile(file: HushFileIndexEntry, identity: HushIdentityName, roles: readonly string[]): boolean {
+  if (file.readers.identities.includes(identity)) {
+    return true;
+  }
+
   return roles.some((role) => isIdentityAllowed(file.readers, identity, role as never));
 }
 

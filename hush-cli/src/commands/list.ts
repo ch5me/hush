@@ -2,6 +2,7 @@ import pc from 'picocolors';
 import { maskValue } from '../core/mask.js';
 import { appendCommandReadAudit, resolveTargetEnvView } from './v3-command-helpers.js';
 import type { ListOptions, HushContext } from '../types.js';
+import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
 
 export async function listCommand(ctx: HushContext, options: ListOptions): Promise<void> {
   try {
@@ -14,6 +15,19 @@ export async function listCommand(ctx: HushContext, options: ListOptions): Promi
       name: 'list',
       args: options.reveal ? ['--reveal'] : [],
     });
+
+    if (options.json) {
+      writeJsonSuccess(ctx, 'list', {
+        target: view.targetName,
+        reveal: options.reveal ?? false,
+        variables: view.envVars.map(({ key, value }) => ({
+          key,
+          value: options.reveal ? value : maskValue(value),
+        })),
+        count: view.envVars.length,
+      });
+      return;
+    }
 
     ctx.logger.log(pc.blue(`Variables for target ${view.targetName}:\n`));
 
@@ -32,7 +46,8 @@ export async function listCommand(ctx: HushContext, options: ListOptions): Promi
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    ctx.logger.error(pc.red(message));
+    if (options.json) writeJsonError(ctx, 'list', { code: 'RESOLUTION_FAILED', message });
+    else ctx.logger.error(pc.red(message));
     ctx.process.exit(1);
   }
 }

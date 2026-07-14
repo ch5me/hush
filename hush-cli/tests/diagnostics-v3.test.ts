@@ -306,8 +306,8 @@ describe('task 7 v3 diagnostic commands', () => {
 
     await resolveCommand(ctx, { store, env: 'development', target: 'runtime', jsonCompact: true, only: 'API_URL' });
 
-    const payload = JSON.parse(getLogOutput(logger)) as Array<{ key: string; source: string; target: string; precedence: number }>;
-    expect(payload).toEqual([
+    const payload = JSON.parse(getLogOutput(logger)) as { data: Array<{ key: string; source: string; target: string; precedence: number }> };
+    expect(payload.data).toEqual([
       {
         key: 'env/project/shared/API_URL',
         source: 'env/project/shared',
@@ -454,11 +454,10 @@ describe('task 7 v3 diagnostic commands', () => {
     await traceCommand(ctx, { store, env: 'development', key: 'RESEND_API_KEY', json: true });
 
     const payload = JSON.parse(getLogOutput(logger)) as {
-      selector: string;
-      targets: Array<{ target: string; status: string; diagnosis?: string }>;
+      data: { selector: string; targets: Array<{ target: string; status: string; diagnosis?: string }> };
     };
-    expect(payload.selector).toBe('RESEND_API_KEY');
-    expect(payload.targets.some((target) => target.status === 'not_selected_by_target_bundle' && target.diagnosis?.includes('env/project/production'))).toBe(true);
+    expect(payload.data.selector).toBe('RESEND_API_KEY');
+    expect(payload.data.targets.some((target) => target.status === 'not_selected_by_target_bundle' && target.diagnosis?.includes('env/project/production'))).toBe(true);
     expect(JSON.stringify(payload)).not.toContain('resend-secret');
   });
 
@@ -544,8 +543,8 @@ describe('task 7 v3 diagnostic commands', () => {
 
     await traceCommand(ctx, { store, env: 'development', key: 'API_URL', jsonCompact: true });
 
-    const payload = JSON.parse(getLogOutput(logger)) as Array<{ key: string; source: string; target: string; precedence: number }>;
-    expect(payload).toEqual([
+    const payload = JSON.parse(getLogOutput(logger)) as { data: Array<{ key: string; source: string; target: string; precedence: number }> };
+    expect(payload.data).toEqual([
       {
         key: 'env/project/shared/API_URL',
         source: 'env/project/shared',
@@ -574,9 +573,9 @@ describe('task 7 v3 diagnostic commands', () => {
 
     await expect(verifyTargetCommand(ctx, { store, env: 'development', target: 'app-dev', require: ['RESEND_API_KEY'], json: true })).rejects.toThrow('Process exit: 1');
 
-    const payload = JSON.parse(getLogOutput(logger)) as { ok: boolean; missing: string[]; resolvedKeys: Record<string, string[]> };
+    const payload = JSON.parse(getErrorOutput(logger)) as { ok: boolean; error: { details: { missing: string[]; resolvedKeys: Record<string, string[]> } } };
     expect(payload.ok).toBe(false);
-    expect(payload.missing).toEqual(['RESEND_API_KEY']);
+    expect(payload.error.details.missing).toEqual(['RESEND_API_KEY']);
     expect(JSON.stringify(payload)).not.toContain('postgres://single-user-db');
   });
 });

@@ -1,4 +1,5 @@
 import pc from 'picocolors';
+import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
 import { appendAuditEvent } from '../v3/audit.js';
 import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
@@ -46,7 +47,15 @@ export async function verifyTargetCommand(ctx: HushContext, options: VerifyTarge
       availableTargets: Object.keys(repository.manifest.targets ?? {}).sort(),
     };
     if (options.json) {
-      ctx.logger.log(JSON.stringify(payload, null, 2));
+      writeJsonError(ctx, 'verify-target', {
+        code: 'TARGET_NOT_FOUND',
+        message: `Target not found: ${options.target}`,
+        rejectedInput: options.target,
+        suggestion: payload.availableTargets.length > 0
+          ? `Choose one of: ${payload.availableTargets.join(', ')}`
+          : 'Create a target with `hush target add`.',
+        details: payload,
+      });
     } else {
       ctx.logger.error(`Target not found: ${options.target}`);
       ctx.logger.error(pc.dim(`Available targets: ${payload.availableTargets.join(', ') || '(none)'}`));
@@ -99,7 +108,17 @@ export async function verifyTargetCommand(ctx: HushContext, options: VerifyTarge
     });
 
     if (options.json) {
-      ctx.logger.log(JSON.stringify(payload, null, 2));
+      if (payload.ok) {
+        writeJsonSuccess(ctx, 'verify-target', payload);
+      } else {
+        writeJsonError(ctx, 'verify-target', {
+          code: 'REQUIRED_KEYS_MISSING',
+          message: `Target ${resolution.target} is missing ${missing.length} required key${missing.length === 1 ? '' : 's'}.`,
+          rejectedInput: missing.join(','),
+          suggestion: 'Run `hush trace <KEY> --json` for each missing key.',
+          details: payload,
+        });
+      }
     } else {
       const lines = [
         pc.blue('Hush verify-target\n'),
@@ -153,7 +172,15 @@ export async function verifyTargetCommand(ctx: HushContext, options: VerifyTarge
     };
 
     if (options.json) {
-      ctx.logger.log(JSON.stringify(payload, null, 2));
+      writeJsonError(ctx, 'verify-target', {
+        code: payload.error.toUpperCase(),
+        message,
+        rejectedInput: options.target,
+        suggestion: payload.error === 'acl_denied'
+          ? 'Inspect file readers with `hush file list --json`.'
+          : 'Run `hush trace <KEY> --json` or `hush doctor --json` for more detail.',
+        details: payload,
+      });
     } else {
       ctx.logger.error(pc.red(message));
       if (payload.unreadableFiles.length > 0) {

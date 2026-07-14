@@ -1,4 +1,5 @@
 import { stringify as stringifyYaml } from 'yaml';
+import { writeJsonSuccess } from '../lib/command-output.js';
 import type { ConfigOptions, HushContext, HushV3Repository } from '../types.js';
 import {
   appendAuditEvent,
@@ -159,7 +160,7 @@ function handleShow(ctx: HushContext, options: ConfigOptions): void {
   });
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'config', payload);
     return;
   }
 

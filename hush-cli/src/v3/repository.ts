@@ -126,25 +126,95 @@ export function persistV3FileDocument(
   systemPath: string,
   document: HushFileDocument,
 ): HushManifestDocument {
-  ctx.sops.encryptYamlContent(stringifyYaml(document, { indent: 2 }), systemPath, {
-    root: store.root,
-    keyIdentity: store.keyIdentity,
-  });
+  return persistV3FileDocuments(ctx, store, repository, [{ systemPath, document }]);
+}
 
-  const nextManifest = upsertManifestFileIndexEntry(repository.manifest, document.path, createFileIndexEntry(document));
-  ctx.sops.encryptYamlContent(stringifyYaml(nextManifest, { indent: 2 }), repository.manifestPath, {
-    root: store.root,
-    keyIdentity: store.keyIdentity,
-  });
+interface FileDocumentWrite {
+  systemPath: string;
+  document: HushFileDocument;
+}
+
+function snapshotFile(filePath: string): string | Buffer | null {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+}
+
+function restoreFile(filePath: string, snapshot: string | Buffer | null): void {
+  if (snapshot === null) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    return;
+  }
+  fs.writeFileSync(filePath, snapshot);
+}
+
+export function persistV3FileDocuments(
+  ctx: HushContext,
+  store: StoreContext,
+  repository: HushV3Repository,
+  writes: FileDocumentWrite[],
+): HushManifestDocument {
+  const snapshots = new Map<string, string | Buffer | null>();
+  for (const { systemPath } of writes) snapshots.set(systemPath, snapshotFile(systemPath));
+  snapshots.set(repository.manifestPath, snapshotFile(repository.manifestPath));
+
+  let nextManifest = repository.manifest;
+  for (const { document } of writes) {
+    nextManifest = upsertManifestFileIndexEntry(nextManifest, document.path, createFileIndexEntry(document));
+  }
+
+  try {
+    for (const { systemPath, document } of writes) {
+      ctx.sops.encryptYamlContent(stringifyYaml(document, { indent: 2 }), systemPath, {
+        root: store.root,
+        keyIdentity: store.keyIdentity,
+      });
+    }
+    ctx.sops.encryptYamlContent(stringifyYaml(nextManifest, { indent: 2 }), repository.manifestPath, {
+      root: store.root,
+      keyIdentity: store.keyIdentity,
+    });
+  } catch (error) {
+    for (const [filePath, snapshot] of snapshots) restoreFile(filePath, snapshot);
+    throw error;
+  }
 
   repository.manifest = nextManifest;
-  repository.filesByPath[document.path] = createFileIndexEntry(document);
-  repository.fileSystemPaths[document.path] = systemPath;
+  for (const { systemPath, document } of writes) {
+    repository.filesByPath[document.path] = createFileIndexEntry(document);
+    repository.fileSystemPaths[document.path] = systemPath;
+    repository.cacheFile?.(document);
+  }
   repository.files = Object.entries(repository.filesByPath)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([, entry]) => entry);
-  repository.cacheFile?.(document);
+  return nextManifest;
+}
 
+export function removeV3FileDocument(
+  ctx: HushContext,
+  store: StoreContext,
+  repository: HushV3Repository,
+  filePath: HushFilePath,
+  systemPath: string | undefined,
+  keepFile: boolean,
+  nextManifest: HushManifestDocument,
+): HushManifestDocument {
+  const manifestSnapshot = snapshotFile(repository.manifestPath);
+  const fileSnapshot = systemPath ? snapshotFile(systemPath) : null;
+  const previousManifest = repository.manifest;
+  try {
+    persistV3ManifestDocument(ctx, store, repository, nextManifest);
+    if (!keepFile && systemPath) fs.unlinkSync(systemPath);
+  } catch (error) {
+    restoreFile(repository.manifestPath, manifestSnapshot);
+    if (systemPath) restoreFile(systemPath, fileSnapshot);
+    repository.manifest = previousManifest;
+    throw error;
+  }
+  delete repository.filesByPath[filePath];
+  delete repository.fileSystemPaths[filePath];
+  repository.files = Object.entries(repository.filesByPath)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, entry]) => entry);
   return nextManifest;
 }
 

@@ -273,4 +273,36 @@ describe('persistV3ManifestDocument', () => {
 
     expect(repository.loadFile('env/app/shared').entries).toEqual({});
   });
+
+  it('restores the encrypted file when the manifest write fails', () => {
+    resetTempDir();
+    const filePath = join(TMP_DIR, 'shared.encrypted');
+    const manifestPath = join(TMP_DIR, 'manifest.encrypted');
+    nodeFs.writeFileSync(filePath, 'old-file');
+    nodeFs.writeFileSync(manifestPath, 'old-manifest');
+    const document = createFileDocument({
+      path: 'env/app/shared',
+      readers: { roles: ['owner'], identities: [] },
+      entries: {},
+    });
+    const manifest = { version: 3 as const, identities: { dev: { roles: ['owner' as const] } } };
+    const repository = {
+      manifestPath,
+      manifest,
+      filesByPath: {},
+      fileSystemPaths: {},
+      files: [],
+    } as unknown as Parameters<typeof persistV3FileDocument>[2];
+    const encryptYamlContent = vi.fn((_content: string, outputPath: string) => {
+      nodeFs.writeFileSync(outputPath, 'new-ciphertext');
+      if (outputPath === manifestPath) throw new Error('synthetic manifest failure');
+    });
+    const ctx = { sops: { encryptYamlContent } } as unknown as Parameters<typeof persistV3FileDocument>[0];
+
+    expect(() => persistV3FileDocument(ctx, { root: TMP_DIR }, repository, filePath, document))
+      .toThrow(/synthetic manifest failure/);
+    expect(nodeFs.readFileSync(filePath, 'utf8')).toBe('old-file');
+    expect(nodeFs.readFileSync(manifestPath, 'utf8')).toBe('old-manifest');
+    expect(repository.filesByPath).toEqual({});
+  });
 });
