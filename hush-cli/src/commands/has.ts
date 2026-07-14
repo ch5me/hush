@@ -2,6 +2,7 @@ import pc from 'picocolors';
 import { appendCommandReadAudit, resolveTargetEnvView } from './v3-command-helpers.js';
 import type { Environment, HushContext, StoreContext } from '../types.js';
 import { globalStoreHint } from '../lib/global-store-hint.js';
+import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
 
 export interface HasOptions {
   store: StoreContext;
@@ -26,12 +27,12 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
     appendCommandReadAudit(ctx, store, view, { name: 'has', args: [key] });
 
     if (json) {
-      ctx.logger.log(JSON.stringify({
+      writeJsonSuccess(ctx, 'has', {
         key,
         target: view.targetName,
         exists,
         declared: found !== undefined,
-      }, null, 2));
+      });
     } else if (!quiet) {
       if (exists) {
         ctx.logger.log(pc.green(`${key} is set (${found!.value.length} chars)`));
@@ -52,7 +53,12 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
   } catch (error) {
     if (json) {
       const message = error instanceof Error ? error.message : String(error);
-      ctx.logger.log(JSON.stringify({ key, exists: false, error: message }, null, 2));
+      writeJsonError(ctx, 'has', {
+        code: 'RESOLUTION_FAILED',
+        message,
+        rejectedInput: key,
+        details: { key, exists: false },
+      });
     } else if (!quiet) {
       const message = error instanceof Error ? error.message : String(error);
       ctx.logger.error(pc.red(message));

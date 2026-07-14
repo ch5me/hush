@@ -104,4 +104,27 @@ describe('runCommand legacy repo rejection', () => {
     expect(ctx.exec.spawnSync).not.toHaveBeenCalled();
     expect(ctx.logger.error).toHaveBeenCalledWith(expect.stringMatching(/requires a v3 repository|Bootstrap or migrate before using this command/i));
   });
+
+  it('rejects json mode with one structured stderr document before starting a child', async () => {
+    const root = join(TEST_DIR, 'json-mode');
+    const ctx = createContext(root);
+
+    await expect(runCommand(ctx, {
+      store: createStore(root),
+      cwd: root,
+      command: ['echo', 'synthetic'],
+      json: true,
+    })).rejects.toThrow('Process exit: 2');
+
+    expect(ctx.logger.log).not.toHaveBeenCalled();
+    expect(ctx.exec.spawnSync).not.toHaveBeenCalled();
+    const errorLogger = ctx.logger.error as ReturnType<typeof vi.fn>;
+    const payload = JSON.parse(String(errorLogger.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      version: 1,
+      ok: false,
+      command: 'run',
+      error: { code: 'UNSUPPORTED_MACHINE_MODE' },
+    });
+  });
 });

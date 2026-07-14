@@ -1,0 +1,41 @@
+---
+title: Agent and Automation Contract
+description: Deterministic help, output, error, and secret-handling rules for scripts and coding agents.
+---
+
+Use Hush as a typed command surface, not as an interactive black box.
+
+## Discover before executing
+
+Run `hush <command> --help` before constructing an unfamiliar invocation. Help is repository-free: it does not decrypt files, load provider credentials, or contact a network. It lists the command synopsis, accepted options, known value domains, and safe alternatives.
+
+```bash
+hush set --help
+hush materialize --help
+hush import --help
+```
+
+Do not infer that a globally familiar option works on another command. Unsupported options fail closed. In particular, `hush set` rejects `--target`; resolve the target, then select exactly one destination with `--file`, `--repo-local`, or `--env`.
+
+## Output contract
+
+- Stdout is result data. When a command supports `--json`, stdout contains one JSON document and no ANSI decoration.
+- Stderr is diagnostics: warnings, rejected input, remediation, and provider availability.
+- Never parse human formatting when `--json` is available.
+- Secret values are not included in inspection, help, completion, audit, or error output.
+
+## Error contract
+
+Treat a non-zero exit as no authority to assume success. Read stderr for the command, rejected input, and one safe next action. Invalid or conflicting mutation scope is rejected before Hush prompts for or reads a secret value.
+
+Do not retry a mutation by dropping a rejected destination, target, identity, or repository selector. Correct the invocation explicitly.
+
+## Safe agent loop
+
+1. Discover with `hush <command> --help`.
+2. Inspect with `hush config show --json`, `hush inspect --json`, `hush resolve <target> --json`, or `hush trace <KEY> --json`.
+3. Verify scope and authority before requesting a value.
+4. Prefer `hush set KEY --gui` when a human should enter the secret outside agent context.
+5. Verify with metadata-only commands; never print decrypted values.
+
+Hush is not a sandbox. An agent allowed to execute arbitrary commands under `hush run` can invoke a process that reads injected values. Gate runtime execution according to your agent harness policy.

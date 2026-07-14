@@ -33,6 +33,7 @@ export default defineConfig({
             { label: 'Configuration', slug: 'guides/configuration' },
             { label: 'Monorepo Patterns', slug: 'guides/monorepos' },
             { label: 'AI-Native Workflow', slug: 'guides/ai-native' },
+            { label: 'Agent Automation', slug: 'guides/agent-automation' },
             { label: 'Threat Model', slug: 'guides/threat-model' },
           ],
         },

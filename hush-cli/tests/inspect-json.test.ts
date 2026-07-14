@@ -201,10 +201,11 @@ describe('inspect --json', () => {
     await inspectCommand(ctx, { store, env: 'development', json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as {
+    const envelope = JSON.parse(raw) as { data: {
       target: string;
       entries: Array<{ key: string; file: string; sensitive: boolean; set: boolean; value?: string }>;
-    };
+    } };
+    const payload = envelope.data;
 
     expect(payload).toHaveProperty('target');
     expect(payload).toHaveProperty('entries');
@@ -244,10 +245,11 @@ describe('inspect --json', () => {
     await inspectCommand(ctx, { store, env: 'development', json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as {
+    const envelope = JSON.parse(raw) as { data: {
       target: string;
       entries: Array<{ key: string; file: string; sensitive: boolean; set: boolean; value?: string }>;
-    };
+    } };
+    const payload = envelope.data;
 
     const publicEntry = payload.entries.find((e) => e.key.includes('PUBLIC_URL'));
     const secretEntry = payload.entries.find((e) => e.key.includes('SECRET_KEY'));
@@ -330,10 +332,11 @@ describe('inspect --json', () => {
     await inspectCommand(ctx, { store, env: 'development', json: true });
 
     const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = JSON.parse(raw) as {
+    const envelope = JSON.parse(raw) as { data: {
       target: string;
       entries: Array<{ key: string; file: string; sensitive: boolean; set: boolean }>;
-    };
+    } };
+    const payload = envelope.data;
 
     const entry = payload.entries[0];
     expect(entry).toBeDefined();

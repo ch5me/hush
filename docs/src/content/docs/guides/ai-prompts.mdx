@@ -22,6 +22,7 @@ Use this prompt for a new repo or a repo that already uses `.hush/`.
 ```markdown
 I want to use Hush for AI-native secrets management in this project. Please:
 
+0. Run `npx @chriscode/hush <command> --help` before using an unfamiliar command or option; do not guess option support. Prefer `--json` for automation, parse stdout as data, and treat stderr as diagnostics.
 1. Check if sops and age are installed
 2. Install @chriscode/hush as a dev dependency
 3. Run `npx @chriscode/hush bootstrap`

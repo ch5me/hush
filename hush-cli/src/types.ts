@@ -260,6 +260,7 @@ export interface SetOptions {
   gui?: boolean;
   repoLocal?: boolean;
   showLength?: boolean;
+  json?: boolean;
 }
 
 export interface RunOptions {
@@ -267,6 +268,7 @@ export interface RunOptions {
   cwd: string;
   target?: string;
   command: string[];
+  json?: boolean;
 }
 
 export interface PushOptions {
@@ -314,6 +316,7 @@ export interface ListOptions {
   store: StoreContext;
   env: Environment;
   reveal?: boolean;
+  json?: boolean;
 }
 
 export interface CheckOptions {
@@ -550,6 +553,7 @@ export interface DiffOptions {
   target?: string;
   bundle?: string;
   ref?: string;
+  json?: boolean;
 }
 
 export interface ExportExampleOptions {
@@ -560,6 +564,7 @@ export interface ExportExampleOptions {
   write?: boolean;
   writePath?: string;
   force?: boolean;
+  json?: boolean;
 }
 
 export interface MaterializeOptions {

@@ -8,8 +8,15 @@ import {
   isV3ManifestPath,
   stripEncryptedFileExtension,
 } from '../../src/types.js';
+import { assertNamespacedPath } from '../../src/v3/schema.js';
 
 describe('v3 path helpers', () => {
+  it('rejects traversal and platform-separator segments', () => {
+    expect(() => assertNamespacedPath('env/../../tmp/escape')).toThrow(/cannot contain/);
+    expect(() => assertNamespacedPath('env/./shared')).toThrow(/cannot contain/);
+    expect(() => assertNamespacedPath('env\\..\\escape')).toThrow(/forward slashes/);
+    expect(() => getV3EncryptedFilePath('/repo', 'env/../../tmp/escape')).toThrow();
+  });
   it('builds the canonical .hush layout paths', () => {
     expect(getV3RepoRoot('/repo')).toBe('/repo/.hush');
     expect(getV3ManifestPath('/repo')).toBe('/repo/.hush/manifest.encrypted');

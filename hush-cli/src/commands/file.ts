@@ -17,8 +17,10 @@ import {
   getV3EncryptedFilePath,
   loadV3Repository,
 } from '../index.js';
-import { persistV3FileDocument, persistV3ManifestDocument } from '../v3/repository.js';
+import { persistV3FileDocument, persistV3ManifestDocument, removeV3FileDocument } from '../v3/repository.js';
 import { requireMutableIdentity, requireV3Repository } from './v3-command-helpers.js';
+import { withSuggestion } from './mutation-feedback.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 function parseRoleCsv(
   value: string | undefined,
@@ -126,7 +128,7 @@ async function handleFileAdd(ctx: HushContext, options: FileAddOptions): Promise
 
   const payload = { path: filePath, readers: nextReaders };
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'file', payload);
     return;
   }
 
@@ -142,7 +144,11 @@ async function handleFileRemove(ctx: HushContext, options: FileRemoveOptions): P
   const fileIndexEntry = repository.filesByPath[filePath];
 
   if (!fileIndexEntry) {
-    throw new Error(`File "${filePath}" is not declared in this repository`);
+    throw new Error(withSuggestion(
+      `File "${filePath}" is not declared in this repository. Nothing was removed.`,
+      filePath,
+      Object.keys(repository.filesByPath),
+    ));
   }
 
   if (fileIndexEntry.logicalPaths.length > 0) {
@@ -163,17 +169,13 @@ async function handleFileRemove(ctx: HushContext, options: FileRemoveOptions): P
   }
 
   const systemPath = repository.fileSystemPaths[filePath];
-  if (!options.keepFile && systemPath) {
-    ctx.fs.unlinkSync(systemPath);
-  }
-
   const { [filePath]: _removed, ...remainingFileIndex } = repository.manifest.fileIndex ?? {};
   const nextManifest = createManifestDocument({
     ...repository.manifest,
     fileIndex: Object.keys(remainingFileIndex).length > 0 ? remainingFileIndex : undefined,
   });
 
-  persistV3ManifestDocument(ctx, options.store, repository, nextManifest);
+  removeV3FileDocument(ctx, options.store, repository, filePath, systemPath, options.keepFile ?? false, nextManifest);
 
   appendAuditEvent(ctx, options.store, {
     type: 'metadata_change',
@@ -186,9 +188,17 @@ async function handleFileRemove(ctx: HushContext, options: FileRemoveOptions): P
     },
   });
 
-  const payload = { path: filePath, removed: true, keepFile: options.keepFile ?? false };
+  const payload = {
+    action: 'remove-file',
+    changed: true,
+    requestedScope: { file: options.path },
+    resolvedScope: { file: filePath, keepFile: options.keepFile ?? false },
+    path: filePath,
+    removed: true,
+    keepFile: options.keepFile ?? false,
+  };
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'file', payload);
     return;
   }
 
@@ -222,7 +232,7 @@ async function handleFileList(ctx: HushContext, options: FileListOptions): Promi
   });
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify(files, null, 2));
+    writeJsonSuccess(ctx, 'file', { files });
     return;
   }
 
@@ -258,6 +268,20 @@ async function handleFileReaders(ctx: HushContext, options: FileReadersOptions):
     identities: parseIdentityCsv(options.identities, file.readers.identities, repository),
   });
 
+  if (JSON.stringify(nextReaders) === JSON.stringify(file.readers)) {
+    const payload = {
+      action: 'update-file-readers',
+      changed: false,
+      requestedScope: { file: requestedFilePath },
+      resolvedScope: { file: filePath },
+      path: filePath,
+      readers: nextReaders,
+    };
+    if (options.json) writeJsonSuccess(ctx, 'file', payload);
+    else ctx.logger.log(stringifyYaml(payload, { indent: 2 }).trimEnd());
+    return;
+  }
+
   const nextFile = createFileDocument({
     ...file,
     readers: nextReaders,
@@ -277,9 +301,16 @@ async function handleFileReaders(ctx: HushContext, options: FileReadersOptions):
     },
   });
 
-  const payload = { path: filePath, readers: nextReaders };
+  const payload = {
+    action: 'update-file-readers',
+    changed: true,
+    requestedScope: { file: requestedFilePath },
+    resolvedScope: { file: filePath },
+    path: filePath,
+    readers: nextReaders,
+  };
   if (options.json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'file', payload);
     return;
   }
 

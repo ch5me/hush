@@ -357,7 +357,7 @@ describe('projectCommand', () => {
       skipProvider: true,
     });
 
-    const payload = JSON.parse(logs[0] ?? '{}');
+    const payload = JSON.parse(logs[0] ?? '{}').data;
     expect(payload.status).toBe('drift');
     expect(payload.configPath).toBe('packages/runtime-config/config/hush-project-env.json');
     expect(payload.checks.workerSecrets.missing).toEqual(['RESEND_API_KEY']);
@@ -393,7 +393,7 @@ describe('projectCommand', () => {
       skipProvider: true,
     });
 
-    const payload = JSON.parse(logs[0] ?? '{}');
+    const payload = JSON.parse(logs[0] ?? '{}').data;
     expect(payload.status).toBe('ok');
     expect(payload.checks.sync.synced).toEqual([{ key: 'RESEND_API_KEY', dryRun: true }]);
     expect(spawnSync).toHaveBeenCalledTimes(1);
@@ -435,7 +435,7 @@ describe('projectCommand', () => {
       skipProvider: false,
     });
 
-    const payload = JSON.parse(logs[0] ?? '{}');
+    const payload = JSON.parse(logs[0] ?? '{}').data;
     expect(payload.status).toBe('ok');
     expect(payload.checks.providers.ok).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -462,7 +462,7 @@ describe('projectCommand', () => {
       skipProvider: true,
     })).rejects.toThrow('Process exit: 1');
 
-    const payload = JSON.parse(logs[0] ?? '{}');
+    const payload = JSON.parse(logs[0] ?? '{}').data;
     expect(payload.status).toBe('drift');
     expect(payload.checks.hushTarget.missing).toEqual(['RESEND_API_KEY']);
   });

@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 import pc from 'picocolors';
+import { writeJsonSuccess } from '../lib/command-output.js';
 import { resolveTargetEnvView } from './v3-command-helpers.js';
 import type { HushContext, ProjectOptions, StoreContext } from '../types.js';
 import type { V3ResolvedEnvView } from './v3-command-helpers.js';
@@ -704,7 +705,7 @@ function renderHuman(payload: ProjectPayload): string {
 
 function printPayload(ctx: HushContext, payload: ProjectPayload, json: boolean): void {
   if (json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'project', payload);
     return;
   }
 

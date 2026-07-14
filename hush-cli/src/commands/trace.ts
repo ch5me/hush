@@ -1,4 +1,5 @@
 import pc from 'picocolors';
+import { writeJsonSuccess } from '../lib/command-output.js';
 import { appendAuditEvent } from '../v3/audit.js';
 import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
@@ -115,7 +116,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
 
   if (matchedFiles.length === 0) {
     if (options.json || compactJsonMode) {
-      ctx.logger.log(JSON.stringify(compactJsonMode
+      writeJsonSuccess(ctx, 'trace', compactJsonMode
         ? []
         : {
           selector: options.key,
@@ -124,7 +125,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
           matchedFiles: [],
           candidateBundles: [],
           targets: [],
-        }, null, 2));
+        });
       return;
     }
 
@@ -218,12 +219,12 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
   }
 
   if (compactJsonMode) {
-    ctx.logger.log(JSON.stringify(compactResults.sort((left, right) => left.key.localeCompare(right.key) || left.target.localeCompare(right.target) || left.source.localeCompare(right.source)), null, 2));
+    writeJsonSuccess(ctx, 'trace', compactResults.sort((left, right) => left.key.localeCompare(right.key) || left.target.localeCompare(right.target) || left.source.localeCompare(right.source)));
     return;
   }
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify({
+    writeJsonSuccess(ctx, 'trace', {
       selector: options.key,
       activeIdentity: identity,
       matchedLogicalPaths: allMatchedLogicalPaths,
@@ -235,7 +236,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
       })),
       candidateBundles,
       targets: targetResults,
-    }, null, 2));
+    });
     return;
   }
 

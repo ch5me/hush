@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
+import { writeJsonSuccess } from '../lib/command-output.js';
 import { formatVars } from '../formats/index.js';
 import { requireActiveIdentity } from '../v3/identity.js';
 import { resolveV3Bundle, resolveV3Target } from '../v3/resolver.js';
@@ -192,7 +193,7 @@ function resolveWritePath(options: ExportExampleOptions): string {
   return join(options.store.root, '.env.example');
 }
 
-function writeExampleFile(ctx: HushContext, filePath: string, content: string, force: boolean): void {
+function writeExampleFile(ctx: HushContext, filePath: string, content: string, force: boolean, quiet = false): void {
   // Strip ANSI codes for clean file content
   const cleanContent = stripAnsiCodes(content);
 
@@ -208,7 +209,7 @@ function writeExampleFile(ctx: HushContext, filePath: string, content: string, f
   }
 
   ctx.fs.writeFileSync(filePath, cleanContent, 'utf-8');
-  ctx.logger.log(pc.green(`\nWrote example to ${filePath}`));
+  if (!quiet) ctx.logger.log(pc.green(`\nWrote example to ${filePath}`));
 }
 
 export async function exportExampleCommand(ctx: HushContext, options: ExportExampleOptions): Promise<void> {
@@ -228,11 +229,12 @@ export async function exportExampleCommand(ctx: HushContext, options: ExportExam
       command: { name: 'export-example', args: [selection.name] },
     });
     const output = createBundleExampleOutput(selection.name, resolution);
-    ctx.logger.log(output);
+    const filePath = options.write ? resolveWritePath(options) : undefined;
+    if (options.json) writeJsonSuccess(ctx, 'export-example', { selection, output, writtenTo: filePath ?? null });
+    else ctx.logger.log(output);
 
-    if (options.write) {
-      const filePath = resolveWritePath(options);
-      writeExampleFile(ctx, filePath, output, options.force ?? false);
+    if (filePath) {
+      writeExampleFile(ctx, filePath, output, options.force ?? false, options.json);
     }
     return;
   }
@@ -245,10 +247,11 @@ export async function exportExampleCommand(ctx: HushContext, options: ExportExam
     command: { name: 'export-example', args: [selection.name] },
   });
   const output = createTargetExampleOutput(selection, resolution);
-  ctx.logger.log(output);
+  const filePath = options.write ? resolveWritePath(options) : undefined;
+  if (options.json) writeJsonSuccess(ctx, 'export-example', { selection, output, writtenTo: filePath ?? null });
+  else ctx.logger.log(output);
 
-  if (options.write) {
-    const filePath = resolveWritePath(options);
-    writeExampleFile(ctx, filePath, output, options.force ?? false);
+  if (filePath) {
+    writeExampleFile(ctx, filePath, output, options.force ?? false, options.json);
   }
 }

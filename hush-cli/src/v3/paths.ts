@@ -1,4 +1,4 @@
-import { posix as posixPath } from 'node:path';
+import { posix as posixPath, resolve, sep } from 'node:path';
 import {
   HUSH_V3_ENCRYPTED_FILE_EXTENSION,
   HUSH_V3_FILES_DIRNAME,
@@ -21,7 +21,12 @@ export function getV3FilesRoot(root: string): string {
 
 export function getV3EncryptedFilePath(root: string, filePath: string): string {
   const normalizedFilePath = normalizeHushPath(filePath);
-  return posixPath.join(getV3FilesRoot(root), `${normalizedFilePath}${HUSH_V3_ENCRYPTED_FILE_EXTENSION}`);
+  const filesRoot = resolve(getV3FilesRoot(root));
+  const encryptedPath = resolve(filesRoot, `${normalizedFilePath}${HUSH_V3_ENCRYPTED_FILE_EXTENSION}`);
+  if (!encryptedPath.startsWith(`${filesRoot}${sep}`)) {
+    throw new Error(`Hush path "${filePath}" resolves outside the repository files directory`);
+  }
+  return encryptedPath;
 }
 
 export function stripEncryptedFileExtension(filePath: string): string {

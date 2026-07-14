@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
+import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
 import { appendAuditEvent, getActiveIdentity, materializeV3Bundle, materializeV3Target } from '../index.js';
 import { DEFAULT_PERSISTED_OUTPUT_DIRNAME, requireV3Repository, selectRuntimeTarget } from './v3-command-helpers.js';
 import type {
@@ -380,22 +381,30 @@ export async function materializeCommand(ctx: HushContext, options: MaterializeO
   if (options.cleanup) {
     cleanupPersistedRoot(ctx, outputRoot);
     const payload = { cleaned: true, outputRoot };
-    ctx.logger.log(options.json ? JSON.stringify(payload, null, 2) : `${pc.green('Cleaned materialized artifacts')}\n${pc.dim(outputRoot)}`);
+    if (options.json) writeJsonSuccess(ctx, 'materialize', payload);
+    else ctx.logger.log(`${pc.green('Cleaned materialized artifacts')}\n${pc.dim(outputRoot)}`);
     return;
   }
 
   if (options.target && options.bundle) {
-    ctx.logger.error(pc.red('Use either --target or --bundle, not both.'));
+    const message = 'Use either --target or --bundle, not both.';
+    if (options.json) writeJsonError(ctx, 'materialize', { code: 'CONFLICTING_SCOPE', message });
+    else ctx.logger.error(pc.red(message));
     ctx.process.exit(1);
   }
 
   if (options.json && childCommand.length > 0) {
-    ctx.logger.error(pc.red('Use either --json output or a child command after --, not both.'));
+    writeJsonError(ctx, 'materialize', {
+      code: 'CONFLICTING_OUTPUT_MODE',
+      message: 'Use either --json output or a child command after --, not both.',
+    });
     ctx.process.exit(1);
   }
 
   if (options.format && options.format !== 'dotenv' && options.format !== 'shell-export') {
-    ctx.logger.error(pc.red(`Unsupported materialize format: ${options.format}`));
+    const message = `Unsupported materialize format: ${options.format}`;
+    if (options.json) writeJsonError(ctx, 'materialize', { code: 'UNSUPPORTED_FORMAT', message, rejectedInput: options.format });
+    else ctx.logger.error(pc.red(message));
     ctx.process.exit(1);
   }
 
@@ -422,7 +431,7 @@ export async function materializeCommand(ctx: HushContext, options: MaterializeO
     auditSuccess(ctx, options, materialization);
     const result = toCommandResult(materialization, outputRoot, options);
     if (options.json) {
-      ctx.logger.log(JSON.stringify(result, null, 2));
+      writeJsonSuccess(ctx, 'materialize', result);
     } else if (options.format === 'shell-export') {
       ctx.logger.log(formatShellExport(materialization.envVars));
     } else {
@@ -440,7 +449,8 @@ export async function materializeCommand(ctx: HushContext, options: MaterializeO
     if (materialization) {
       auditFailure(ctx, { ...options, command: childCommand }, materialization, message);
     }
-    ctx.logger.error(pc.red(message));
+    if (options.json) writeJsonError(ctx, 'materialize', { code: 'MATERIALIZATION_FAILED', message });
+    else ctx.logger.error(pc.red(message));
     ctx.process.exit(1);
   } finally {
     if (childCommand.length > 0) {

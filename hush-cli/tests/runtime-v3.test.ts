@@ -536,6 +536,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     const project = updated.loadFile('env/project/production');
     const api = updated.loadFile('env/api/production');
     const output = getLogOutput(logger);
+    const transferEnvelopes = logger.log.mock.calls.slice(-2).map(([message]) => JSON.parse(String(message)));
 
     expect(api.entries['env/api/production/RESEND_API_KEY']).toBeDefined();
     expect(api.entries['env/api/production/LEGACY_KEY']).toBeDefined();
@@ -545,6 +546,10 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(output).toContain('LEGACY_KEY');
     expect(output).not.toContain('resend-secret');
     expect(output).not.toContain('legacy-secret');
+    expect(transferEnvelopes).toEqual([
+      expect.objectContaining({ version: 1, ok: true, command: 'copy-key', data: expect.objectContaining({ changed: true }) }),
+      expect.objectContaining({ version: 1, ok: true, command: 'move-key', data: expect.objectContaining({ changed: true }) }),
+    ]);
   }, 60000);
 
   it('delete-key removes the requested entry from the declared v3 file', async () => {
@@ -593,11 +598,18 @@ describe('task 8 v3 runtime and mutating commands', () => {
     const updated = loadV3Repository(root, { keyIdentity: root });
     const shared = updated.loadFile('env/project/shared');
     const output = getLogOutput(logger);
+    const envelope = JSON.parse(String(logger.log.mock.calls.at(-1)?.[0]));
 
     expect(shared.entries['env/project/shared/FOLIO_CI_HUSH_WRITE_SMOKE']).toBeUndefined();
     expect(output).toContain('"action": "delete"');
     expect(output).toContain('"from": "env/project/shared"');
     expect(output).not.toContain('smoke-value');
+    expect(envelope).toMatchObject({
+      version: 1,
+      ok: true,
+      command: 'delete-key',
+      data: { action: 'delete', changed: true, resolvedScope: { from: 'env/project/shared' } },
+    });
   }, 60000);
 
   it('has and list resolve values from the v3 runtime target view', async () => {
@@ -647,6 +659,12 @@ describe('task 8 v3 runtime and mutating commands', () => {
 
     await listCommand(ctx, { store, env: 'development', reveal: true });
     expect(getLogOutput(logger)).toContain('NEXT_PUBLIC_API_URL=https://example.com');
+
+    logger.log.mockClear();
+    await listCommand(ctx, { store, env: 'development', json: true });
+    const envelope = JSON.parse(String(logger.log.mock.calls[0]?.[0]));
+    expect(envelope).toMatchObject({ version: 1, ok: true, command: 'list' });
+    expect(JSON.stringify(envelope)).not.toContain('https://example.com');
   }, 30000);
 
   it('check validates the v3 repository and flags leftover legacy/plaintext artifacts', async () => {
@@ -873,7 +891,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
       cleanup: false,
     });
 
-    const payload = JSON.parse(String(logger.log.mock.calls.at(-1)?.[0] ?? '{}'));
+    const payload = JSON.parse(String(logger.log.mock.calls.at(-1)?.[0] ?? '{}')).data;
     expect(payload.target).toBe('ios-signing');
     expect(payload.outputRoot).toBe(outputRoot);
     expect(payload.targetArtifact.path).toBe(join(outputRoot, 'metadata', 'signing.json'));

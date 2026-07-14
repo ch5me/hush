@@ -53,7 +53,7 @@ export function findProjectRoot(
   startDir: string,
   options: FindProjectRootOptions = {},
 ): HushProjectDiscoveryResult | null {
-  const { ignoreAncestors = false, stopAtGitRoot = false } = options;
+  const { ignoreAncestors = false, stopAtGitRoot = true } = options;
   let currentDir = resolve(startDir);
   const startedAtGitRoot = stopAtGitRoot && isGitRepositoryRoot(currentDir);
 

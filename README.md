@@ -195,6 +195,8 @@ hush completion zsh > ~/.zsh/completions/_hush   # also: bash, fish
 
 ## Scripting and agents
 
+Discover the exact contract with `hush <command> --help`; command help is repository-free and lists only accepted options and value domains. Prefer `--json` for automation: stdout is result data and stderr is diagnostics. See the [agent and automation contract](https://hush.ch5.me/guides/agent-automation/).
+
 Machine-readable output is available on the read-only surface — `has`, `check`,
 `inspect`, `status`, `doctor`, `resolve`, `trace`, `verify-target` all take
 `--json` and never emit secret values. `hush export-example --write` produces a

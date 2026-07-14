@@ -8,6 +8,7 @@ import { getActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { getProjectStatePaths } from '../v3/state.js';
 import type { HushContext, StatusOptions } from '../types.js';
+import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
 
 /**
  * Peek at the global store manifest for target/bundle counts.
@@ -54,12 +55,12 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
 
     if (!isV3RepositoryRoot(options.store.root)) {
       if (options.json) {
-        ctx.logger.log(JSON.stringify({
+        writeJsonSuccess(ctx, 'status', {
           repository: repositoryStatus,
           root: projectInfo?.projectRoot ?? options.store.root,
           store: options.store.mode,
           storeLabel: options.store.displayLabel,
-        }, null, 2));
+        });
         return;
       }
 
@@ -94,7 +95,7 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     const globalExists = existsSync(join(GLOBAL_STORE_ROOT, '.hush', 'manifest.encrypted'));
 
     if (options.json) {
-      ctx.logger.log(JSON.stringify({
+      writeJsonSuccess(ctx, 'status', {
         repository: repositoryStatus,
         root: projectInfo?.projectRoot ?? options.store.root,
         store: options.store.mode,
@@ -127,7 +128,7 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
             autoInherited: false,
           }
           : null,
-      }, null, 2));
+      });
       return;
     }
 
@@ -170,13 +171,17 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     const message = error instanceof Error ? error.message : String(error);
 
     if (options.json) {
-      ctx.logger.log(JSON.stringify({
-        repository: 'missing',
-        root: options.store.root,
-        store: options.store.mode,
-        storeLabel: options.store.displayLabel,
-        error: message,
-      }, null, 2));
+      writeJsonError(ctx, 'status', {
+        code: 'REPOSITORY_UNAVAILABLE',
+        message,
+        details: {
+          repository: 'missing',
+          root: options.store.root,
+          store: options.store.mode,
+          storeLabel: options.store.displayLabel,
+        },
+        suggestion: 'Run `hush bootstrap` to initialize this repository.',
+      });
       return;
     }
 

@@ -175,6 +175,51 @@ afterEach(() => {
 });
 
 describe('resolveV3Target ACL enforcement', () => {
+  it('honors an explicit identity reader grant when the identity has no roles', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'identity-only-reader');
+    const repository = writeRepo(root, `
+      version: 3
+      metadata:
+        project: identity-only-reader
+      identities:
+        robot:
+          roles: []
+      activeIdentity: robot
+      bundles:
+        runtime:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: runtime
+          format: dotenv
+    `, {
+      'env/project/shared': `
+        version: 3
+        path: env/project/shared
+        readers:
+          roles: []
+          identities: [robot]
+        sensitive: true
+        entries:
+          env/project/shared/ROBOT_TOKEN:
+            value: synthetic
+            sensitive: true
+      `,
+    });
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'robot');
+
+    const resolution = resolveV3Target(ctx, {
+      store,
+      repository,
+      targetName: 'runtime',
+    });
+
+    expect(resolution.values['env/project/shared/ROBOT_TOKEN']?.entry.value).toBe('synthetic');
+  });
+
   it('allows owners to resolve readable files and returns provenance', () => {
     const ctx = createContext();
     const root = join(FIXTURES_DIR, 'owner-member-acl-split');

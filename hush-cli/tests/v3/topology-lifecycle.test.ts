@@ -457,9 +457,10 @@ describe('topology-lifecycle', () => {
       expect(ctx.logger.log).toHaveBeenCalled();
       const logCall = (ctx.logger.log as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
       const parsed = JSON.parse(logCall);
-      expect(parsed).toHaveLength(2);
-      expect(parsed.map((f: { path: string }) => f.path)).toContain('env/project/shared');
-      expect(parsed.map((f: { path: string }) => f.path)).toContain('env/project/other');
+      expect(parsed).toMatchObject({ version: 1, ok: true, command: 'file' });
+      expect(parsed.data.files).toHaveLength(2);
+      expect(parsed.data.files.map((f: { path: string }) => f.path)).toContain('env/project/shared');
+      expect(parsed.data.files.map((f: { path: string }) => f.path)).toContain('env/project/other');
     });
 
     it('(g) file readers updates', async () => {
@@ -581,7 +582,7 @@ describe('topology-lifecycle', () => {
       await expect(bundleCommand(ctx, options)).rejects.toThrow('does not exist in file index');
     });
 
-    it('(c) add bundle with duplicate name fails', async () => {
+    it('(c) adding an identical bundle reports no change', async () => {
       const ctx = createBundleContext(TMP_DIR);
       const store = createStore(TMP_DIR);
 
@@ -610,9 +611,13 @@ describe('topology-lifecycle', () => {
         subcommand: 'add',
         name: 'app',
         files: 'env/project/shared',
+        json: true,
       };
 
-      await expect(bundleCommand(ctx, options)).rejects.toThrow('already exists');
+      await bundleCommand(ctx, options);
+      const payload = JSON.parse(String(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0]));
+      expect(payload).toMatchObject({ version: 1, ok: true, command: 'bundle' });
+      expect(payload.data).toMatchObject({ action: 'add-bundle', changed: false, bundle: 'app' });
     });
 
     it('(d) add bundle with duplicate file refs fails', async () => {
@@ -937,10 +942,11 @@ describe('topology-lifecycle', () => {
       expect(ctx.logger.log).toHaveBeenCalled();
       const logCall = (ctx.logger.log as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
       const parsed = JSON.parse(logCall);
-      expect(parsed.api).toBeDefined();
-      expect(parsed.web).toBeDefined();
-      expect(parsed.api.bundle).toBe('app');
-      expect(parsed.web.format).toBe('json');
+      expect(parsed).toMatchObject({ version: 1, ok: true, command: 'target' });
+      expect(parsed.data.targets.api).toBeDefined();
+      expect(parsed.data.targets.web).toBeDefined();
+      expect(parsed.data.targets.api.bundle).toBe('app');
+      expect(parsed.data.targets.web.format).toBe('json');
     });
   });
 
@@ -1105,7 +1111,7 @@ describe('topology-lifecycle', () => {
       expect(reloaded.manifest.bundles?.app?.files?.some((f) => f.path === 'env/project/other')).toBe(true);
     });
 
-    it('(e) add-file with already-present file fails', async () => {
+    it('(e) add-file with an already-present file reports no change', async () => {
       const ctx = createBundleContext(TMP_DIR);
       const store = createStore(TMP_DIR);
 
@@ -1134,9 +1140,18 @@ describe('topology-lifecycle', () => {
         subcommand: 'add-file',
         bundle: 'app',
         file: 'env/project/shared',
+        json: true,
       };
 
-      await expect(bundleCommand(ctx, options)).rejects.toThrow('already in bundle');
+      await bundleCommand(ctx, options);
+      const payload = JSON.parse(String(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0]));
+      expect(payload).toMatchObject({ version: 1, ok: true, command: 'bundle' });
+      expect(payload.data).toEqual({
+        action: 'add-file-to-bundle',
+        changed: false,
+        bundle: 'app',
+        file: 'env/project/shared',
+      });
     });
 
     it('(f) remove-file from bundle succeeds', async () => {
@@ -1297,9 +1312,10 @@ describe('topology-lifecycle', () => {
       expect(ctx.logger.log).toHaveBeenCalled();
       const logCall = (ctx.logger.log as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
       const parsed = JSON.parse(logCall);
-      expect(parsed).toHaveLength(2);
-      expect(parsed.map((b: { name: string }) => b.name)).toContain('app');
-      expect(parsed.map((b: { name: string }) => b.name)).toContain('web');
+      expect(parsed).toMatchObject({ version: 1, ok: true, command: 'bundle' });
+      expect(parsed.data.bundles).toHaveLength(2);
+      expect(parsed.data.bundles.map((b: { name: string }) => b.name)).toContain('app');
+      expect(parsed.data.bundles.map((b: { name: string }) => b.name)).toContain('web');
     });
 
     it('(j) non-owner bundle mutation fails', async () => {
@@ -1410,9 +1426,10 @@ describe('topology-lifecycle', () => {
       const allCalls = (ctx.logger.log as ReturnType<typeof vi.fn>).mock.calls;
       const listLogCall = allCalls[allCalls.length - 1]![0] as string;
       const parsedTargets = JSON.parse(listLogCall);
-      expect(parsedTargets['api-production']).toBeDefined();
-      expect(parsedTargets['api-production'].bundle).toBe('api-production');
-      expect(parsedTargets['api-production'].format).toBe('dotenv');
+      expect(parsedTargets).toMatchObject({ version: 1, ok: true, command: 'target' });
+      expect(parsedTargets.data.targets['api-production']).toBeDefined();
+      expect(parsedTargets.data.targets['api-production'].bundle).toBe('api-production');
+      expect(parsedTargets.data.targets['api-production'].format).toBe('dotenv');
 
       // Step 5: teardown — remove target first
       const targetRemoveOptions: TargetRemoveOptions = {

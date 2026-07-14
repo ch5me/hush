@@ -22,6 +22,8 @@ import { appendAuditEvent, createManifestDocument } from '../index.js';
 import { persistV3ManifestDocument } from '../v3/repository.js';
 import { requireMutableIdentity, requireV3Repository } from './v3-command-helpers.js';
 import type { HushContext, ImportAddOptions } from '../types.js';
+import { suggestKnownName } from './mutation-feedback.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 /**
  * Safely read target/bundle names from an external store's manifest without
@@ -94,6 +96,8 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
       const available = names.bundleNames.length > 0 ? names.bundleNames.join(', ') : '(none)';
       ctx.logger.error(pc.red(`Bundle "${bundle}" not found in source store ${resolvedSourceRoot}.`));
       ctx.logger.error(pc.dim(`Available bundles: ${available}`));
+      const suggestion = suggestKnownName(bundle, names.bundleNames);
+      if (suggestion) ctx.logger.error(pc.dim(`Did you mean "${suggestion}"? No import was changed.`));
       ctx.process.exit(1);
     }
   }
@@ -157,13 +161,23 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
     const newBundles = pull.bundles ?? [];
     const newFiles = pull.files ?? [];
     const sameProject = existing.project === projectName;
+    const sameSourceRoot = existing.sourceRoot === resolvedSourceRoot;
     const sameBundles = JSON.stringify([...existingBundles].sort()) === JSON.stringify([...newBundles].sort());
     const sameFiles = JSON.stringify([...existingFiles].sort()) === JSON.stringify([...newFiles].sort());
 
-    if (sameProject && sameBundles && sameFiles) {
-      const payload = { importName, project: projectName, pull, idempotent: true };
+    if (sameProject && sameSourceRoot && sameBundles && sameFiles) {
+      const payload = {
+        action: 'add-import',
+        changed: false,
+        requestedScope: { sourceRoot, bundle, file: fileArg, importName: options.importName },
+        resolvedScope: { sourceRoot: resolvedSourceRoot, importName },
+        importName,
+        project: projectName,
+        pull,
+        idempotent: true,
+      };
       if (json) {
-        ctx.logger.log(JSON.stringify(payload, null, 2));
+        writeJsonSuccess(ctx, 'import', payload);
       } else {
         ctx.logger.log(pc.green(`Import "${importName}" already declared with identical configuration (no change).`));
         ctx.logger.log(pc.dim(stringifyYaml(payload, { indent: 2 }).trimEnd()));
@@ -183,6 +197,7 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
       ...existingImports,
       [importName]: {
         project: projectName,
+        sourceRoot: resolvedSourceRoot,
         pull,
       },
     },
@@ -203,9 +218,18 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
     },
   });
 
-  const payload = { importName, project: projectName, pull, added: true };
+  const payload = {
+    action: 'add-import',
+    changed: true,
+    requestedScope: { sourceRoot, bundle, file: fileArg, importName: options.importName },
+    resolvedScope: { sourceRoot: resolvedSourceRoot, importName },
+    importName,
+    project: projectName,
+    pull,
+    added: true,
+  };
   if (json) {
-    ctx.logger.log(JSON.stringify(payload, null, 2));
+    writeJsonSuccess(ctx, 'import', payload);
     return;
   }
 

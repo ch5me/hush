@@ -246,6 +246,7 @@ describe('importAddCommand', () => {
     expect(repo.manifest.imports).toBeDefined();
     const decl = repo.manifest.imports!['external-project'];
     expect(decl).toBeDefined();
+    expect(decl.sourceRoot).toBe(sourceRoot);
     // Bundle names in pull.bundles are stored with namespace prefix (bundles/project).
     expect(decl.pull.bundles?.some((b) => b.includes('project'))).toBe(true);
   });
@@ -324,8 +325,8 @@ describe('importAddCommand', () => {
 
     const logOutput = logger.log.mock.calls.map(([m]) => String(m)).join('\n');
     const parsed = JSON.parse(logOutput) as Record<string, unknown>;
-    expect(parsed.importName).toBe('json-import');
-    expect(parsed.added).toBe(true);
+    expect((parsed.data as Record<string, unknown>).importName).toBe('json-import');
+    expect((parsed.data as Record<string, unknown>).added).toBe(true);
   });
 
   it('idempotent call outputs idempotent:true in JSON mode', async () => {
@@ -339,7 +340,7 @@ describe('importAddCommand', () => {
 
     const logOutput = logger.log.mock.calls.map(([m]) => String(m)).join('\n');
     const parsed = JSON.parse(logOutput) as Record<string, unknown>;
-    expect(parsed.idempotent).toBe(true);
+    expect((parsed.data as Record<string, unknown>).idempotent).toBe(true);
   });
 
   it('derives an import name from source root + bundle when no importName is given', async () => {

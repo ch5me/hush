@@ -2,6 +2,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 import pc from 'picocolors';
+import { writeJsonSuccess } from '../lib/command-output.js';
 import { decryptYaml } from '../core/sops.js';
 import { createFileIndexEntry } from '../v3/domain.js';
 import { parseFileDocument, parseManifestDocument } from '../v3/manifest.js';
@@ -396,6 +397,18 @@ export async function diffCommand(ctx: HushContext, options: DiffOptions): Promi
   const previousResolution = resolveSelection(ctx, selection, historical.repository, options.store, identity);
   const fileChanges = compareFileState(repository, historical.repository, currentResolution, previousResolution);
   const valueChanges = compareResolvedNodes(currentResolution, previousResolution);
+
+  if (options.json) {
+    writeJsonSuccess(ctx, 'diff', {
+      reference: ref,
+      selection,
+      activeIdentity: identity,
+      fileChanges,
+      resolvedChanges: valueChanges,
+      changed: fileChanges.length > 0 || valueChanges.length > 0,
+    });
+    return;
+  }
   const lines: string[] = [pc.blue('Hush diff\n')];
 
   lines.push(`Reference: ${pc.cyan(ref)}`);

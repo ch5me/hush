@@ -3,6 +3,8 @@ import type { HushContext, TargetAddOptions, TargetListOptions, TargetRemoveOpti
 import { appendAuditEvent, createManifestDocument, createTargetDefinition } from '../index.js';
 import { persistV3ManifestDocument } from '../v3/repository.js';
 import { requireMutableIdentity, requireV3Repository } from './v3-command-helpers.js';
+import { withSuggestion } from './mutation-feedback.js';
+import { writeJsonSuccess } from '../lib/command-output.js';
 
 type TargetSubcommand = 'add' | 'remove' | 'list';
 
@@ -51,7 +53,11 @@ async function handleAdd(ctx: HushContext, options: TargetAddOptions): Promise<v
 
   const bundles = repository.manifest.bundles ?? {};
   if (!(options.bundle in bundles)) {
-    throw new Error(`Bundle "${options.bundle}" is not declared in this repository`);
+    throw new Error(withSuggestion(
+      `Bundle "${options.bundle}" is not declared in this repository. No target was changed.`,
+      options.bundle,
+      Object.keys(bundles),
+    ));
   }
 
   const targetDef = createTargetDefinition({
@@ -62,6 +68,17 @@ async function handleAdd(ctx: HushContext, options: TargetAddOptions): Promise<v
     subpath: options.subpath,
     materializeAs: options.materializeAs,
   });
+
+  const existingTarget = repository.manifest.targets?.[options.name];
+  if (existingTarget) {
+    if (JSON.stringify(existingTarget) === JSON.stringify(targetDef)) {
+      const payload = { action: 'add-target', changed: false, name: options.name, ...targetDef };
+      if (options.json) writeJsonSuccess(ctx, 'target', payload);
+      else ctx.logger.log(stringifyYaml(payload, { indent: 2 }).trimEnd());
+      return;
+    }
+    throw new Error(`Target "${options.name}" already exists with different configuration. No target was changed. Remove it explicitly before replacing it.`);
+  }
 
   const nextManifest = createManifestDocument({
     ...repository.manifest,
@@ -82,7 +99,7 @@ async function handleAdd(ctx: HushContext, options: TargetAddOptions): Promise<v
   });
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify({ name: options.name, ...targetDef }, null, 2));
+    writeJsonSuccess(ctx, 'target', { action: 'add-target', changed: true, name: options.name, ...targetDef });
     return;
   }
 
@@ -96,7 +113,7 @@ async function handleRemove(ctx: HushContext, options: TargetRemoveOptions): Pro
 
   const targets = repository.manifest.targets ?? {};
   if (!targets[options.name]) {
-    throw new Error(`Target "${options.name}" not found`);
+    throw new Error(withSuggestion(`Target "${options.name}" was not found. Nothing was removed.`, options.name, Object.keys(targets)));
   }
 
   const nextTargets = { ...targets };
@@ -117,7 +134,9 @@ async function handleRemove(ctx: HushContext, options: TargetRemoveOptions): Pro
     details: { target: options.name, action: 'remove' },
   });
 
-  ctx.logger.log(`Removed target "${options.name}"`);
+  const payload = { action: 'remove-target', changed: true, name: options.name };
+  if (options.json) writeJsonSuccess(ctx, 'target', payload);
+  else ctx.logger.log(`Removed target "${options.name}"`);
 }
 
 async function handleList(ctx: HushContext, options: TargetListOptions): Promise<void> {
@@ -125,7 +144,7 @@ async function handleList(ctx: HushContext, options: TargetListOptions): Promise
   const targets = repository.manifest.targets ?? {};
 
   if (options.json) {
-    ctx.logger.log(JSON.stringify(targets, null, 2));
+    writeJsonSuccess(ctx, 'target', { targets });
     return;
   }
 

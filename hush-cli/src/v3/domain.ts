@@ -103,6 +103,8 @@ export interface HushImportPullSpec {
 
 export interface HushImportDefinition {
   project: string;
+  /** Absolute source repository root, stored inside the encrypted manifest. */
+  sourceRoot?: string;
   pull: HushImportPullSpec;
 }
 
@@ -311,10 +313,16 @@ function createManifestFileIndex(index: Record<HushFilePath, HushFileIndexEntry>
 
 export function createImportDefinition(definition: HushImportDefinition): HushImportDefinition {
   const pull = definition.pull ?? {};
+  const sourceRoot = definition.sourceRoot?.trim();
+
+  if (sourceRoot && !sourceRoot.startsWith('/')) {
+    throw new Error('Import sourceRoot must be an absolute path');
+  }
 
   return {
     ...definition,
     project: assertIdentityName(definition.project, 'Import project'),
+    sourceRoot,
     pull: {
       bundles: (pull.bundles ?? []).map(assertNamespacedPath),
       files: (pull.files ?? []).map(assertNamespacedPath),

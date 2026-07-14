@@ -91,11 +91,19 @@ export function appendAuditEvent(ctx: HushContext, store: StoreContext, input: A
   const statePaths = getProjectStatePaths(store);
   const event = createAuditEvent(store, input);
 
-  ensureProjectStateRoot(ctx, store);
-  ctx.fs.writeFileSync(statePaths.auditLogPath, `${serializeAuditEvent(event)}\n`, {
-    encoding: 'utf-8',
-    flag: 'a',
-  });
+  try {
+    ensureProjectStateRoot(ctx, store);
+    ctx.fs.writeFileSync(statePaths.auditLogPath, `${serializeAuditEvent(event)}\n`, {
+      encoding: 'utf-8',
+      flag: 'a',
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    // Audit telemetry must never turn an already-committed mutation into an
+    // apparent command failure. Surface the degraded audit state loudly while
+    // preserving the mutation's truthful outcome.
+    ctx.logger.warn(`warning: unable to append Hush audit event: ${reason}`);
+  }
 
   return event;
 }

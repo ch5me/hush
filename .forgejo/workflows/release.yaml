@@ -8,6 +8,10 @@ on:
     branches: [main]
 
 env:
+  NODE_VERSION: "24.14.1"
+  BUN_VERSION: "1.3.14"
+  N_VERSION: "10.2.0"
+  NPM_VERSION: "11.5.1"
   SOPS_SHA256: "775f1384d55decfad228e7196a3f683791914f92a473f78fc47700531c29dfef"
   AGE_SHA256: "2ae71cb3ea761118937a944083f057cfd42f0ef11d197ce72fc2b8780d50c4ef"
   NPM_REGISTRY_URL: "https://npm.ch5.me/"
@@ -18,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Forbid bare `npx hush` in docs
         run: |
@@ -33,7 +37,7 @@ jobs:
       - name: Setup Bun (docs build preview)
         if: forgejo.event_name == 'pull_request'
         run: |
-          curl -fsSL https://bun.sh/install | bash
+          curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
           echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install dependencies (docs build preview)
@@ -48,17 +52,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Node 24
         run: |
-          npm install -g n
-          n 24
+          npm install -g "n@${N_VERSION}"
+          n "${NODE_VERSION}"
           echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
-          curl -fsSL https://bun.sh/install | bash
+          curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
           echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install dependencies
@@ -77,19 +81,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0  # Full history for version calculation
 
       - name: Install Node 24
         run: |
-          npm install -g n
-          n 24
+          npm install -g "n@${N_VERSION}"
+          n "${NODE_VERSION}"
           echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
-          curl -fsSL https://bun.sh/install | bash
+          curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
           echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install sops and age
@@ -117,6 +121,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Audit dependency signatures
+        run: "npx -y npm@${NPM_VERSION} audit signatures"
+
+      - name: Audit dependencies for vulnerabilities
+        run: bun audit
+
       - name: Build CLI
         run: bun run cli:build
 
@@ -127,7 +137,7 @@ jobs:
         run: bun run cli:test
 
   release:
-    needs: ci
+    needs: [docs-lint, cli-smoke, ci]
     if: (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/prerelease-next') && forgejo.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
@@ -139,20 +149,20 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           token: ${{ forgejo.token }}
 
       - name: Setup Bun
         run: |
-          curl -fsSL https://bun.sh/install | bash
+          curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
           echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install Node 24
         run: |
-          npm install -g n
-          n 24
+          npm install -g "n@${N_VERSION}"
+          n "${NODE_VERSION}"
           echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Install sops and age
@@ -195,12 +205,14 @@ jobs:
             RELEASE_CHANNEL="next"
             IS_PRERELEASE="true"
           fi
+          RELEASE_BRANCH="${FORGEJO_REF#refs/heads/}"
 
           echo "release_channel=$RELEASE_CHANNEL" >> $FORGEJO_OUTPUT
           echo "is_prerelease=$IS_PRERELEASE" >> $FORGEJO_OUTPUT
+          echo "release_branch=$RELEASE_BRANCH" >> $FORGEJO_OUTPUT
 
           # Get current package version from CH5 Verdaccio.
-          CURRENT_NPM_VERSION=$(npx -y npm@11.5.1 view @chriscode/hush version --registry="${NPM_REGISTRY_URL}" 2>/dev/null || echo "0.0.0")
+          CURRENT_NPM_VERSION=$(npx -y "npm@${NPM_VERSION}" view "@chriscode/hush@${RELEASE_CHANNEL}" version --registry="${NPM_REGISTRY_URL}" 2>/dev/null || echo "0.0.0")
           echo "current_npm_version=$CURRENT_NPM_VERSION" >> $FORGEJO_OUTPUT
 
           # Get current package.json version
@@ -239,8 +251,9 @@ jobs:
             echo "new_version=$CURRENT_NPM_VERSION" >> $FORGEJO_OUTPUT
             echo "should_release=false" >> $FORGEJO_OUTPUT
           else
-            # Calculate new version
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_NPM_VERSION"
+            # Calculate a stable bump, or advance the current next prerelease.
+            CURRENT_BASE="${CURRENT_NPM_VERSION%%-*}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_BASE"
 
             case "$BUMP" in
               major)
@@ -254,7 +267,10 @@ jobs:
                 ;;
             esac
 
-            if [ "$IS_PRERELEASE" = "true" ]; then
+            if [ "$IS_PRERELEASE" = "true" ] && echo "$CURRENT_NPM_VERSION" | grep -q -- '-next\.[0-9][0-9]*$'; then
+              PRERELEASE_NUMBER="${CURRENT_NPM_VERSION##*-next.}"
+              NEW_VERSION="${CURRENT_BASE}-next.$((PRERELEASE_NUMBER + 1))"
+            elif [ "$IS_PRERELEASE" = "true" ]; then
               NEW_VERSION="$BASE_VERSION-next.0"
             else
               NEW_VERSION="$BASE_VERSION"
@@ -271,7 +287,7 @@ jobs:
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
 
           # Check if this version exists in CH5 Verdaccio.
-          if npx -y npm@11.5.1 view "@chriscode/hush@$NEW_VERSION" version --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
+          if npx -y "npm@${NPM_VERSION}" view "@chriscode/hush@$NEW_VERSION" version --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
             echo "Version $NEW_VERSION already published, skipping"
             echo "already_published=true" >> $FORGEJO_OUTPUT
           else
@@ -295,7 +311,7 @@ jobs:
           printf '%s\n' "@chriscode:registry=${NPM_REGISTRY_URL}" >> "$HOME/.npmrc"
           printf '%s\n' "registry=${NPM_REGISTRY_URL}" >> "$HOME/.npmrc"
 
-          if ! npx -y npm@11.5.1 whoami --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
+          if ! npx -y "npm@${NPM_VERSION}" whoami --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
             echo "::warning::NPM_TOKEN is not accepted by CH5 Verdaccio; skipping @chriscode/hush publish."
             echo "can_publish=false" >> "$FORGEJO_OUTPUT"
             exit 0
@@ -314,7 +330,7 @@ jobs:
           else
             cd hush-cli
             # Use npm pkg set instead of npm version to avoid git hooks/issues
-            npx -y npm@11.5.1 pkg set version="$NEW_VERSION"
+            npx -y "npm@${NPM_VERSION}" pkg set version="$NEW_VERSION"
             echo "Updated package.json to version $NEW_VERSION"
           fi
 
@@ -324,9 +340,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
-            npx -y npm@11.5.1 publish --registry="${NPM_REGISTRY_URL}" --tag "${{ steps.version.outputs.release_channel }}" --access public
+            npx -y "npm@${NPM_VERSION}" publish --registry="${NPM_REGISTRY_URL}" --tag "${{ steps.version.outputs.release_channel }}" --access public
           else
-            npx -y npm@11.5.1 publish --registry="${NPM_REGISTRY_URL}" --access public
+            npx -y "npm@${NPM_VERSION}" publish --registry="${NPM_REGISTRY_URL}" --access public
           fi
         working-directory: hush-cli
 
@@ -347,7 +363,7 @@ jobs:
           git tag "$TAG" || echo "Tag already exists"
 
           # Push commit and tag separately to ensure tag is pushed
-          git push origin main || echo "No commits to push"
+          git push origin "HEAD:${{ steps.version.outputs.release_branch }}"
           git push origin "$TAG"
 
           echo "Created and pushed tag $TAG"
@@ -374,12 +390,12 @@ jobs:
             PRERELEASE=true
           fi
 
-          TAG="$TAG" NOTES="$NOTES" PRERELEASE="$PRERELEASE" node <<'NODE'
+          TAG="$TAG" NOTES="$NOTES" PRERELEASE="$PRERELEASE" RELEASE_BRANCH="${{ steps.version.outputs.release_branch }}" node <<'NODE'
           const fs = require('node:fs');
 
           fs.writeFileSync('/tmp/forgejo-release.json', JSON.stringify({
             tag_name: process.env.TAG,
-            target_commitish: 'main',
+            target_commitish: process.env.RELEASE_BRANCH,
             name: process.env.TAG,
             body: process.env.NOTES || '- Initial release',
             draft: false,
@@ -402,17 +418,19 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: v${{ needs.release.outputs.new_version }}
 
       - name: Install Node 24
         run: |
-          npm install -g n
-          n 24
+          npm install -g "n@${N_VERSION}"
+          n "${NODE_VERSION}"
           echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
-          curl -fsSL https://bun.sh/install | bash
+          curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
           echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install dependencies
@@ -472,17 +490,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Node 24
         run: |
-          npm install -g n
-          n 24
+          npm install -g "n@${N_VERSION}"
+          n "${NODE_VERSION}"
           echo "/usr/local/bin" >> $FORGEJO_PATH
 
       - name: Setup Bun
         run: |
-          curl -fsSL https://bun.sh/install | bash
+          curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
           echo "$HOME/.bun/bin" >> $FORGEJO_PATH
 
       - name: Install sops and age
