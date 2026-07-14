@@ -1,0 +1,17 @@
+schemaVersion = 1
+
+[repo]
+id = "hush"
+kind = "node-app"
+packageManager = "bun"
+lockfiles = ["bun.lock", "package.json"]
+
+[[verify]]
+name = "repository structure: package.json"
+command = "test -f package.json"
+
+[deps]
+install = "bun install --frozen-lockfile"
+
+[warm]
+command = "bun install --frozen-lockfile"

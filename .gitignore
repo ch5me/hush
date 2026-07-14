@@ -28,3 +28,4 @@ docs/.astro/
 hush-cli/coverage/
 .turbo/
 .hush-materialized/
+.ch5/state/
