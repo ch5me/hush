@@ -1,0 +1,17 @@
+version: 2
+proofs:
+  - id: local-launcher
+    kind: integration
+    stages: [dev]
+    run:
+      shell: bun run cli:build && bun run cli:verify-local-install
+    evidence:
+      path: hush-cli/dist/cli.js
+      maxAgeHours: 24
+    triggers:
+      - paths:
+          - scripts/install-local.mjs
+          - hush-cli/scripts/verify-local-install.mjs
+          - hush-cli/bin/hush.js
+          - package.json
+          - .ch5/proof.yaml

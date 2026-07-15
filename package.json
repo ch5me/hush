@@ -2,6 +2,7 @@
   "name": "hush-monorepo",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "repository": {
     "type": "git",
     "url": "git+https://git.ch5.me/ch5/hush.git"
@@ -19,6 +20,8 @@
     "cli:build": "bun run --filter @chriscode/hush build",
     "cli:test": "bun run --filter @chriscode/hush test",
     "cli:test:coverage": "cd hush-cli && bun x vitest run --coverage",
+    "cli:install-local": "node scripts/install-local.mjs",
+    "cli:verify-local-install": "node hush-cli/scripts/verify-local-install.mjs",
     "docs:dev": "cd docs && bun x astro dev",
     "docs:build": "cd docs && bun x astro build",
     "docs:preview": "cd docs && bun x astro preview",
