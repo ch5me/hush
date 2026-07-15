@@ -13,6 +13,8 @@ cli:build`, then stage complete runtime files under the managed runtime root.
 The generated `~/.local/bin/hush` launcher pins the actual Node executable and
 staged entrypoint. It must not invoke Bun or a mutable `~/src/ch5/hush`
 checkout. `node scripts/install-local.mjs --check` fails on launcher drift.
+Installer accepts only complete staged entrypoint/build pairs and retains active
+plus one previous revision.
 
 ## Entry Point (`hush-cli/src/commands/run.ts`)
 

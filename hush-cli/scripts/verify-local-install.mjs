@@ -1,14 +1,18 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
+import { assertNode24 } from "../../scripts/install-local-helpers.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const binDir = mkdtempSync(join(tmpdir(), "hush-local-install-"));
 const installer = join(root, "scripts", "install-local.mjs");
-const runtimeRoot = join(binDir, "runtime");
+const runtimeBase = join(binDir, "runtimes");
+const runtimeRoot = join(runtimeBase, "c".repeat(40));
+const oldRuntime = join(runtimeBase, "a".repeat(40));
+const retainedRuntime = join(runtimeBase, "b".repeat(40));
 const env = {
   ...process.env,
   HUSH_INSTALL_BIN_DIR: binDir,
@@ -17,6 +21,13 @@ const env = {
 };
 
 try {
+  mkdirSync(oldRuntime, { recursive: true });
+  mkdirSync(retainedRuntime, { recursive: true });
+  utimesSync(oldRuntime, 1, 1);
+  utimesSync(retainedRuntime, 2, 2);
+  assert.throws(() => assertNode24("23.11.0"), /requires Node 24/);
+  assert.doesNotThrow(() => assertNode24(process.version));
+
   const install = spawnSync(process.execPath, [installer], { cwd: root, env, encoding: "utf8" });
   assert.equal(install.status, 0, install.stderr);
 
@@ -27,6 +38,9 @@ try {
   assert.match(launcher, new RegExp(`${join(runtimeRoot, "hush-cli", "bin", "hush.js").replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.doesNotMatch(launcher, /\/src\/ch5\/hush(?:\/|$)/);
   assert.doesNotMatch(launcher, /\bbun\b/);
+  assert.ok(readFileSync(join(runtimeRoot, "hush-cli", "dist", "cli.js"), "utf8").length > 0);
+  assert.equal(existsSync(oldRuntime), false);
+  assert.equal(existsSync(retainedRuntime), true);
 
   const version = spawnSync(launcherPath, ["--version"], { cwd: root, env, encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);

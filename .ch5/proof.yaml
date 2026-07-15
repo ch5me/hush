@@ -11,6 +11,7 @@ proofs:
     triggers:
       - paths:
           - scripts/install-local.mjs
+          - scripts/install-local-helpers.mjs
           - hush-cli/scripts/verify-local-install.mjs
           - hush-cli/bin/hush.js
           - hush-cli/package.json
