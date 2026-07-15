@@ -28,6 +28,13 @@ try {
   assert.throws(() => assertNode24("23.11.0"), /requires Node 24/);
   assert.doesNotThrow(() => assertNode24(process.version));
 
+  mkdirSync(join(runtimeRoot, "hush-cli", "bin"), { recursive: true });
+  writeFileSync(join(runtimeRoot, "hush-cli", "bin", "hush.js"), "");
+  const incomplete = spawnSync(process.execPath, [installer], { cwd: root, env, encoding: "utf8" });
+  assert.notEqual(incomplete.status, 0);
+  assert.match(incomplete.stderr, /Hush runtime incomplete/);
+  rmSync(runtimeRoot, { recursive: true, force: true });
+
   const install = spawnSync(process.execPath, [installer], { cwd: root, env, encoding: "utf8" });
   assert.equal(install.status, 0, install.stderr);
 
