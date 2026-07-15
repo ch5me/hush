@@ -1,7 +1,7 @@
 version: 2
 proofs:
   - id: local-launcher
-    kind: integration
+    kind: behavioral
     stages: [dev]
     run:
       shell: bun run cli:build && bun run cli:verify-local-install
@@ -13,5 +13,7 @@ proofs:
           - scripts/install-local.mjs
           - hush-cli/scripts/verify-local-install.mjs
           - hush-cli/bin/hush.js
+          - hush-cli/package.json
           - package.json
+          - .mise.toml
           - .ch5/proof.yaml

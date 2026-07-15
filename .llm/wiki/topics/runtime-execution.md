@@ -8,11 +8,11 @@
 
 ## CH5 Local Launcher
 
-Fleet installs use `node scripts/install-local.mjs` from the managed Hush clone
-after `bun run cli:build`. The generated `~/.local/bin/hush` launcher pins the
-actual Node executable and managed entrypoint. It must not invoke Bun or a
-mutable `~/src/ch5/hush` checkout. `node scripts/install-local.mjs --check`
-fails on launcher drift.
+Fleet installs build with Node 24 from the managed Hush clone after `bun run
+cli:build`, then stage complete runtime files under the managed runtime root.
+The generated `~/.local/bin/hush` launcher pins the actual Node executable and
+staged entrypoint. It must not invoke Bun or a mutable `~/src/ch5/hush`
+checkout. `node scripts/install-local.mjs --check` fails on launcher drift.
 
 ## Entry Point (`hush-cli/src/commands/run.ts`)
 
