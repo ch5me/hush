@@ -24,7 +24,13 @@
     "docs:preview": "cd docs && bun x astro preview",
     "docs:deploy": "cd docs && bun x astro build && bun run deploy",
     "changelog": "./scripts/changelog.sh",
-    "release": "./scripts/release.sh"
+    "release": "./scripts/release.sh",
+    "svc:ensure": "devmux ensure docs",
+    "svc:status": "devmux status --json",
+    "svc:stop": "devmux stop all"
+  },
+  "devDependencies": {
+    "@chriscode/devmux": "^1.11.1"
   },
   "engines": {
     "node": ">=24 <25"
