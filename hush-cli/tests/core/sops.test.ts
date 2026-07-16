@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname } from 'node:path';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { decrypt, decryptYaml, encrypt, encryptYamlContent, resolveAgeKeySource, setKey, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
+import { decrypt, decryptYaml, encrypt, encryptYamlContent, isSopsInstalled, resolveAgeKeySource, setKey, SopsPreflightTimeoutError, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
 import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsConfig, ensureTestSopsEnv } from '../helpers/sops-test.js';
 
 describe('sops helpers', () => {
@@ -283,5 +283,68 @@ describe('sops helpers', () => {
     const decrypted = decrypt(encryptedPath, { root: storeDir, keyIdentity: 'hush-global' });
     expect(decrypted).toContain('EXISTING=1');
     expect(decrypted).toContain('API_KEY=secret-value');
+  });
+});
+
+describe('isSopsInstalled preflight (no indefinite network hang)', () => {
+  let fakeBinDir: string;
+  let originalPath: string | undefined;
+  let originalDisableCheck: string | undefined;
+
+  beforeEach(() => {
+    fakeBinDir = mkdtempSync(join(tmpdir(), 'hush-fake-sops-'));
+    originalPath = process.env.PATH;
+    originalDisableCheck = process.env.SOPS_DISABLE_VERSION_CHECK;
+    process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ''}`;
+  });
+
+  afterEach(() => {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalDisableCheck === undefined) delete process.env.SOPS_DISABLE_VERSION_CHECK;
+    else process.env.SOPS_DISABLE_VERSION_CHECK = originalDisableCheck;
+    rmSync(fakeBinDir, { recursive: true, force: true });
+  });
+
+  function installFakeSops(body: string): void {
+    const path = join(fakeBinDir, 'sops');
+    writeFileSync(path, `#!/bin/sh\n${body}\n`, 'utf-8');
+    chmodSync(path, 0o755);
+  }
+
+  it('fails loud with a typed, network-naming error instead of hanging forever when the preflight stalls', () => {
+    // Emulates stock sops phoning github.com on a filtered network where the
+    // TLS handshake never completes: `sops --version` blocks indefinitely.
+    installFakeSops('sleep 30');
+
+    const start = Date.now();
+    let thrown: unknown;
+    try {
+      isSopsInstalled();
+    } catch (error) {
+      thrown = error;
+    }
+    const elapsedMs = Date.now() - start;
+
+    expect(thrown).toBeInstanceOf(SopsPreflightTimeoutError);
+    expect((thrown as SopsPreflightTimeoutError).code).toBe('SOPS_PREFLIGHT_TIMEOUT');
+    expect((thrown as Error).message).toMatch(/github\.com/);
+    // Bounded, not a 30s hang.
+    expect(elapsedMs).toBeLessThan(10_000);
+  }, 15_000);
+
+  it('injects SOPS_DISABLE_VERSION_CHECK=1 into every sops invocation, even when absent from the ambient env', () => {
+    delete process.env.SOPS_DISABLE_VERSION_CHECK;
+    const witness = join(fakeBinDir, 'seen-disable-check');
+    installFakeSops(`printf '%s' "$SOPS_DISABLE_VERSION_CHECK" > '${witness}'\nexit 0`);
+
+    expect(isSopsInstalled()).toBe(true);
+    expect(readFileSync(witness, 'utf-8')).toBe('1');
+  });
+
+  it('reports sops as not installed (without throwing) when the binary is genuinely missing', () => {
+    // Empty fake bin dir on PATH + a PATH that cannot resolve `sops` → ENOENT.
+    process.env.PATH = fakeBinDir;
+    expect(isSopsInstalled()).toBe(false);
   });
 });

@@ -191,16 +191,30 @@ function getAgeKeyFile(options?: SopsOptions): string | undefined {
   return resolveAgeKeySource(options).selectedKeyPath;
 }
 
+// sops runs its own "am I the latest release?" check that phones github.com.
+// On a filtered/captive network (TCP 443 connects but the TLS handshake never
+// completes) that check hangs FOREVER, wedging every hush operation that shells
+// out to sops. SOPS_DISABLE_VERSION_CHECK=1 is honored by sops upstream and
+// disables it. Inject it on EVERY sops invocation (not just the version
+// preflight); respect a caller-provided value if present.
+function baseSopsEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    SOPS_DISABLE_VERSION_CHECK: process.env.SOPS_DISABLE_VERSION_CHECK ?? '1',
+  };
+}
+
 function getSopsEnv(options?: SopsOptions): NodeJS.ProcessEnv {
-  if (process.env.SOPS_AGE_KEY_FILE || process.env.SOPS_AGE_KEY_CMD || process.env.SOPS_AGE_KEY) {
-    return process.env;
+  const env = baseSopsEnv();
+  if (env.SOPS_AGE_KEY_FILE || env.SOPS_AGE_KEY_CMD || env.SOPS_AGE_KEY) {
+    return env;
   }
 
   const ageKeyFile = getAgeKeyFile(options);
   if (ageKeyFile) {
-    return { ...process.env, SOPS_AGE_KEY_FILE: ageKeyFile };
+    return { ...env, SOPS_AGE_KEY_FILE: ageKeyFile };
   }
-  return process.env;
+  return env;
 }
 
 function buildDecryptionFailureMessage(errorOutput: string, resolution: ResolvedAgeKeySource): string {
@@ -243,13 +257,50 @@ function buildDecryptionFailureMessage(errorOutput: string, resolution: Resolved
   return lines.join('\n');
 }
 
+// The `sops --version` preflight must never block a hush caller indefinitely.
+// baseSopsEnv() already disables sops' network version check, but bound the call
+// anyway as defense-in-depth against any other external stall.
+const SOPS_PREFLIGHT_TIMEOUT_MS = 2000;
+
+/**
+ * Thrown when the `sops --version` preflight does not return within
+ * SOPS_PREFLIGHT_TIMEOUT_MS. The usual cause is sops blocking on a network call
+ * (its GitHub release check) behind a captive portal or filtered TLS to
+ * github.com, where TCP connects but the handshake never completes. Fail loud
+ * naming the cause instead of hanging forever or masquerading as "not installed".
+ */
+export class SopsPreflightTimeoutError extends Error {
+  readonly code = 'SOPS_PREFLIGHT_TIMEOUT';
+
+  constructor(readonly timeoutMs: number) {
+    super(
+      `sops preflight ("sops --version") did not return within ${timeoutMs}ms. ` +
+        'This usually means sops is blocked on a network call (its GitHub update ' +
+        'check) behind a captive portal or filtered TLS to github.com. hush sets ' +
+        'SOPS_DISABLE_VERSION_CHECK=1 to prevent this; if it persists, check network ' +
+        'egress or reinstall/upgrade sops.'
+    );
+    this.name = 'SopsPreflightTimeoutError';
+  }
+}
+
 export function isSopsInstalled(): boolean {
-  try {
-    const result = spawnSync('sops', ['--version'], { stdio: 'ignore' });
-    return result.status === 0;
-  } catch {
+  const result = spawnSync('sops', ['--version'], {
+    stdio: 'ignore',
+    timeout: SOPS_PREFLIGHT_TIMEOUT_MS,
+    env: baseSopsEnv(),
+  });
+
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
+    throw new SopsPreflightTimeoutError(SOPS_PREFLIGHT_TIMEOUT_MS);
+  }
+
+  // Any other spawn error (ENOENT, EACCES, ...) means sops is genuinely not runnable.
+  if (result.error) {
     return false;
   }
+
+  return result.status === 0;
 }
 
 export function isAgeKeyConfigured(): boolean {
