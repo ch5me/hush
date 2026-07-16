@@ -5,7 +5,7 @@
     "": {
       "name": "hush-monorepo",
       "devDependencies": {
-        "@chriscode/devmux": "1.15.4",
+        "@chriscode/devmux": "1.15.6",
       },
     },
     "docs": {
@@ -115,7 +115,7 @@
 
     "@capsizecss/unpack": ["@capsizecss/unpack@4.0.0", "", { "dependencies": { "fontkitten": "^1.0.0" } }, "sha512-VERIM64vtTP1C4mxQ5thVT9fK0apjPFobqybMtA1UdUujWka24ERHbRHFGmpbbhp73MhV+KSsHQH9C6uOTdEQA=="],
 
-    "@chriscode/devmux": ["@chriscode/devmux@1.15.4", "https://npm.ch5.me/@chriscode/devmux/-/devmux-1.15.4.tgz", { "dependencies": { "citty": "^0.1.6", "execa": "^9.6.1", "fkill": "^10.0.3", "pid-port": "^2.0.1", "ps-list": "^9.0.0" }, "bin": { "devmux": "bin/devmux.js" } }, "sha512-aNrSpWmU9iyi+GiyIY2ATsZH43gXi5ckK1EM3wW9iklRlLweAP7QTXaxMYklPx99MC3/mM3z8p0xgiyEV7aoUQ=="],
+    "@chriscode/devmux": ["@chriscode/devmux@1.15.6", "https://npm.ch5.me/@chriscode/devmux/-/devmux-1.15.6.tgz", { "dependencies": { "citty": "^0.1.6", "execa": "^9.6.1", "fkill": "^10.0.3", "pid-port": "^2.0.1", "ps-list": "^9.0.0" }, "bin": { "devmux": "bin/devmux.js" } }, "sha512-/bLhumJ2MOLqJOEqTXiqLnDDYRYA6NvoW/zItpLZCzUe6azpes1votIK/PPEijjcBEuFHdg/bvR/xRkFIjUTgA=="],
 
     "@chriscode/hush": ["@chriscode/hush@workspace:hush-cli"],
 
