@@ -10,6 +10,17 @@ lockfiles = ["bun.lock", "package.json"]
 name = "repository structure: package.json"
 command = "test -f package.json"
 
+# The committed .npmrc resolves //npm.ch5.me/:_authToken from ${NPM_TOKEN}. repo-doctor
+# injects secrets per phase (hushRowsForPhase), so without this row the install phase runs
+# unauthenticated and only appears to work while a machine-global ~/.npmrc token or a warm
+# package-manager cache masks it. "install" is the literal phase string repo-doctor passes
+# for deps/warm/heal installs; any other label matches nothing.
+[[hushTarget]]
+root = "global"
+target = "root"
+exports = ["NPM_TOKEN"]
+requiredFor = ["install"]
+
 [deps]
 install = "bun install --frozen-lockfile"
 
