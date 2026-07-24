@@ -3,7 +3,26 @@
 Date: 2026-06-23
 Reporter context: Folio Forgejo deploy migration in `/Users/hassoncs/src/ch5/folio-db`
 Observed Hush version: `7.3.0`
-Status: fixed in `7.5.0`
+Status: fixed in `7.5.0` — see the follow-up note below
+
+## Follow-up (2026-07-24)
+
+The `7.5.0` fix (`609b78d`, "prefer explicit hush file paths") correctly handled
+repository-scoped files, but it shipped **without a read-back assertion**: its regression tests
+checked only that bytes reached the encrypted file on disk, never that the value resolved through
+`hush get` / target resolution afterwards.
+
+That gap let a sibling failure in the *machine-local* write path
+(`env/project/local`) survive undetected and be reported a month later as
+[`2026-07-24-hush-set-file-local-silent-noop.md`](./2026-07-24-hush-set-file-local-silent-noop.md).
+Root cause there: `loadMachineLocalOverrides()` returned `null` for global stores while
+`writeMachineLocalOverrides()` persisted in every mode, so the write landed somewhere no reader
+ever looked.
+
+Both reports are now closed. The durable fix is in `hush set` itself: it re-reads every write from
+durable storage through the same reader the runtime uses and **refuses to print a success line it
+cannot prove**. The "Required Fix" item below about never falling back silently is therefore now
+backed by a runtime guarantee, not only by destination-resolution logic.
 
 ## Summary
 

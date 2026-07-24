@@ -6,6 +6,8 @@ import { ensureGlobalStoreBootstrap } from '../global-store.js';
 import {
   DEFAULT_V3_FILE_PATHS,
   FILE_KEYS,
+  assertEditableValuePersisted,
+  describeUnresolvedWrite,
   isFileKey,
   loadEditableDestination,
   loadMachineLocalOverrides,
@@ -407,6 +409,18 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       writeEditableFileDocument(ctx, store, repository, editable.systemPath, nextDocument);
     }
 
+    // Fail loud: never report success without proving the value reads back from
+    // durable storage through the same reader the runtime uses. Throws on
+    // missing/mismatched values, which the catch block below audits as a failed
+    // write before rethrowing.
+    assertEditableValuePersisted(
+      ctx,
+      store,
+      { filePath: editable.filePath, scope: editable.scope },
+      key,
+      value,
+    );
+
     appendAuditEvent(ctx, store, {
       type: 'write',
       activeIdentity,
@@ -422,6 +436,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       },
     });
 
+    const unresolvedWarning = describeUnresolvedWrite(ctx, store, key, editable.filePath);
     const scopeLabel = getScopeLabel(destination.fileKey, editable.scope);
     const payload = {
       action: 'set',
@@ -430,9 +445,14 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       requestedScope: { file: file ?? (repoLocal ? 'repo-local' : 'shared') },
       resolvedScope: { file: editable.filePath, scope: editable.scope },
       chars: value.length,
+      ...(unresolvedWarning ? { resolutionWarning: unresolvedWarning } : {}),
     };
-    if (json) writeJsonSuccess(ctx, 'set', payload);
-    else ctx.logger.log(pc.green(`\n${key} set in ${editable.filePath} (${scopeLabel}, ${value.length} chars)`));
+    if (json) {
+      writeJsonSuccess(ctx, 'set', payload);
+    } else {
+      if (unresolvedWarning) ctx.logger.warn(pc.yellow(`warning: ${unresolvedWarning}`));
+      ctx.logger.log(pc.green(`\n${key} set in ${editable.filePath} (${scopeLabel}, ${value.length} chars)`));
+    }
   } catch (error) {
     const err = error as Error;
     if (err.message === 'Cancelled') {

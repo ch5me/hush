@@ -452,11 +452,16 @@ export function getMachineLocalOverridePath(store: StoreContext): string {
   return join(statePaths.projectRoot, 'user', LOCAL_OVERRIDE_FILENAME);
 }
 
+/**
+ * Read the machine-local override document for this store.
+ *
+ * MUST stay symmetric with `writeMachineLocalOverrides`: the writer persists
+ * for every store mode, so the reader must look in every store mode too. An
+ * earlier `store.mode === 'global'` early-return here made `hush set --global
+ * --repo-local` a silent no-op — the write landed on disk and no read path
+ * ever looked at it.
+ */
 export function loadMachineLocalOverrides(ctx: HushContext, store: StoreContext): HushFileDocument | null {
-  if (store.mode === 'global') {
-    return null;
-  }
-
   const overridePath = getMachineLocalOverridePath(store);
   if (!ctx.fs.existsSync(overridePath)) {
     return null;
@@ -547,6 +552,119 @@ export function writeEditableFileDocument(
   document: HushFileDocument,
 ): void {
   persistV3FileDocument(ctx, store, repository, systemPath, document);
+}
+
+export interface EditableWriteTarget {
+  filePath: string;
+  scope: 'repository' | 'machine-local';
+}
+
+/**
+ * Re-read a just-written logical path from durable storage, using the SAME
+ * reader the runtime resolution path uses for that scope.
+ *
+ * Machine-local writes are read back through `loadMachineLocalOverrides` and
+ * repository writes through a freshly loaded repository (never the caller's
+ * in-memory repository, whose file cache would happily echo a document that
+ * was never persisted). Returns `undefined` when the value is not readable.
+ */
+export function readBackEditableValue(
+  ctx: HushContext,
+  store: StoreContext,
+  target: EditableWriteTarget,
+  key: string,
+): string | undefined {
+  const document = target.scope === 'machine-local'
+    ? loadMachineLocalOverrides(ctx, store)
+    : loadV3Repository(store.root, { keyIdentity: store.keyIdentity }).loadFile(target.filePath);
+
+  if (!document) {
+    return undefined;
+  }
+
+  const entry = document.entries[envVarKeyToLogicalPath(target.filePath, key)];
+  if (!entry || 'type' in entry || typeof entry.value !== 'string') {
+    return undefined;
+  }
+
+  return entry.value;
+}
+
+/**
+ * Fail-loud write verification. A secrets tool that prints success without
+ * proving the value is readable is worse than one that errors, so every `set`
+ * write is confirmed against durable storage before any success line is
+ * emitted. Never includes the secret value in the error message.
+ */
+export function assertEditableValuePersisted(
+  ctx: HushContext,
+  store: StoreContext,
+  target: EditableWriteTarget,
+  key: string,
+  expectedValue: string,
+): void {
+  let persisted: string | undefined;
+
+  try {
+    persisted = readBackEditableValue(ctx, store, target, key);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Write verification failed for ${key} in ${target.filePath} (${target.scope}): `
+      + `the value could not be read back after writing (${message}). Nothing was reported as saved.`,
+    );
+  }
+
+  if (persisted === undefined) {
+    throw new Error(
+      `Write verification failed for ${key} in ${target.filePath} (${target.scope}): `
+      + 'the value is missing when read back from durable storage. '
+      + 'The write did not persist; do not treat this secret as saved.',
+    );
+  }
+
+  if (persisted !== expectedValue) {
+    throw new Error(
+      `Write verification failed for ${key} in ${target.filePath} (${target.scope}): `
+      + 'the value read back from durable storage does not match the value written. '
+      + 'Do not treat this secret as saved.',
+    );
+  }
+}
+
+/**
+ * Second-order check after a verified write: the value is durably stored, but
+ * does the runtime target actually select the file it landed in?
+ *
+ * This is a warning rather than an error because writing into a file the
+ * current target does not resolve is legitimate (stage-split production and
+ * staging files are written from a development checkout all the time). It
+ * exists so the common misconfiguration — a declared file that no bundle
+ * includes — stops looking like a fully successful write.
+ *
+ * Returns `undefined` when the value resolves, or when resolution cannot be
+ * determined at all; never throws.
+ */
+export function describeUnresolvedWrite(
+  ctx: HushContext,
+  store: StoreContext,
+  key: string,
+  filePath: string,
+): string | undefined {
+  try {
+    const view = resolveTargetEnvView(ctx, store, undefined, { name: 'set', args: [key] });
+    if (view.envVars.some((variable) => variable.key === key)) {
+      return undefined;
+    }
+
+    return `${key} is stored in ${filePath}, but target "${view.targetName}" does not resolve that file, `
+      + `so "hush get ${key}" will not return it here. `
+      + `Add ${filePath} to that target's bundle, or run "hush trace ${key}" to see which targets select it.`;
+  } catch {
+    // Resolution is unavailable (no runtime target, ambiguous target, unreadable
+    // file). The write itself is already verified, so stay quiet.
+    return undefined;
+  }
 }
 
 export function openEditor(ctx: HushContext, systemPath: string, editorOverride?: string): void {

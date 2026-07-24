@@ -414,6 +414,8 @@ hush set DEBUG --local
 
 \`hush set\` accepts exactly one destination selector. Use \`--file <namespaced-path>\`, \`--repo-local\`/\`--local\`, or \`--env <development|production>\`. It intentionally rejects \`--target\`; inspect target precedence with \`hush resolve <target>\`, then choose the destination file explicitly.
 
+\`hush set\` verifies every write by reading the value back from durable storage before reporting success, and fails loudly ("Write verification failed for ...") if it did not persist. Treat that error as "the secret is NOT saved". If the write persists but the active target does not resolve the destination file, \`hush set\` still succeeds and warns that \`hush get\` will not return the key there — run \`hush trace <KEY>\` to see which targets select it.
+
 ### hush import add
 
 Bind a bundle or file from another Hush repository. Hush persists the absolute source root inside the encrypted manifest; commands that resolve the import require the source repository's age key to be available locally.

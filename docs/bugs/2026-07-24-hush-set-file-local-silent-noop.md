@@ -3,7 +3,7 @@
 Date: 2026-07-24
 Reporter context: Cloudflare Vectorize migration in `/Users/hassoncs/src/ch5/firefly-cloud`
 Observed Hush version: `7.5.0`
-Status: open
+Status: **fixed** — landed on `main` after `7.7.0` (see [Root Cause](#root-cause-proven) and [Fixes](#fixes-applied))
 
 Related: [`2026-06-23-hush-set-file-ignored.md`](./2026-06-23-hush-set-file-ignored.md) — same command
 family, same silent-success failure mode, previously fixed in `7.5.0` for repository-scoped files.
@@ -95,16 +95,99 @@ obvious place for a write/read mismatch:
 Any of these produces the same operator-visible symptom, so the fix must be confirmed by read-back,
 not by inspection.
 
-## Required Fix
+## Root Cause (proven)
 
-- Make `hush set --file env/project/local` actually persist, or fail loud with a typed error.
-- Never print a success line for a write that was not proven durable — read back the key after the
-  write and fail if it does not resolve.
-- Add regression coverage for both value forms against `env/project/local`:
-  - `hush set --file env/project/local KEY value`
-  - `printf value | hush set --file env/project/local KEY`
-  - each asserting a subsequent `hush get KEY` returns the value.
-- Add coverage asserting write and read agree on the machine-local override path across store modes
-  (project vs global) rather than silently diverging.
-- Audit every other command that writes to a machine-local destination for the same
-  success-without-persistence gap.
+**A reader/writer asymmetry in the machine-local override store.** Lead 3 above was correct; the
+others were not the cause.
+
+`env/project/local` is not a repository file — it is backed by the machine-local override document
+under the project state root. Two functions in `hush-cli/src/commands/v3-command-helpers.ts` owned
+that store and disagreed about it:
+
+- `writeMachineLocalOverrides()` persisted for **every** store mode.
+- `loadMachineLocalOverrides()` began with `if (store.mode === 'global') return null;`.
+
+That early return dates back to the original v3 migration (`49bef1d`). Every read path — including
+`resolveTargetEnvView()`, the only place local overrides merge into resolution — goes through
+`loadMachineLocalOverrides()`. So under a global store the write landed on disk and **no read path
+ever looked at it**. `hush set --global --repo-local KEY value` (equivalently
+`--global --file env/project/local`) was an unconditional silent no-op: no topology precondition and
+no misconfiguration required.
+
+### Leads tested and discarded
+
+- *`getMachineLocalOverridePath()` resolves a different project root at write vs read time.*
+  **Discarded.** `resolveStoreContext()` pins `projectStateRoot` into the `StoreContext` at
+  resolution time, and the project slug is derived deterministically from `keyIdentity`. Writer and
+  reader always agree on the path.
+- *The `editable.scope === 'machine-local'` branch in `set.ts` is itself the bug.* **Discarded.** The
+  branch routes to the correct store. The defect was that the reader refused to read what that store
+  had persisted.
+- *A read path bypasses `resolveTargetEnvView()`.* **Discarded.** All runtime reads go through it.
+- *A declared `env/project/local` repository file shadows the alias.* **Real, but intended behavior.**
+  `609b78d` ("prefer explicit hush file paths", the June fix) deliberately makes a declared
+  repository file win over the alias, with test coverage. When such a file is declared *and* included
+  in the target's bundle, the value resolves correctly. When it is declared but no bundle includes it,
+  the value persists but does not resolve — a topology error rather than a routing bug. It is now
+  surfaced by an explicit warning instead of a clean success line.
+
+## Fixes Applied
+
+All in `hush-cli/src/commands/`:
+
+1. **Reader/writer symmetry (`v3-command-helpers.ts`).** Removed the `store.mode === 'global'` early
+   return from `loadMachineLocalOverrides()`. The reader now looks wherever the writer writes, in
+   every store mode. This is the root-cause fix.
+
+2. **Fail-loud write verification (`v3-command-helpers.ts` + `set.ts`) — the durable fix.** New
+   `readBackEditableValue()` and `assertEditableValuePersisted()`. After every `set` write, the value
+   is re-read from durable storage through the **same reader the runtime resolution path uses** for
+   that scope: `loadMachineLocalOverrides()` for machine-local, and a **freshly loaded** repository
+   for repository files (the caller's in-memory repository has a file cache that would otherwise echo
+   a document that was never persisted). If the value is missing or mismatched, `set` throws, audits a
+   failed write, and prints no success line. Error messages never contain the secret value.
+
+   This is the guarantee that keeps the bug class from recurring: even if a future write path breaks,
+   `set` fails loudly instead of lying.
+
+3. **Unresolved-write warning (`v3-command-helpers.ts` + `set.ts`).** New `describeUnresolvedWrite()`.
+   When a write persists but the active target's bundle does not select the destination file, `set`
+   still succeeds and warns that `hush get` will not return the key there, pointing at
+   `hush trace <KEY>`. Non-fatal by design — writing into a file the current target does not resolve
+   is a normal stage-split workflow. Also emitted as `resolutionWarning` in `--json` output.
+
+## Regression Coverage
+
+`hush-cli/tests/set-local-write-verification.test.ts` — 9 tests. Six fail against the pre-fix source;
+the baseline round-trip cases correctly passed both before and after.
+
+- `set --file env/project/local resolves back through the runtime target view`
+- `piped stdin value to --file env/project/local resolves back through the runtime target view`
+- `set --file local (alias form) resolves back through the runtime target view`
+- `set --repo-local resolves back in global store mode` *(the root-cause regression)*
+- `warns instead of reporting a clean success when the written file is not selected by the target`
+- `does not warn when the written file is selected by the target`
+- `fails loud instead of reporting success when a machine-local write does not persist`
+- `fails loud instead of reporting success when a repository write does not persist`
+- `never includes the secret value in a write-verification error`
+
+Read-back assertions go through `hasCommand` → `resolveTargetEnvView`, i.e. the same path a later
+`hush get` uses — not merely a check that bytes reached the disk. That is exactly what the June fix's
+coverage lacked, which is how this regressed.
+
+## Machine-Local Writer Audit
+
+Requested by the original report. `set` and `edit` are the only commands that write to the
+machine-local override store (both via `ensureEditableFileDocument()` / `writeMachineLocalOverrides()`).
+
+- `set` — fixed by all three changes above.
+- `edit` — was subject to the same global-mode invisibility and is fixed by change 1. It validates the
+  edited document before re-encrypting and does not assert that a specific key persisted, so the
+  per-key read-back guard does not apply to it.
+- `copy-key` / `move-key` / `delete-key` — repository files only; they never touch the machine-local
+  store, so they are not exposed to this defect.
+
+## Verification
+
+- `bun run type-check` — clean, with no `as any`, `@ts-ignore`, or `@ts-expect-error`.
+- Full CLI suite: 45 files, 452 tests, all passing.

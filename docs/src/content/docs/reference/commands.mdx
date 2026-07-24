@@ -269,9 +269,32 @@ hush set API_KEY "value" --global
 3. Shows planned destination before writing (e.g., `will write DATABASE_URL -> env/project/local`)
 4. Updates the selected `.hush/files/**.encrypted` document, or the machine-local override doc
 5. Writes the YAML document back in place and emits a write audit event
-6. Confirms success with destination file and scope
+6. Reads the value back from durable storage to verify the write actually persisted
+7. Confirms success with destination file and scope
 
 For global mode, Hush binds global writes to `~/.hush/.sops.yaml` explicitly, so running `hush set --global` from inside another repo still uses the global recipient instead of a repo-local `.sops.yaml`.
+
+### Write Verification
+
+`hush set` never prints a success line without first re-reading the value from durable storage, using the same reader the runtime resolution path uses for that scope. If the value is missing or does not match after the write, the command fails loudly:
+
+```
+Write verification failed for API_KEY in env/project/local (machine-local): the value is
+missing when read back from durable storage. The write did not persist; do not treat this
+secret as saved.
+```
+
+A secrets write that reports success but stores nothing is the worst possible failure mode, so this check is unconditional. Error messages never include the secret value.
+
+Separately, if the value persists but the active target's bundle does not select the file it landed in, `hush set` warns that `hush get` will not return it there:
+
+```
+warning: API_KEY is stored in env/project/staging, but target "runtime" does not resolve
+that file, so "hush get API_KEY" will not return it here. Add env/project/staging to that
+target's bundle, or run "hush trace API_KEY" to see which targets select it.
+```
+
+This is a warning rather than an error because writing into a file the current target does not resolve is a normal stage-split workflow.
 
 ### Conflict Detection
 
