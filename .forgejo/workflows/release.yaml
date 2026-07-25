@@ -320,8 +320,13 @@ jobs:
           # and the credential was then rotated in response to an error it never
           # caused. Capture the output and print it, and only call it a rejection
           # when the registry actually said 401/403.
-          WHOAMI_OUT=$(npx -y "npm@${NPM_VERSION}" whoami --registry="${NPM_REGISTRY_URL}" 2>&1)
-          WHOAMI_RC=$?
+          # `|| true` is load-bearing: the shell runs with `set -e`, so a bare
+          # assignment from a failing command aborts the step instantly and the
+          # diagnostics below never print (observed on run 59: the step exited 1
+          # with no output at all, which is strictly worse than the wrong
+          # diagnosis it replaced). Capture the status separately instead.
+          WHOAMI_RC=0
+          WHOAMI_OUT=$(npx -y "npm@${NPM_VERSION}" whoami --registry="${NPM_REGISTRY_URL}" 2>&1) || WHOAMI_RC=$?
 
           if [ "$WHOAMI_RC" -ne 0 ]; then
             echo "npm whoami failed (exit $WHOAMI_RC) against ${NPM_REGISTRY_URL}. Output:"
