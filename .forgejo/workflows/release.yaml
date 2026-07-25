@@ -301,6 +301,11 @@ jobs:
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # The committed repo .npmrc resolves //npm.ch5.me/:_authToken from ${NPM_TOKEN}.
+          # A project .npmrc overrides $HOME/.npmrc, so without this the repo file expanded
+          # ${NPM_TOKEN} to EMPTY and silently beat the credential this job had just written --
+          # npm then reported ENEEDAUTH while the secret was present and correct.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           # This job only runs on a main / prerelease-next push (see the job-level `if`), so
           # there is no fork or PR case where a missing publish credential is benign. Both
@@ -373,6 +378,11 @@ jobs:
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false' && steps.npm_auth.outputs.can_publish == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # The committed repo .npmrc resolves //npm.ch5.me/:_authToken from ${NPM_TOKEN}.
+          # A project .npmrc overrides $HOME/.npmrc, so without this the repo file expanded
+          # ${NPM_TOKEN} to EMPTY and silently beat the credential this job had just written --
+          # npm then reported ENEEDAUTH while the secret was present and correct.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             npx -y "npm@${NPM_VERSION}" publish --registry="${NPM_REGISTRY_URL}" --tag "${{ steps.version.outputs.release_channel }}" --access public
