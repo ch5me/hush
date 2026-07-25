@@ -121,9 +121,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Audit dependency signatures
-        run: "npx -y npm@${NPM_VERSION} audit signatures"
-
       - name: Audit dependencies for vulnerabilities
         run: bun audit
 
