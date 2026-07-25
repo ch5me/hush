@@ -298,10 +298,15 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          # This job only runs on a main / prerelease-next push (see the job-level `if`), so
+          # there is no fork or PR case where a missing publish credential is benign. Both
+          # checks below used to emit ::warning:: and exit 0, which let the job report
+          # SUCCESS while publishing nothing: 25 commits and a whole major bump piled up
+          # behind a green pipeline, and the released CLI silently stayed on 7.7.0. A
+          # release that cannot publish is a failure, so say so.
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "::warning::NPM_TOKEN is not configured in Forgejo Actions; skipping CH5 Verdaccio publish for @chriscode/hush."
-            echo "can_publish=false" >> "$FORGEJO_OUTPUT"
-            exit 0
+            echo "::error::NPM_TOKEN is not available to Forgejo Actions; cannot publish @chriscode/hush."
+            exit 1
           fi
 
           printf '%s\n' "//${NPM_REGISTRY_HOST}/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
@@ -309,9 +314,8 @@ jobs:
           printf '%s\n' "registry=${NPM_REGISTRY_URL}" >> "$HOME/.npmrc"
 
           if ! npx -y "npm@${NPM_VERSION}" whoami --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
-            echo "::warning::NPM_TOKEN is not accepted by CH5 Verdaccio; skipping @chriscode/hush publish."
-            echo "can_publish=false" >> "$FORGEJO_OUTPUT"
-            exit 0
+            echo "::error::NPM_TOKEN was rejected by CH5 Verdaccio at ${NPM_REGISTRY_URL}; cannot publish."
+            exit 1
           fi
 
           echo "can_publish=true" >> "$FORGEJO_OUTPUT"
@@ -406,6 +410,21 @@ jobs:
             -d @/tmp/forgejo-release.json \
             "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases" \
             > /tmp/forgejo-release-response.json
+
+      # Verify on the consuming surface: a green release job must mean an installable
+      # version, not merely that no step errored. Every gate above can decline to publish,
+      # and for 25 commits the job stayed green while the registry stayed on 7.7.0. If this
+      # run decided to release, the version has to be resolvable now or the job fails.
+      - name: Verify the release is installable
+        if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          if ! SERVED=$(npx -y "npm@${NPM_VERSION}" view "@chriscode/hush@${NEW_VERSION}" version --registry="${NPM_REGISTRY_URL}" 2>&1); then
+            echo "::error::release reported success but @chriscode/hush@${NEW_VERSION} is not resolvable from ${NPM_REGISTRY_URL}."
+            echo "$SERVED"
+            exit 1
+          fi
+          echo "published and resolvable: @chriscode/hush@${SERVED}"
 
   binaries:
     needs: release
