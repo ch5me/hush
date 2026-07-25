@@ -402,8 +402,8 @@ describe('task 8 v3 runtime and mutating commands', () => {
 
     const localOverridePath = getMachineLocalOverridePath(store);
     const localOverride = readDecryptedYamlFile(root, localOverridePath);
-    expect(localOverride).toContain('path: env/project/local');
-    expect(localOverride).toContain('env/project/local/DEBUG');
+    expect(localOverride).toContain('path: user/local');
+    expect(localOverride).toContain('user/local/DEBUG');
   }, 60000);
 
   it('edit opens the v3 yaml document directly and keeps it valid', async () => {

@@ -10,7 +10,37 @@ published to npm, and given a Forgejo Release by CI.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: one path, one storage location.** The first path segment now names
+  the storage class: `user/**` is the machine-local override store (never
+  committed, this machine only), everything else is a repository file under
+  `.hush/files/` (committed, readable by every identity in its reader set).
+  Previously `env/project/local` meant *either*, chosen by whether the manifest
+  declared a file there — and both stores keyed entries under the same logical
+  path, so a machine-local value could silently shadow a committed one.
+  - The machine-local document moved from `env/project/local` to `user/local`.
+    No migration is required: the store is normalized on read and rewritten on
+    the next write, and older Hush versions still read the new form.
+  - `hush set --file env/project/local` writes the repository file when it is
+    declared, and now hard-errors when it is not, instead of silently writing
+    machine-local overrides.
+  - `--repo-local` / `--local` / `--file local` / `--file user/local` all mean
+    the machine-local store, unconditionally.
+  - `user/**` cannot be declared as a repository file; `hush file add`,
+    `copy-key`, `move-key`, and `delete-key` reject it rather than
+    reinterpreting it.
+  - Machine-local logical paths in `trace`/`resolve`/audit output are now
+    `user/local/<KEY>`. Environment variable names are unchanged.
+  - See [Migration: v7 to v8](https://hush.ch5.me/migrations/v7-to-v8/).
+
 ### Added
+
+- `hush doctor` check `storage_class_separation`: reports any committed
+  repository file still named `env/project/local`, with its entry count and
+  whether a bundle selects it. `hush set` and `hush edit` emit the same warning
+  when they write to one. Such a file is encrypted to every reader and stored in
+  git, so values meant to be machine-local must be rotated, not just renamed.
 
 - `hush completion <bash|zsh|fish>` shell completions
 - `--json` output for `inspect`, `status`, and `doctor` (no secret values)

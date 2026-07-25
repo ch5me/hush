@@ -14,6 +14,13 @@ import {
   shapeTargetArtifacts,
 } from '../index.js';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
+import {
+  LEGACY_MACHINE_LOCAL_FILE_PATH,
+  MACHINE_LOCAL_FILE_PATH,
+  ReservedFilePathError,
+  isMachineLocalPath,
+  normalizeHushPath,
+} from '../v3/schema.js';
 import { loadV3Repository, persistV3FileDocument } from '../v3/repository.js';
 import type { HushImportRepositoryMap } from '../v3/imports.js';
 import type {
@@ -30,11 +37,15 @@ import type {
   StoreContext,
 } from '../types.js';
 
+/**
+ * Short aliases for the repository files `bootstrap`/`set`/`edit` will create on
+ * demand. `local` is deliberately absent: it names the machine-local store,
+ * which is not a repository file. See `MACHINE_LOCAL_FILE_PATH`.
+ */
 export const DEFAULT_V3_FILE_PATHS = {
   shared: 'env/project/shared',
   development: 'env/project/development',
   production: 'env/project/production',
-  local: 'env/project/local',
 } as const;
 
 export const LOCAL_OVERRIDE_FILENAME = 'local-overrides.encrypted';
@@ -48,8 +59,17 @@ const FILE_ALIASES: Record<string, FileKey> = {
   dev: 'development',
   production: 'production',
   prod: 'production',
-  local: 'local',
 };
+
+/** Short `--file` alias for the machine-local store, alongside `user/local`. */
+export const MACHINE_LOCAL_ALIAS = 'local';
+
+/**
+ * Selectors that used to be accepted as a leading positional file argument.
+ * Kept as a set so the legacy-syntax diagnostic keeps firing for `local` even
+ * though `local` is no longer a repository file key.
+ */
+const LEGACY_POSITIONAL_FILE_ARGS = new Set<string>([...FILE_KEYS, MACHINE_LOCAL_ALIAS]);
 
 function loadImportedRepositories(repository: HushV3Repository): HushImportRepositoryMap {
   return Object.fromEntries(
@@ -64,13 +84,23 @@ function loadImportedRepositories(repository: HushV3Repository): HushImportRepos
   );
 }
 
+export type EditableScope = 'repository' | 'machine-local';
+
 export interface EditableDestination {
+  /** Set only for repository files that `set`/`edit` may create on demand. */
   fileKey?: FileKey;
   filePath: string;
+  scope: EditableScope;
 }
 
-export function isFileKey(value: string): value is FileKey {
-  return FILE_KEYS.includes(value as FileKey);
+/** Shared singleton — frozen because every machine-local write resolves to it. */
+export const MACHINE_LOCAL_DESTINATION: EditableDestination = Object.freeze({
+  filePath: MACHINE_LOCAL_FILE_PATH,
+  scope: 'machine-local',
+});
+
+export function isLegacyPositionalFileArg(value: string): boolean {
+  return LEGACY_POSITIONAL_FILE_ARGS.has(value);
 }
 
 /**
@@ -87,26 +117,43 @@ export function normalizeRequestedFilePath(value: string): string {
 
 /**
  * Resolve an explicit `--file`/positional file selector to a concrete write
- * destination. Accepts short aliases (shared/dev/development/prod/production/
- * local) AND any file declared in the repository's manifest file index.
+ * destination and its storage class.
  *
- * Hard-errors (never silently routes a secret to a fallback file) when the
- * selector cannot be honored — this is the load-bearing safety property for
- * `set`/`edit`.
+ * The selector's meaning never depends on manifest state. `local` and
+ * `user/local` are always the machine-local store; every other selector is
+ * always repository storage. Short aliases (shared/dev/development/prod/
+ * production) resolve to their default repository path; anything else must be a
+ * file already declared in the manifest file index.
+ *
+ * Hard-errors (never silently routes a secret to a fallback file, and never
+ * across storage classes) when the selector cannot be honored — this is the
+ * load-bearing safety property for `set`/`edit`.
  */
 export function resolveEditableDestination(
   file: string,
   repository: HushV3Repository,
 ): EditableDestination {
-  const alias = FILE_ALIASES[file];
-  if (alias) {
-    return { fileKey: alias, filePath: DEFAULT_V3_FILE_PATHS[alias] };
-  }
-
+  const requested = file.trim();
   const normalized = normalizeRequestedFilePath(file);
 
+  if (requested === MACHINE_LOCAL_ALIAS || normalized === MACHINE_LOCAL_FILE_PATH) {
+    return MACHINE_LOCAL_DESTINATION;
+  }
+
+  if (isMachineLocalPath(normalized)) {
+    throw new ReservedFilePathError(
+      normalized,
+      `The only machine-local destination is "${MACHINE_LOCAL_FILE_PATH}" (write it with --repo-local).`,
+    );
+  }
+
+  const alias = FILE_ALIASES[requested];
+  if (alias) {
+    return { fileKey: alias, filePath: DEFAULT_V3_FILE_PATHS[alias], scope: 'repository' };
+  }
+
   if (repository.filesByPath[normalized]) {
-    return { filePath: normalized };
+    return { filePath: normalized, scope: 'repository' };
   }
 
   const matchedAlias = (Object.entries(DEFAULT_V3_FILE_PATHS) as [FileKey, string][]).find(
@@ -114,7 +161,19 @@ export function resolveEditableDestination(
   );
   if (matchedAlias) {
     const [fileKey, filePath] = matchedAlias;
-    return { fileKey, filePath };
+    return { fileKey, filePath, scope: 'repository' };
+  }
+
+  // The one selector that used to mean two storage locations. Undeclared, it
+  // silently became a machine-local write; declared, a committed repository
+  // write. Neither is guessable from the command line, so say so instead.
+  if (normalized === LEGACY_MACHINE_LOCAL_FILE_PATH) {
+    throw new Error(
+      `"${LEGACY_MACHINE_LOCAL_FILE_PATH}" is not declared in this repository, and it is no longer an alias for `
+      + `machine-local storage. Machine-local overrides now live at "${MACHINE_LOCAL_FILE_PATH}": write them with `
+      + '--repo-local (this machine only, never committed). To write a committed repository file that every reader '
+      + `of this repo can decrypt, declare it first with "hush file add ${LEGACY_MACHINE_LOCAL_FILE_PATH}".`,
+    );
   }
 
   throw new Error(
@@ -132,7 +191,11 @@ export function loadEditableDestination(
   store: StoreContext,
   repository: HushV3Repository,
   destination: EditableDestination,
-): { document: HushFileDocument; filePath: string; systemPath: string; scope: 'repository' | 'machine-local' } {
+): EditableFileDocument {
+  if (destination.scope === 'machine-local') {
+    return ensureMachineLocalDocument(ctx, store);
+  }
+
   if (destination.fileKey) {
     return ensureEditableFileDocument(ctx, store, repository, destination.fileKey);
   }
@@ -209,7 +272,7 @@ function createRepositoryFileDocument(repository: HushV3Repository, filePath: st
 
 function createLocalOverrideDocument(): HushFileDocument {
   return createFileDocument({
-    path: DEFAULT_V3_FILE_PATHS.local,
+    path: MACHINE_LOCAL_FILE_PATH,
     readers: {
       roles: ['owner', 'member', 'ci'],
       identities: [],
@@ -453,6 +516,32 @@ export function getMachineLocalOverridePath(store: StoreContext): string {
 }
 
 /**
+ * Normalize a machine-local override document onto `user/local`.
+ *
+ * The document's `path` field is a label, not an address: the address is the
+ * fixed state-root filesystem path, the store is per-machine and unshared, and
+ * no bundle can reference it. Documents written before the `user/**` split
+ * carry `path: env/project/local`, which collided with a committed repository
+ * file of the same name. Rewriting the label (and re-keying entries onto it) on
+ * load makes that collision impossible without migrating any data.
+ */
+function normalizeMachineLocalDocument(parsed: HushFileDocument): HushFileDocument {
+  const persistedPath = typeof parsed.path === 'string' ? normalizeHushPath(parsed.path) : MACHINE_LOCAL_FILE_PATH;
+  if (persistedPath === MACHINE_LOCAL_FILE_PATH) {
+    return parsed;
+  }
+
+  const entries = Object.fromEntries(
+    Object.entries(parsed.entries ?? {}).map(([logicalPath, entry]) => [
+      envVarKeyToLogicalPath(MACHINE_LOCAL_FILE_PATH, logicalPath.split('/').filter(Boolean).at(-1) ?? logicalPath),
+      entry,
+    ]),
+  );
+
+  return { ...parsed, path: MACHINE_LOCAL_FILE_PATH, entries };
+}
+
+/**
  * Read the machine-local override document for this store.
  *
  * MUST stay symmetric with `writeMachineLocalOverrides`: the writer persists
@@ -472,7 +561,9 @@ export function loadMachineLocalOverrides(ctx: HushContext, store: StoreContext)
       root: store.root,
       keyIdentity: store.keyIdentity,
     });
-    return createFileDocument(parseYamlObject(overridePath, content) as HushFileDocument);
+    return createFileDocument(
+      normalizeMachineLocalDocument(parseYamlObject(overridePath, content) as HushFileDocument),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid machine-local override file at ${overridePath}: ${message}`);
@@ -490,23 +581,34 @@ export function writeMachineLocalOverrides(ctx: HushContext, store: StoreContext
   return filePath;
 }
 
+export interface EditableFileDocument {
+  document: HushFileDocument;
+  filePath: string;
+  systemPath: string;
+  scope: EditableScope;
+}
+
+/**
+ * Load the machine-local override document, creating it on disk when absent so
+ * callers (notably `edit`) always get a real `systemPath`.
+ */
+export function ensureMachineLocalDocument(ctx: HushContext, store: StoreContext): EditableFileDocument {
+  const document = loadMachineLocalOverrides(ctx, store) ?? createLocalOverrideDocument();
+  const systemPath = writeMachineLocalOverrides(ctx, store, document);
+  return {
+    document,
+    filePath: document.path,
+    systemPath,
+    scope: 'machine-local',
+  };
+}
+
 export function ensureEditableFileDocument(
   ctx: HushContext,
   store: StoreContext,
   repository: HushV3Repository,
   fileKey: FileKey,
-): { document: HushFileDocument; filePath: string; systemPath: string; scope: 'repository' | 'machine-local' } {
-  if (fileKey === 'local') {
-    const document = loadMachineLocalOverrides(ctx, store) ?? createLocalOverrideDocument();
-    const systemPath = writeMachineLocalOverrides(ctx, store, document);
-    return {
-      document,
-      filePath: document.path,
-      systemPath,
-      scope: 'machine-local',
-    };
-  }
-
+): EditableFileDocument {
   const filePath = DEFAULT_V3_FILE_PATHS[fileKey];
   const existing = repository.filesByPath[filePath];
   if (existing) {
@@ -556,7 +658,50 @@ export function writeEditableFileDocument(
 
 export interface EditableWriteTarget {
   filePath: string;
-  scope: 'repository' | 'machine-local';
+  scope: EditableScope;
+}
+
+export interface LegacyLocalRepositoryFile {
+  filePath: string;
+  entryCount: number;
+  bundles: string[];
+}
+
+/**
+ * Detect a committed repository file still named `env/project/local`.
+ *
+ * Legal — it is now an ordinary repository file — but almost never what the
+ * operator meant: it is encrypted to every identity in its reader set and
+ * committed to git, while its name says "local". Surfaced by `doctor` and by
+ * every mutating command that touches it, because the disclosure it implies
+ * cannot be undone by renaming: git history keeps the ciphertext and readers
+ * already hold the age keys, so the remedy is rotation.
+ */
+export function findLegacyLocalRepositoryFile(repository: HushV3Repository): LegacyLocalRepositoryFile | null {
+  const entry = repository.filesByPath[LEGACY_MACHINE_LOCAL_FILE_PATH];
+  if (!entry) {
+    return null;
+  }
+
+  const bundles = Object.entries(repository.manifest.bundles ?? {})
+    .filter(([, bundle]) => (bundle.files ?? []).some((ref) => ref.path === LEGACY_MACHINE_LOCAL_FILE_PATH))
+    .map(([bundleName]) => bundleName)
+    .sort();
+
+  return { filePath: LEGACY_MACHINE_LOCAL_FILE_PATH, entryCount: entry.logicalPaths.length, bundles };
+}
+
+export function describeLegacyLocalRepositoryFile(finding: LegacyLocalRepositoryFile): string {
+  const reach = finding.bundles.length > 0
+    ? `it is bundled into ${finding.bundles.join(', ')}, so every collaborator resolves its values`
+    : 'no bundle selects it, so it does not resolve at runtime';
+
+  return `"${finding.filePath}" is a committed repository file, not machine-local storage. `
+    + `It holds ${finding.entryCount} entry(ies), is decryptable by every identity in its reader set, and ${reach}. `
+    + `Machine-local overrides live at "${MACHINE_LOCAL_FILE_PATH}" and are written with "hush set --repo-local". `
+    + 'If any value here was meant to stay on one machine, treat it as disclosed: rotate it, then move the rest with '
+    + `"hush copy-key <KEY> --from ${finding.filePath} --to <destination>" and drop the file with `
+    + `"hush file remove ${finding.filePath}".`;
 }
 
 /**

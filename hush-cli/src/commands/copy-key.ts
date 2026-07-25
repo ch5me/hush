@@ -2,7 +2,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import { appendAuditEvent } from '../v3/audit.js';
 import { createFileDocument } from '../v3/domain.js';
 import { loadV3Repository, persistV3FileDocument, persistV3FileDocuments } from '../v3/repository.js';
-import { assertNamespacedPath } from '../v3/schema.js';
+import { MACHINE_LOCAL_FILE_PATH, assertRepositoryFilePath } from '../v3/schema.js';
 import { requireMutableIdentity } from './v3-command-helpers.js';
 import { withSuggestion } from './mutation-feedback.js';
 import type { HushContext, HushFileDocument, HushFileEntry, KeyTransferOptions } from '../types.js';
@@ -82,14 +82,20 @@ export async function copyKeyCommand(ctx: HushContext, options: KeyTransferOptio
     throw new Error(`Usage: hush ${options.move ? 'move-key' : 'copy-key'} <KEY> --from <file-path> --to <file-path>`);
   }
 
-  const from = assertNamespacedPath(options.from);
-  const to = assertNamespacedPath(options.to);
+  const commandName = options.move ? 'move-key' : 'copy-key';
+
+  // Repository files only, fail closed. A machine-local selector is never
+  // reinterpreted here: moving a secret between the machine-local store and a
+  // committed file is a readership change, not a copy.
+  const remedy = `Machine-local overrides live at "${MACHINE_LOCAL_FILE_PATH}"; `
+    + `${commandName} operates on committed repository files only. Write machine-local values with "hush set --repo-local".`;
+  const from = assertRepositoryFilePath(options.from, remedy);
+  const to = assertRepositoryFilePath(options.to, remedy);
   if (from === to) {
     throw new Error('Source and destination files must be different');
   }
 
   const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
-  const commandName = options.move ? 'move-key' : 'copy-key';
   const command = { name: commandName, args: [key, '--from', from, '--to', to] };
   const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
 

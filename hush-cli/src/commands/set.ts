@@ -6,9 +6,12 @@ import { ensureGlobalStoreBootstrap } from '../global-store.js';
 import {
   DEFAULT_V3_FILE_PATHS,
   FILE_KEYS,
+  MACHINE_LOCAL_DESTINATION,
   assertEditableValuePersisted,
+  describeLegacyLocalRepositoryFile,
   describeUnresolvedWrite,
-  isFileKey,
+  findLegacyLocalRepositoryFile,
+  isLegacyPositionalFileArg,
   loadEditableDestination,
   loadMachineLocalOverrides,
   readCurrentIdentity,
@@ -19,7 +22,8 @@ import {
   writeMachineLocalOverrides,
   writeEditableFileDocument,
 } from './v3-command-helpers.js';
-import type { EditableDestination, FileKey } from './v3-command-helpers.js';
+import type { EditableDestination, EditableScope } from './v3-command-helpers.js';
+import { LEGACY_MACHINE_LOCAL_FILE_PATH, MACHINE_LOCAL_FILE_PATH } from '../v3/schema.js';
 import { writeJsonSuccess } from '../lib/command-output.js';
 
 type SetDestination = EditableDestination;
@@ -210,25 +214,21 @@ function resolveSetDestination(
   repository: HushV3Repository,
 ): SetDestination {
   if (repoLocal) {
-    return { fileKey: 'local', filePath: DEFAULT_V3_FILE_PATHS.local };
+    return MACHINE_LOCAL_DESTINATION;
   }
 
   // Shared resolver: honors explicit --file aliases AND declared v3 paths, and
-  // hard-errors (never silently falls back) when the selector is unknown. Same
-  // class fix covers `set` and `edit`.
+  // hard-errors (never silently falls back, and never across storage classes)
+  // when the selector is unknown. Same class fix covers `set` and `edit`.
   return resolveEditableDestination(file ?? 'shared', repository);
 }
 
-function getScopeLabel(fileKey: FileKey | undefined, scope: 'repository' | 'machine-local'): string {
+function getScopeLabel(destination: SetDestination, scope: EditableScope): string {
   if (scope === 'machine-local') {
     return 'repo-local';
   }
 
-  if (!fileKey) {
-    return 'repository';
-  }
-
-  return fileKey;
+  return destination.fileKey ?? 'repository';
 }
 
 function getUsageLines(): string[] {
@@ -250,7 +250,7 @@ function logUsage(ctx: HushContext): void {
 }
 
 function detectLegacyPositionalFileArg(key: string | undefined, file: string | undefined, repoLocal: boolean | undefined): void {
-  if (repoLocal || file || !key || !isFileKey(key)) {
+  if (repoLocal || file || !key || !isLegacyPositionalFileArg(key)) {
     return;
   }
 
@@ -273,22 +273,22 @@ function getDocumentValue(document: HushFileDocument | null, filePath: string, k
 }
 
 function findSharedConflicts(ctx: HushContext, store: SetOptions['store'], repository: HushV3Repository, key: string): string[] {
-  return FILE_KEYS
+  const repositoryConflicts = FILE_KEYS
     .filter((fileKey) => fileKey !== 'shared')
-    .filter((fileKey) => {
-      const filePath = DEFAULT_V3_FILE_PATHS[fileKey];
-      if (fileKey === 'local') {
-        return getDocumentValue(loadMachineLocalOverrides(ctx, store), filePath, key) !== undefined;
-      }
-
-      const existing = repository.filesByPath[filePath];
-      if (!existing) {
+    .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey])
+    .filter((filePath) => {
+      if (!repository.filesByPath[filePath]) {
         return false;
       }
 
       return getDocumentValue(repository.loadFile(filePath), filePath, key) !== undefined;
-    })
-    .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey]);
+    });
+
+  // Machine-local always wins at resolution, so it always shadows shared.
+  const machineLocalConflict =
+    getDocumentValue(loadMachineLocalOverrides(ctx, store), MACHINE_LOCAL_FILE_PATH, key) !== undefined;
+
+  return machineLocalConflict ? [...repositoryConflicts, MACHINE_LOCAL_FILE_PATH] : repositoryConflicts;
 }
 
 async function promptForValue(ctx: HushContext, key: string, forceGui: boolean): Promise<string> {
@@ -379,6 +379,17 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
 
     if (!json) ctx.logger.log(pc.dim(`will write ${key} -> ${destination.filePath}`));
 
+    // Preflight, not a source-only note: writing into a committed file named
+    // "local" is the one case where the destination's storage class is likely
+    // not what the operator assumed.
+    const legacyLocal = destination.filePath === LEGACY_MACHINE_LOCAL_FILE_PATH
+      ? findLegacyLocalRepositoryFile(repository)
+      : null;
+    const legacyLocalWarning = legacyLocal ? describeLegacyLocalRepositoryFile(legacyLocal) : undefined;
+    if (legacyLocalWarning && !json) {
+      ctx.logger.warn(pc.yellow(`warning: ${legacyLocalWarning}`));
+    }
+
     const editable = loadEditableDestination(ctx, store, repository, destination);
 
     const previousValue = getDocumentValue(editable.document, editable.filePath, key);
@@ -437,7 +448,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     });
 
     const unresolvedWarning = describeUnresolvedWrite(ctx, store, key, editable.filePath);
-    const scopeLabel = getScopeLabel(destination.fileKey, editable.scope);
+    const scopeLabel = getScopeLabel(destination, editable.scope);
     const payload = {
       action: 'set',
       changed: true,
@@ -446,6 +457,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       resolvedScope: { file: editable.filePath, scope: editable.scope },
       chars: value.length,
       ...(unresolvedWarning ? { resolutionWarning: unresolvedWarning } : {}),
+      ...(legacyLocalWarning ? { storageClassWarning: legacyLocalWarning } : {}),
     };
     if (json) {
       writeJsonSuccess(ctx, 'set', payload);

@@ -6,6 +6,7 @@ import { getUnresolvedVars, interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { getProjectIdentifier } from '../project.js';
 import { loadLegacyV2Inventory } from '../v3/legacy-v2.js';
+import { MACHINE_LOCAL_FILE_PATH } from '../v3/schema.js';
 import type {
   EnvVar,
   HushContext,
@@ -607,7 +608,7 @@ export async function migrateCommand(ctx: HushContext, options: MigrateOptions):
     writeYamlDocument(ctx, root, keyIdentity, getV3ManifestPath(root), manifest);
 
     if (localVars.length > 0) {
-      const localDocument = createSourceDocument('env/project/local', localVars);
+      const localDocument = createSourceDocument(MACHINE_LOCAL_FILE_PATH, localVars);
       writeYamlDocument(ctx, root, keyIdentity, localOverridePath, localDocument);
     }
 

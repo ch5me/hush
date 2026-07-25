@@ -10,6 +10,10 @@ import { resolveStoreContext, GLOBAL_STORE_ROOT, type ResolveStoreContextOptions
 import { resolveAgeKeySource, type ResolvedAgeKeySource } from '../core/sops.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { getProjectIdentifier } from '../project.js';
+import {
+  describeLegacyLocalRepositoryFile,
+  findLegacyLocalRepositoryFile,
+} from './v3-command-helpers.js';
 
 interface DoctorOptions {
   startDir: string;
@@ -170,6 +174,17 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
         name: 'repository_loads',
         ok: true,
         detail: `repository loads successfully (${repo.files.length} file(s)); project: ${repo.manifest.metadata?.project ?? '(not set)'}`,
+      });
+
+      // Check 5: no committed repository file is still named "local". Legal but
+      // near-always a mistake, and a possible disclosure — see the describe().
+      const legacyLocal = findLegacyLocalRepositoryFile(repo);
+      checks.push({
+        name: 'storage_class_separation',
+        ok: !legacyLocal,
+        detail: legacyLocal
+          ? describeLegacyLocalRepositoryFile(legacyLocal)
+          : 'no committed repository file shadows the machine-local override store',
       });
     } catch (error) {
       checks.push({

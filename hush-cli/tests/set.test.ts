@@ -348,7 +348,10 @@ describe('setCommand legacy guard and global bootstrap', () => {
     expect(sharedFile).not.toContain('FOLIO_CI_HUSH_WRITE_SMOKE');
   }, 90000);
 
-  it('writes explicit env/project/local paths to the repository file, not machine-local overrides', async () => {
+  // env/project/local is an ordinary repository path. It was once also an alias
+  // for the machine-local store, so this asserts the repository file wins — now
+  // unconditionally, not by precedence over a competing meaning.
+  it('writes a declared env/project/local to the repository file', async () => {
     const root = join(TEST_DIR, 'explicit-local-path');
     writeRepo(
       root,

@@ -124,12 +124,21 @@ no misconfiguration required.
   branch routes to the correct store. The defect was that the reader refused to read what that store
   had persisted.
 - *A read path bypasses `resolveTargetEnvView()`.* **Discarded.** All runtime reads go through it.
-- *A declared `env/project/local` repository file shadows the alias.* **Real, but intended behavior.**
-  `609b78d` ("prefer explicit hush file paths", the June fix) deliberately makes a declared
-  repository file win over the alias, with test coverage. When such a file is declared *and* included
-  in the target's bundle, the value resolves correctly. When it is declared but no bundle includes it,
-  the value persists but does not resolve — a topology error rather than a routing bug. It is now
-  surfaced by an explicit warning instead of a clean success line.
+- *A declared `env/project/local` repository file shadows the alias.* **Real, and initially assessed
+  as intended behavior — later fixed as its own defect.** `609b78d` ("prefer explicit hush file
+  paths", the June fix) deliberately makes a declared repository file win over the alias, with test
+  coverage. When such a file is declared *and* included in the target's bundle, the value resolves
+  correctly. When it is declared but no bundle includes it, the value persists but does not resolve —
+  a topology error rather than a routing bug, now surfaced by an explicit warning instead of a clean
+  success line.
+
+  The deeper problem, addressed separately: `env/project/local` named **two storage locations** with
+  different readerships, chosen by manifest state the operator cannot see at the command line, and
+  both keyed their entries under the same logical path so a machine-local value silently shadowed a
+  committed one. Fixed in v8 by making the first path segment name the storage class — the
+  machine-local store moved to `user/local`, `user/**` is reserved, and an undeclared
+  `--file env/project/local` hard-errors instead of silently writing machine-local. See
+  `docs/src/content/docs/migrations/v7-to-v8.mdx`.
 
 ## Fixes Applied
 

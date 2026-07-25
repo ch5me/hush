@@ -10,17 +10,26 @@ import type {
 import {
   appendAuditEvent,
   assertHushRole,
-  assertNamespacedPath,
   createFileDocument,
   createManifestDocument,
   createReaders,
   getV3EncryptedFilePath,
   loadV3Repository,
 } from '../index.js';
-import { persistV3FileDocument, persistV3ManifestDocument, removeV3FileDocument } from '../v3/repository.js';
+import { MACHINE_LOCAL_FILE_PATH, assertRepositoryFilePath } from '../v3/schema.js';
+import { persistV3FileDocument, removeV3FileDocument } from '../v3/repository.js';
 import { requireMutableIdentity, requireV3Repository } from './v3-command-helpers.js';
 import { withSuggestion } from './mutation-feedback.js';
 import { writeJsonSuccess } from '../lib/command-output.js';
+
+const RESERVED_NAMESPACE_REMEDY =
+  `Machine-local overrides live at "${MACHINE_LOCAL_FILE_PATH}" and are written with "hush set --repo-local"; `
+  + 'they are never declared as repository files.';
+
+/** Every `hush file` subcommand operates on committed repository files only. */
+function assertRepositoryFileArg(path: string): string {
+  return assertRepositoryFilePath(path, RESERVED_NAMESPACE_REMEDY);
+}
 
 function parseRoleCsv(
   value: string | undefined,
@@ -83,7 +92,7 @@ async function handleFileAdd(ctx: HushContext, options: FileAddOptions): Promise
   const command = { name: 'file', args: getCommandArgs('add', [options.path], options) };
   const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
 
-  const filePath = assertNamespacedPath(options.path);
+  const filePath = assertRepositoryFileArg(options.path);
 
   if (repository.filesByPath[filePath]) {
     throw new Error(`File "${filePath}" already exists in this repository`);
@@ -140,7 +149,7 @@ async function handleFileRemove(ctx: HushContext, options: FileRemoveOptions): P
   const command = { name: 'file', args: getCommandArgs('remove', [options.path], {}) };
   const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
 
-  const filePath = assertNamespacedPath(options.path);
+  const filePath = assertRepositoryFileArg(options.path);
   const fileIndexEntry = repository.filesByPath[filePath];
 
   if (!fileIndexEntry) {
@@ -257,7 +266,7 @@ async function handleFileReaders(ctx: HushContext, options: FileReadersOptions):
     ctx.process.exit(1);
   }
 
-  const filePath = assertNamespacedPath(requestedFilePath);
+  const filePath = assertRepositoryFileArg(requestedFilePath);
   const file = repository.loadFile(filePath);
   if (!file) {
     throw new Error(`File "${filePath}" is not declared in this repository`);

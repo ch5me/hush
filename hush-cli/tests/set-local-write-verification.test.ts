@@ -3,6 +3,9 @@ import { join } from 'node:path';
 import * as nodeFs from 'node:fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
+import { copyKeyCommand } from '../src/commands/copy-key.js';
+import { deleteKeyCommand } from '../src/commands/delete-key.js';
+import { fileCommand } from '../src/commands/file.js';
 import { hasCommand } from '../src/commands/has.js';
 import { setCommand } from '../src/commands/set.js';
 import {
@@ -216,7 +219,7 @@ function createPipedStdin(value: string): NodeJS.ReadStream {
   } as unknown as NodeJS.ReadStream;
 }
 
-describe('set writes to env/project/local are persisted and verified', () => {
+describe('set writes to the machine-local store are persisted and verified', () => {
   beforeEach(() => {
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
     nodeFs.mkdirSync(TEST_DIR, { recursive: true });
@@ -227,32 +230,32 @@ describe('set writes to env/project/local are persisted and verified', () => {
     vi.clearAllMocks();
   });
 
-  it('set --file env/project/local resolves back through the runtime target view', async () => {
+  it('set --file user/local resolves back through the runtime target view', async () => {
     const root = join(TEST_DIR, 'local-path-form');
     const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
     const { ctx, logger } = createContext(root);
     const store = createStore(root);
     setIdentity(ctx, store, repository, 'owner-local');
 
-    await setCommand(ctx, { store, file: 'env/project/local', key: 'LOCAL_PATH_FORM', value: 'value-path-form' });
+    await setCommand(ctx, { store, file: 'user/local', key: 'LOCAL_PATH_FORM', value: 'value-path-form' });
 
-    expect(getLogOutput(logger)).toContain('LOCAL_PATH_FORM set in env/project/local');
+    expect(getLogOutput(logger)).toContain('LOCAL_PATH_FORM set in user/local');
     await expect(resolvesThroughRuntime(ctx, store, 'LOCAL_PATH_FORM')).resolves.toBe(true);
   }, 60000);
 
-  it('piped stdin value to --file env/project/local resolves back through the runtime target view', async () => {
+  it('piped stdin value to --file user/local resolves back through the runtime target view', async () => {
     const root = join(TEST_DIR, 'local-stdin-form');
     const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
     const { ctx } = createContext(root);
     const store = createStore(root);
     setIdentity(ctx, store, repository, 'owner-local');
 
-    // `hush set KEY --file env/project/local` with no inline value reads the
-    // value from a stdin pipe (isTTY false).
+    // `hush set KEY --file user/local` with no inline value reads the value
+    // from a stdin pipe (isTTY false).
     const pipedStdin = createPipedStdin('value-from-stdin');
     const contextWithPipe: HushContext = { ...ctx, process: { ...ctx.process, stdin: pipedStdin } };
 
-    await setCommand(contextWithPipe, { store, file: 'env/project/local', key: 'LOCAL_STDIN_FORM' });
+    await setCommand(contextWithPipe, { store, file: 'user/local', key: 'LOCAL_STDIN_FORM' });
 
     await expect(resolvesThroughRuntime(ctx, store, 'LOCAL_STDIN_FORM')).resolves.toBe(true);
   }, 60000);
@@ -356,7 +359,7 @@ describe('set writes to env/project/local are persisted and verified', () => {
 
     await expect(
       setCommand(ctx, { store, repoLocal: true, key: 'DROPPED_KEY', value: 'value-dropped' }),
-    ).rejects.toThrow(/Write verification failed for DROPPED_KEY in env\/project\/local \(machine-local\)/);
+    ).rejects.toThrow(/Write verification failed for DROPPED_KEY in user\/local \(machine-local\)/);
 
     expect(getLogOutput(logger)).not.toContain('DROPPED_KEY set in');
   }, 60000);
@@ -406,5 +409,155 @@ describe('set writes to env/project/local are persisted and verified', () => {
     ).rejects.toThrow(
       expect.objectContaining({ message: expect.not.stringContaining(canaryValue) }) as Error,
     );
+  }, 60000);
+});
+
+describe('storage class is named by the path, never by manifest state', () => {
+  beforeEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    vi.clearAllMocks();
+  });
+
+  it('rejects undeclared env/project/local instead of silently writing machine-local', async () => {
+    const root = join(TEST_DIR, 'undeclared-legacy-path');
+    const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await expect(
+      setCommand(ctx, { store, file: 'env/project/local', key: 'AMBIGUOUS_KEY', value: 'value-ambiguous' }),
+    ).rejects.toThrow(/no longer an alias for machine-local storage/);
+
+    // The silent fallback is what made the old behavior dangerous: nothing may
+    // reach the machine-local store on a rejected repository selector.
+    expect(nodeFs.existsSync(getMachineLocalOverridePath(store))).toBe(false);
+  }, 60000);
+
+  it('keeps writing a declared env/project/local to the repository file', async () => {
+    const root = join(TEST_DIR, 'declared-legacy-path');
+    const repository = writeRepo(root, MANIFEST, {
+      'env/project/shared': SHARED_FILE,
+      'env/project/local': DECLARED_LOCAL_FILE,
+    });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await setCommand(ctx, { store, file: 'env/project/local', key: 'DECLARED_KEY', value: 'value-declared' });
+
+    const repositoryFile = decryptYaml(join(root, '.hush', 'files', 'env', 'project', 'local.encrypted'), { root, keyIdentity: root });
+    expect(repositoryFile).toContain('env/project/local/DECLARED_KEY');
+    expect(nodeFs.existsSync(getMachineLocalOverridePath(store))).toBe(false);
+  }, 60000);
+
+  it('warns that a committed file named local is repository storage, not machine-local', async () => {
+    const root = join(TEST_DIR, 'legacy-local-warning');
+    const repository = writeRepo(root, MANIFEST, {
+      'env/project/shared': SHARED_FILE,
+      'env/project/local': DECLARED_LOCAL_FILE,
+    });
+    const { ctx, logger } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await setCommand(ctx, { store, file: 'env/project/local', key: 'WARNED_KEY', value: 'value-warned' });
+
+    const warnings = stripAnsi(logger.warn.mock.calls.map(([message]) => String(message)).join('\n'));
+    expect(warnings).toContain('is a committed repository file, not machine-local storage');
+    expect(warnings).toContain('rotate it');
+  }, 60000);
+
+  it('does not let a declared env/project/local collide with the machine-local store', async () => {
+    // Both stores used to key entries `env/project/local/KEY`, so a machine
+    // override silently shadowed the committed file under one logical path.
+    const root = join(TEST_DIR, 'no-logical-path-collision');
+    const repository = writeRepo(root, MANIFEST, {
+      'env/project/shared': SHARED_FILE,
+      'env/project/local': DECLARED_LOCAL_FILE,
+    });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await setCommand(ctx, { store, file: 'env/project/local', key: 'SHADOWED_KEY', value: 'repository-value' });
+    await setCommand(ctx, { store, repoLocal: true, key: 'SHADOWED_KEY', value: 'machine-value' });
+
+    const repositoryFile = decryptYaml(join(root, '.hush', 'files', 'env', 'project', 'local.encrypted'), { root, keyIdentity: root });
+    const machineLocal = decryptYaml(getMachineLocalOverridePath(store), { root, keyIdentity: root });
+
+    expect(repositoryFile).toContain('env/project/local/SHADOWED_KEY');
+    expect(machineLocal).toContain('user/local/SHADOWED_KEY');
+    expect(machineLocal).not.toContain('env/project/local/SHADOWED_KEY');
+  }, 60000);
+
+  it('reads a legacy machine-local store written before the user/ split', async () => {
+    const root = join(TEST_DIR, 'legacy-machine-local-store');
+    const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    // Seed the store exactly as pre-8.0 hush persisted it.
+    const overridePath = getMachineLocalOverridePath(store);
+    nodeFs.mkdirSync(join(overridePath, '..'), { recursive: true });
+    writeEncryptedYamlFile(root, overridePath, normalizeYaml(`
+      path: env/project/local
+      readers:
+        roles: [owner, member, ci]
+        identities: []
+      sensitive: true
+      entries:
+        env/project/local/LEGACY_KEY:
+          value: legacy-value
+          sensitive: true
+    `));
+
+    await expect(resolvesThroughRuntime(ctx, store, 'LEGACY_KEY')).resolves.toBe(true);
+
+    // Writing rewrites the label onto user/local without losing the entry.
+    await setCommand(ctx, { store, repoLocal: true, key: 'NEW_KEY', value: 'new-value' });
+    const rewritten = decryptYaml(overridePath, { root, keyIdentity: root });
+    expect(rewritten).toContain('path: user/local');
+    expect(rewritten).toContain('user/local/LEGACY_KEY');
+    expect(rewritten).toContain('user/local/NEW_KEY');
+    expect(rewritten).not.toContain('env/project/local/');
+  }, 60000);
+
+  it('refuses to declare a repository file in the reserved user/ namespace', async () => {
+    const root = join(TEST_DIR, 'reserved-namespace');
+    const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await expect(
+      fileCommand(ctx, { store, subcommand: 'add', path: 'user/local' }),
+    ).rejects.toThrow(/reserved "user\/" namespace/);
+
+    await expect(
+      fileCommand(ctx, { store, subcommand: 'add', path: 'user/anything-else' }),
+    ).rejects.toThrow(/reserved "user\/" namespace/);
+  }, 60000);
+
+  it('never lets copy-key or delete-key reach the machine-local store', async () => {
+    const root = join(TEST_DIR, 'key-transfer-fail-closed');
+    const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await expect(
+      copyKeyCommand(ctx, { store, key: 'ANY_KEY', from: 'env/project/shared', to: 'user/local', move: false }),
+    ).rejects.toThrow(/reserved "user\/" namespace/);
+
+    await expect(
+      deleteKeyCommand(ctx, { store, key: 'ANY_KEY', from: 'user/local', yes: true }),
+    ).rejects.toThrow(/reserved "user\/" namespace/);
   }, 60000);
 });

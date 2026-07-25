@@ -209,12 +209,14 @@ hush set STRIPE_KEY "sk_live_xxx" -e production
 hush set ELEVENLABS_API_KEY "$ELEVENLABS_API_KEY" --global
 hush set FEATURE_FLAG "enabled" --local
 
-# Write to a specific file using --file
-hush set DATABASE_URL "postgres://user:pass@host/db" --file env/project/local
-hush set API_KEY "sk_test_xxx" --file local
+# Write to a specific repository file using --file
+hush set DATABASE_URL "postgres://user:pass@host/db" --file env/project/staging
+hush set API_KEY "sk_test_xxx" --file production
 
-# Write to repo-local file using --repo-local shorthand
+# Write to the machine-local override store
 hush set DATABASE_URL "postgres://user:pass@host/db" --repo-local
+hush set DATABASE_URL "postgres://user:pass@host/db" --file local
+hush set DATABASE_URL "postgres://user:pass@host/db" --file user/local
 
 # Interactive prompt (for users)
 hush set DATABASE_URL
@@ -241,12 +243,27 @@ cat cert.pem | hush set CERTIFICATE
 |--------|-------------|
 | `-e, --env <env>` | Write to `env/project/development` or `env/project/production` instead of the shared v3 file |
 | `--local` | Write to the machine-local override document under `~/.hush/state/projects/<slug>/user/local-overrides.encrypted` |
-| `--file <path-or-alias>` | Write to a specific file: full path (`env/project/local`) or alias (`shared`, `development`, `production`, `local`) |
-| `--repo-local` | Shorthand for `--file env/project/local` |
+| `--file <path-or-alias>` | Write to a specific file: a declared repository path (`env/project/staging`), a repository alias (`shared`, `development`, `production`), or the machine-local store (`local`, `user/local`) |
+| `--repo-local` | Shorthand for `--file user/local` — the machine-local store |
 | `--gui` | Use a native GUI dialog for input instead of terminal or piped input |
 | `--global` | Set the secret in `~/.hush` instead of the current project store |
 
 Supply exactly one destination selector. `--file`, `--repo-local`/`--local`, and `--env` cannot be combined. `hush set` intentionally rejects `--target` before reading a value because a target can contain multiple files; inspect precedence with `hush resolve <target>`, then select the intended file with `--file`.
+
+### Storage Classes
+
+The first segment of a path names where the secret is stored. A selector's meaning never depends on repository state:
+
+| Path | Storage | Committed? | Who can decrypt |
+|------|---------|-----------|-----------------|
+| `user/**` | Machine-local override store | No — lives under `~/.hush/state/` | Only this machine |
+| everything else (`env/**`, `artifacts/**`, …) | Repository file under `.hush/files/` | Yes | Every identity in the file's reader set |
+
+`user/local` is the only machine-local destination, and `user/**` can never be declared as a repository file — `hush file add user/anything` fails, and `copy-key` / `move-key` / `delete-key` reject the namespace outright rather than reinterpreting it.
+
+<Aside type="caution">
+`env/project/local` is an ordinary **repository** path — committed, and decryptable by everyone in its reader set. It is no longer an alias for machine-local storage. Writing to it when it is not declared fails with an explicit error instead of silently landing in the machine-local store, and `hush doctor` reports any repository file still named `local`. See the [v7 → v8 migration](/migrations/v7-to-v8/).
+</Aside>
 
 ### Input Methods (Priority Order)
 
@@ -266,7 +283,7 @@ hush set API_KEY "value" --global
 
 1. Gets the value from inline arg, pipe, GUI, or prompt
 2. Loads the v3 repository and requires an active identity
-3. Shows planned destination before writing (e.g., `will write DATABASE_URL -> env/project/local`)
+3. Shows planned destination before writing (e.g., `will write DATABASE_URL -> user/local`)
 4. Updates the selected `.hush/files/**.encrypted` document, or the machine-local override doc
 5. Writes the YAML document back in place and emits a write audit event
 6. Reads the value back from durable storage to verify the write actually persisted
@@ -279,7 +296,7 @@ For global mode, Hush binds global writes to `~/.hush/.sops.yaml` explicitly, so
 `hush set` never prints a success line without first re-reading the value from durable storage, using the same reader the runtime resolution path uses for that scope. If the value is missing or does not match after the write, the command fails loudly:
 
 ```
-Write verification failed for API_KEY in env/project/local (machine-local): the value is
+Write verification failed for API_KEY in user/local (machine-local): the value is
 missing when read back from durable storage. The write did not persist; do not treat this
 secret as saved.
 ```
@@ -302,7 +319,7 @@ When writing to `shared`, Hush checks if the key already exists in `local`, `dev
 
 ```
 will write DATABASE_URL -> env/project/shared
-⚠ DATABASE_URL already exists in env/project/local
+⚠ DATABASE_URL already exists in user/local
 ```
 
 ### Example Output
@@ -318,8 +335,8 @@ will write API_KEY -> env/project/shared
 ✓ API_KEY set in env/project/shared (14 chars)
 
 $ hush set DATABASE_URL "postgres://localhost/mydb" --repo-local
-will write DATABASE_URL -> env/project/local
-✓ DATABASE_URL set in env/project/local (25 chars)
+will write DATABASE_URL -> user/local
+✓ DATABASE_URL set in user/local (25 chars)
 ```
 
 ### TTY Input

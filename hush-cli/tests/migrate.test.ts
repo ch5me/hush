@@ -156,7 +156,7 @@ describe('migrateCommand v2 -> v3', () => {
     const projectSlug = createProjectSlug('test/repo');
     const localOverridePath = join(process.env.HOME!, '.hush', 'state', 'projects', projectSlug, 'user', 'local-overrides.encrypted');
     expect(nodeFs.existsSync(localOverridePath)).toBe(true);
-    expect(readDecryptedYamlFile(root, localOverridePath)).toContain('env/project/local/LOCAL_ONLY');
+    expect(readDecryptedYamlFile(root, localOverridePath)).toContain('user/local/LOCAL_ONLY');
   }, 60000);
 
   it('cleanup is rerun-safe and removes transitional leftovers after validation', async () => {
@@ -240,7 +240,7 @@ describe('migrateCommand v2 -> v3', () => {
 
     expect(runtimeFile).toContain('http://localhost:11434');
     expect(runtimeFile).not.toContain('${OLLAMA_API_KEY}');
-    expect(localFile).toContain('env/project/local/OLLAMA_API_KEY');
+    expect(localFile).toContain('user/local/OLLAMA_API_KEY');
   }, 60000);
 
   it('fails migration with a clear unresolved interpolation error before v3 materialization crashes', async () => {

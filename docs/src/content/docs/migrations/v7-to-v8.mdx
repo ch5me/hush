@@ -1,0 +1,117 @@
+---
+title: "Migration: v7 to v8"
+description: One path, one storage location — env/project/local stops meaning two different things.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+# Migrating from Hush v7 to v8
+
+## Summary
+
+**Who's affected:** anyone who wrote `hush set --file env/project/local`, or who declared a repository file at `env/project/local`
+**Estimated time:** none for most repos — the machine-local store migrates itself on first read
+**Breaking change:** `env/project/local` is now only a repository path; the machine-local store moved to `user/local`
+
+## What Changed
+
+Through v7, `env/project/local` named **two different storage locations** depending on invisible repository state:
+
+- if the manifest declared a file at that path, `hush set --file env/project/local` wrote the **committed repository file** `.hush/files/env/project/local.encrypted`, readable by every identity in its reader set;
+- if it did not, the same command wrote the **machine-local override store** under `~/.hush/state/`, readable only on that machine.
+
+Worse, both stores keyed their entries `env/project/local/<KEY>`, so when both existed a machine-local value silently shadowed the committed one under a single logical path, and `hush trace` could not tell them apart.
+
+v8 makes the **first path segment name the storage class**:
+
+| Path | Storage | Committed? | Who can decrypt |
+|------|---------|-----------|-----------------|
+| `user/**` | Machine-local override store | No | Only this machine |
+| everything else (`env/**`, `artifacts/**`, …) | Repository file under `.hush/files/` | Yes | Every identity in the file's reader set |
+
+`user/local` is the machine-local store's only document, and `user/**` can never be declared as a repository file. `env/project/local` becomes an ordinary — if unfortunately named — repository path.
+
+### Selector changes
+
+| Selector | v7 | v8 |
+|----------|----|----|
+| `--repo-local`, `--local`, `--file local` | machine-local | machine-local (unchanged) |
+| `--file user/local` | unknown file (error) | machine-local |
+| `--file env/project/local`, file **declared** | repository file | repository file (unchanged) |
+| `--file env/project/local`, file **not declared** | machine-local, silently | **typed error** naming both options |
+| `hush file add user/...` | allowed | `ReservedFilePathError` |
+| `copy-key` / `move-key` / `delete-key` on `user/**` | unknown file | `ReservedFilePathError` |
+
+### Logical path change
+
+Machine-local entries are now keyed `user/local/<KEY>` instead of `env/project/local/<KEY>`. This is visible in `hush trace`, `hush resolve`, and audit output. Environment variable names are unchanged, so nothing at runtime differs.
+
+## What You Have To Do
+
+### The machine-local store: nothing
+
+Hush normalizes the document on read and rewrites it on the next write. The `path` field was always a label, never an address — the address is the fixed filesystem path under `~/.hush/state/` — so no data moves and no keys are re-encrypted.
+
+<Aside type="tip">
+Downgrade stays safe. A v7 CLI reading a `user/local` document resolves it correctly: `user` was already a valid namespace, and env var names come from the leaf key either way.
+</Aside>
+
+### Scripts using `--file env/project/local`
+
+If the path is **not** declared in your repository, that command was silently writing machine-local overrides. Replace it:
+
+```bash
+# before (silently machine-local)
+hush set DATABASE_URL "$VALUE" --file env/project/local
+
+# after
+hush set DATABASE_URL "$VALUE" --repo-local
+```
+
+If the path **is** declared, nothing changes — the command keeps writing the repository file.
+
+### Repository files still named `env/project/local`
+
+<Aside type="danger">
+Treat this as a possible disclosure, not a naming nit. A committed file named `local` is encrypted to every identity in its reader set and stored in git. If any value in it was meant to stay on one machine, renaming does not undo the exposure: git history keeps the ciphertext and readers already hold the age keys. **Rotate first.**
+</Aside>
+
+`hush doctor` reports the file, its entry count, and whether a bundle selects it — bundled means every collaborator already resolves those values, which raises the urgency. `hush set` and `hush edit` print the same warning whenever they touch it.
+
+<Steps>
+
+1. Find it:
+
+   ```bash
+   hush doctor
+   ```
+
+2. Rotate every value in the file that was meant to be machine-local, at its source (the provider, not Hush).
+
+3. Move the values that legitimately belong to the team into a properly named file:
+
+   ```bash
+   hush copy-key API_KEY --from env/project/local --to env/project/development
+   ```
+
+   Values that should have been machine-local go to the machine-local store instead:
+
+   ```bash
+   hush set API_KEY --repo-local
+   hush delete-key API_KEY --from env/project/local
+   ```
+
+4. Drop the file once it is empty:
+
+   ```bash
+   hush bundle remove-file <bundle> env/project/local   # if any bundle references it
+   hush file remove env/project/local
+   ```
+
+</Steps>
+
+Keeping the file is legal — v8 does not break it — but `hush doctor` will keep reporting it until it is gone.
+
+## Why It Is Not Just a Docs Fix
+
+The v7 reference claimed `--repo-local` was "shorthand for `--file env/project/local`", which was only true when the file was undeclared. Documenting the split precedence accurately would have left a secrets manager in which one path resolves to two storage locations with different readerships, chosen by state the operator cannot see at the command line. For a secrets tool that is a fail-loud violation, not a documentation gap.

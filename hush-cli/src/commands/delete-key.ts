@@ -3,7 +3,7 @@ import pc from 'picocolors';
 import { stringify as stringifyYaml } from 'yaml';
 import { appendAuditEvent } from '../v3/audit.js';
 import { createFileDocument } from '../v3/domain.js';
-import { assertNamespacedPath } from '../v3/schema.js';
+import { MACHINE_LOCAL_FILE_PATH, assertRepositoryFilePath } from '../v3/schema.js';
 import {
   readCurrentIdentity,
   requireMutableIdentity,
@@ -73,7 +73,13 @@ export async function deleteKeyCommand(ctx: HushContext, options: DeleteKeyOptio
   try {
     const repository = requireV3Repository(options.store, 'delete-key');
     const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
-    const filePath = assertNamespacedPath(from);
+    // Repository files only, fail closed — never reinterpret a machine-local
+    // selector as a repository file, or vice versa.
+    const filePath = assertRepositoryFilePath(
+      from,
+      `Machine-local overrides live at "${MACHINE_LOCAL_FILE_PATH}"; delete-key operates on committed repository files only. `
+      + 'Remove machine-local values with "hush edit --file local".',
+    );
     const systemPath = repository.fileSystemPaths[filePath];
     if (!systemPath) {
       throw new Error(withSuggestion(

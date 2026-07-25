@@ -414,6 +414,17 @@ hush set DEBUG --local
 
 \`hush set\` accepts exactly one destination selector. Use \`--file <namespaced-path>\`, \`--repo-local\`/\`--local\`, or \`--env <development|production>\`. It intentionally rejects \`--target\`; inspect target precedence with \`hush resolve <target>\`, then choose the destination file explicitly.
 
+#### Storage classes
+
+The first path segment names where a secret is stored, and a selector's meaning never depends on repository state:
+
+- \`user/**\` — machine-local override store (\`~/.hush/state/projects/<slug>/user/local-overrides.encrypted\`). Never committed, readable only on this machine. \`user/local\` is the only destination in it; write it with \`--repo-local\`, \`--local\`, \`--file local\`, or \`--file user/local\`.
+- everything else (\`env/**\`, \`artifacts/**\`, ...) — repository file under \`.hush/files/\`. Committed, and decryptable by every identity in that file's reader set.
+
+\`user/**\` can never be declared as a repository file: \`hush file add user/...\` fails, and \`copy-key\`/\`move-key\`/\`delete-key\` reject the namespace rather than reinterpreting it as machine-local.
+
+\`env/project/local\` is an ordinary **repository** path — committed and readable by the whole team, despite the name. It is not an alias for machine-local storage. \`hush set --file env/project/local\` writes the repository file when it is declared, and hard-errors when it is not (it never silently falls back to the machine-local store). \`hush doctor\` flags any repository file still named \`local\`; if a value there was meant to stay on one machine, treat it as disclosed and rotate it.
+
 \`hush set\` verifies every write by reading the value back from durable storage before reporting success, and fails loudly ("Write verification failed for ...") if it did not persist. Treat that error as "the secret is NOT saved". If the write persists but the active target does not resolve the destination file, \`hush set\` still succeeds and warns that \`hush get\` will not return the key there — run \`hush trace <KEY>\` to see which targets select it.
 
 ### hush import add
@@ -427,8 +438,9 @@ hush import add --source-root /absolute/path/to/source --bundle shared-runtime
 ### hush edit
 
 Edit one v3 document through a decrypted temporary YAML file that Hush re-encrypts on save.
-Accepts the short aliases (\`shared\`/\`development\`/\`production\`/\`local\`) or any file declared in the
-repository manifest (see \`hush file list\`). An unknown path hard-errors instead of editing a fallback file.
+Accepts the repository aliases (\`shared\`/\`development\`/\`production\`), the machine-local store
+(\`local\`/\`user/local\`), or any file declared in the repository manifest (see \`hush file list\`).
+An unknown path hard-errors instead of editing a fallback file.
 
 \`\`\`bash
 hush edit
