@@ -143,7 +143,7 @@ describe('global store runtime regressions', () => {
     vi.clearAllMocks();
   });
 
-  it('run --global preserves child side effects, inherits stdio, and propagates exit codes', { timeout: 15000 }, async () => {
+  it('run --global preserves child side effects, inherits stdio, and propagates exit codes', async () => {
     const globalRoot = join(TEST_DIR, 'global-store');
     const workspace = join(TEST_DIR, 'workspace');
     const sideEffectPath = join(workspace, 'child-output.txt');
@@ -195,7 +195,7 @@ describe('global store runtime regressions', () => {
     expect(output).not.toContain('secret-value');
   });
 
-  it('has --global follows non-empty value semantics', { timeout: 15000 }, async () => {
+  it('has --global follows non-empty value semantics', async () => {
     const globalRoot = join(TEST_DIR, 'global-store');
     const { ctx, logger } = createContext(globalRoot);
     const store = createStore(globalRoot, 'global');

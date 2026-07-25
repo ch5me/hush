@@ -7,8 +7,14 @@ export default defineConfig({
     isolate: true,
     pool: 'forks',
     fileParallelism: false,
+    // Keeps the machine's real age keyring out of every test process; see the
+    // setup file for why SOPS_AGE_KEY_FILE alone is not isolation.
+    setupFiles: ['./tests/setup/isolate-machine-keyring.ts'],
     // Many tests shell out to real sops/age; local binary versions and machine
     // load make 5s flaky. CI pins sops/age versions and remains the gate.
+    // Do not shorten this with a per-test `{ timeout }` override: two sops-heavy
+    // tests carried a 15s one and timed out at load average ~440 while passing
+    // on this budget.
     testTimeout: 30000,
     env: {
       // The 2s production preflight budget catches a captive-portal hang fast,

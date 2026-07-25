@@ -4,11 +4,27 @@ import * as nodeFs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { decrypt, decryptYaml, encryptYamlContent, SOPS_PREFLIGHT_TIMEOUT_ENV } from '../../src/core/sops.js';
+import { ageGenerate } from '../../src/lib/age.js';
 import { createFileDocument, createFileIndexEntry, createManifestDocument } from '../../src/index.js';
 import type { HushManifestDocument } from '../../src/types.js';
 
 export const TEST_AGE_PUBLIC_KEY = 'age1k6085c7hu6xgwtp2w35kf224peecjjagvswzhgtgmh76gaxcppnq9rlkqx';
 export const TEST_AGE_PRIVATE_KEY = 'AGE-SECRET-KEY-1NRM2VW0WPL94YENWTCUNCSR0QNTFHLNZR0MHARQ2G5FL9PQW9TKQKV32PS';
+
+/**
+ * A real recipient whose private key is known to exist on at least one CH5
+ * developer machine. Kept as a literal on purpose: a test that encrypts to it
+ * and still decrypts proves the machine's age keyring leaked into the run.
+ */
+export const MACHINE_KEYRING_CANARY_RECIPIENT = 'age1vacr4w7m3qje0px6gvglx4u6rxt2zrkxr572dth8fjz8666ydcesd3fcpf';
+
+/**
+ * A recipient whose private key is generated and immediately discarded, so no
+ * machine can hold it. Use instead of a hardcoded "foreign" recipient.
+ */
+export function generateThrowawayAgeRecipient(): string {
+  return ageGenerate().public;
+}
 
 const TEST_KEY_FILE = join(tmpdir(), 'hush-test-age-key.txt');
 

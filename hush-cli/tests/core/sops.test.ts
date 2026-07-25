@@ -4,7 +4,8 @@ import { delimiter, dirname } from 'node:path';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { decrypt, decryptYaml, DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS, encrypt, encryptYamlContent, getSopsPreflightRetryTimeoutMs, getSopsPreflightTimeoutMs, isSopsInstalled, resetSopsPreflightCache, resolveAgeKeySource, setKey, SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV, SOPS_PREFLIGHT_RETRY_TIMEOUT_MS, SOPS_PREFLIGHT_TIMEOUT_ENV, SopsPreflightTimeoutError, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
-import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsConfig, ensureTestSopsEnv } from '../helpers/sops-test.js';
+import { ageGenerate } from '../../src/lib/age.js';
+import { MACHINE_KEYRING_CANARY_RECIPIENT, TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsConfig, ensureTestSopsEnv, generateThrowawayAgeRecipient } from '../helpers/sops-test.js';
 
 describe('sops helpers', () => {
   let storeDir: string;
@@ -227,7 +228,7 @@ describe('sops helpers', () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), 'hush-sops-home-multi-recipient-'));
     const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
     const projectKeyPath = join(isolatedHome, '.config', 'sops', 'age', 'keys', 'matrix.txt');
-    const firstRecipient = 'age1vacr4w7m3qje0px6gvglx4u6rxt2zrkxr572dth8fjz8666ydcesd3fcpf';
+    const firstRecipient = generateThrowawayAgeRecipient();
 
     mkdirSync(dirname(manifestPath), { recursive: true });
     mkdirSync(dirname(projectKeyPath), { recursive: true });
@@ -245,6 +246,57 @@ describe('sops helpers', () => {
     const resolution = resolveAgeKeySource({ root: storeDir });
     expect(resolution.selectedKeySource).toBe('project-key-match');
     expect(resolution.selectedKeyPath).toBe(projectKeyPath);
+  });
+
+  // Guards the isolation in tests/setup/isolate-machine-keyring.ts: without it,
+  // sops adds the developer's default keyring to the identities from
+  // SOPS_AGE_KEY_FILE, and this decrypt succeeds on any box holding the canary's
+  // private key — turning every "foreign recipient" assertion into a no-op.
+  it.each([
+    ['a recipient held on a developer machine', () => MACHINE_KEYRING_CANARY_RECIPIENT],
+    ['a recipient nobody holds', generateThrowawayAgeRecipient],
+  ])('refuses to decrypt a file encrypted only for %s', (_label, resolveRecipient) => {
+    const foreignRecipient = resolveRecipient();
+    const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
+
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    writeFileSync(
+      join(storeDir, '.sops.yaml'),
+      `creation_rules:\n  - encrypted_regex: .*\n    age: ${foreignRecipient}\n`,
+      'utf-8',
+    );
+    encryptYamlContent('version: 3\n', manifestPath, { root: storeDir });
+
+    expect(() => decryptYaml(manifestPath, { root: storeDir })).toThrow(/no identity matched/i);
+  });
+
+  // Positive control for the guard above, and the part of it that cannot rot:
+  // it proves sops really does add the default keyring to SOPS_AGE_KEY_FILE
+  // (so a "must fail" assertion is meaningful) and that the keyring the suite
+  // reaches is the sandbox one. Fails on every machine if setupFiles is dropped.
+  it('adds the sandboxed default keyring to the identity from SOPS_AGE_KEY_FILE', () => {
+    const keyringPath = getStandardKeysPath(process.env.HOME ?? '');
+    const keyringKey = ageGenerate();
+    const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
+
+    expect(keyringPath.startsWith(tmpdir())).toBe(true);
+
+    mkdirSync(dirname(keyringPath), { recursive: true });
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    writeFileSync(
+      join(storeDir, '.sops.yaml'),
+      `creation_rules:\n  - encrypted_regex: .*\n    age: ${keyringKey.public}\n`,
+      'utf-8',
+    );
+
+    try {
+      writeFileSync(keyringPath, `${keyringKey.private}\n`, 'utf-8');
+      encryptYamlContent('version: 3\n', manifestPath, { root: storeDir });
+
+      expect(decryptYaml(manifestPath, { root: storeDir })).toContain('version: 3');
+    } finally {
+      rmSync(keyringPath, { force: true });
+    }
   });
 
   it('stages plaintext in a private temp dir with restrictive permissions and cleanup', () => {

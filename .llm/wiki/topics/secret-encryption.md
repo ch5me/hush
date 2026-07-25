@@ -69,6 +69,14 @@ Sharp edges:
 - A timed-out preflight makes *every* decrypt fail, which used to surface as unrelated failures elsewhere. `ensureEncryptedFixtureRepo()` in `hush-cli/tests/helpers/sops-test.ts` throws `FixtureNotDecryptedError` rather than writing still-encrypted content back over a tracked fixture.
 - `loadMachineLocalOverrides()` wraps decrypt failures as `Invalid machine-local override file at <path>`. A `SopsPreflightTimeoutError` is now **re-thrown unwrapped**: relabeling an environment failure as file corruption sent `ch5-managed-runtime ensure ch5-devtools` chasing a nonexistent bad file for hours on 2026-07-25. Any new wrapper on a sops call must preserve typed environment failures the same way.
 
+## Machine Keyring Leaks Into Tests (sharp edge)
+
+`SOPS_AGE_KEY_FILE` is **additive, not exclusive**: sops loads that identity *plus* the machine's default keyring (`~/Library/Application Support/sops/age/keys.txt` on macOS, `$XDG_CONFIG_HOME/sops/age/keys.txt` elsewhere). A test whose premise is "this recipient is foreign, so decryption must fail" therefore passed for the wrong reason on any box holding that recipient's private key, and meant something different in CI.
+
+`hush-cli/tests/setup/isolate-machine-keyring.ts` (a vitest `setupFiles` entry) repoints `HOME` at a throwaway directory for every test process and deletes `XDG_CONFIG_HOME` plus the three `SOPS_AGE_KEY*` variables, so neither the real keyring, the real `~/.hush` store, nor an identity exported in the developer's shell is reachable. `XDG_CONFIG_HOME` is deleted rather than repointed: an absolute value outranks the per-test `HOME` overrides that Linux key resolution reads through it, which would make keyring-path tests share one directory on CI while still passing on macOS.
+
+Use `generateThrowawayAgeRecipient()` from `tests/helpers/sops-test.ts` for foreign recipients rather than hardcoding one. Two tests in `tests/core/sops.test.ts` keep the isolation honest: the hardcoded `MACHINE_KEYRING_CANARY_RECIPIENT` asserts that a file encrypted to a real developer's key does *not* decrypt, and a positive control writes a throwaway key into the sandbox's default keyring and asserts it *does* — that second one fails on any machine if `setupFiles` is dropped, even after the canary key is rotated away.
+
 ## Error Handling
 
 Decryption errors check for `No identity matched` in stderr and now report the selected key identity/source plus every attempted key path so repo bootstrap and local key placement are easier to debug. All SOPS failures include stderr output in the error message.
