@@ -55,6 +55,14 @@ Each has dedicated functions: `encrypt`/`decrypt` for dotenv, `encryptYaml`/`dec
 `getSopsConfigFile()` looks for `.sops.yaml` in the project root. If found, it's passed via `--config` to SOPS commands. The `.sops.yaml` file contains:
 - `creation_rules` with `age` (public key) and optionally `encrypted_regex` to control what SOPS encrypts.
 
+## Preflight Budget (sharp edge)
+
+Every SOPS call is gated by an `isSopsInstalled()` preflight that runs `sops --version` with a **2000ms** budget (`DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS`). Blowing it throws `SopsPreflightTimeoutError`; the budget exists to catch a real captive-portal hang (sops' GitHub update check stalling on filtered TLS) instead of wedging forever.
+
+A heavily loaded machine can also just be slow to start sops — measured 17.8s wall at load average ~490. Override the budget with `HUSH_SOPS_PREFLIGHT_TIMEOUT_MS` (positive integer ms; invalid values throw rather than silently defaulting). The production default is deliberately unchanged; `hush-cli/vitest.config.ts` sets it to 30000 for test runs only.
+
+Sharp edge: a timed-out preflight makes *every* decrypt fail, which used to surface as unrelated failures elsewhere. `ensureEncryptedFixtureRepo()` in `hush-cli/tests/helpers/sops-test.ts` now throws `FixtureNotDecryptedError` rather than writing still-encrypted content back over a tracked fixture.
+
 ## Error Handling
 
 Decryption errors check for `No identity matched` in stderr and now report the selected key identity/source plus every attempted key path so repo bootstrap and local key placement are easier to debug. All SOPS failures include stderr output in the error message.

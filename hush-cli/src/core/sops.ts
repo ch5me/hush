@@ -260,14 +260,39 @@ function buildDecryptionFailureMessage(errorOutput: string, resolution: Resolved
 // The `sops --version` preflight must never block a hush caller indefinitely.
 // baseSopsEnv() already disables sops' network version check, but bound the call
 // anyway as defense-in-depth against any other external stall.
-const SOPS_PREFLIGHT_TIMEOUT_MS = 2000;
+export const DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS = 2000;
+
+export const SOPS_PREFLIGHT_TIMEOUT_ENV = 'HUSH_SOPS_PREFLIGHT_TIMEOUT_MS';
 
 /**
- * Thrown when the `sops --version` preflight does not return within
- * SOPS_PREFLIGHT_TIMEOUT_MS. The usual cause is sops blocking on a network call
- * (its GitHub release check) behind a captive portal or filtered TLS to
- * github.com, where TCP connects but the handshake never completes. Fail loud
- * naming the cause instead of hanging forever or masquerading as "not installed".
+ * The default budget stays deliberately tight: it exists to catch a real
+ * captive-portal hang fast. A heavily loaded machine can still blow past it for
+ * mundane reasons (a cold `sops --version` measured at 17.8s wall under load
+ * average ~490 while running the test suite), so the budget is an explicit
+ * opt-in env override rather than a raised default.
+ */
+export function getSopsPreflightTimeoutMs(): number {
+  const raw = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(
+      `Invalid ${SOPS_PREFLIGHT_TIMEOUT_ENV}=${raw}: expected a positive integer number of milliseconds.`
+    );
+  }
+
+  return parsed;
+}
+
+/**
+ * Thrown when the `sops --version` preflight does not return within its budget.
+ * The usual cause is sops blocking on a network call (its GitHub release check)
+ * behind a captive portal or filtered TLS to github.com, where TCP connects but
+ * the handshake never completes. Fail loud naming the cause instead of hanging
+ * forever or masquerading as "not installed".
  */
 export class SopsPreflightTimeoutError extends Error {
   readonly code = 'SOPS_PREFLIGHT_TIMEOUT';
@@ -278,21 +303,23 @@ export class SopsPreflightTimeoutError extends Error {
         'This usually means sops is blocked on a network call (its GitHub update ' +
         'check) behind a captive portal or filtered TLS to github.com. hush sets ' +
         'SOPS_DISABLE_VERSION_CHECK=1 to prevent this; if it persists, check network ' +
-        'egress or reinstall/upgrade sops.'
+        'egress or reinstall/upgrade sops. On a heavily loaded machine sops can also ' +
+        `simply be slow to start: raise the budget with ${SOPS_PREFLIGHT_TIMEOUT_ENV}.`
     );
     this.name = 'SopsPreflightTimeoutError';
   }
 }
 
 export function isSopsInstalled(): boolean {
+  const timeoutMs = getSopsPreflightTimeoutMs();
   const result = spawnSync('sops', ['--version'], {
     stdio: 'ignore',
-    timeout: SOPS_PREFLIGHT_TIMEOUT_MS,
+    timeout: timeoutMs,
     env: baseSopsEnv(),
   });
 
   if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
-    throw new SopsPreflightTimeoutError(SOPS_PREFLIGHT_TIMEOUT_MS);
+    throw new SopsPreflightTimeoutError(timeoutMs);
   }
 
   // Any other spawn error (ENOENT, EACCES, ...) means sops is genuinely not runnable.

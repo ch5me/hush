@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, st
 import { delimiter, dirname } from 'node:path';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { decrypt, decryptYaml, encrypt, encryptYamlContent, isSopsInstalled, resolveAgeKeySource, setKey, SopsPreflightTimeoutError, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
+import { decrypt, decryptYaml, DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS, encrypt, encryptYamlContent, getSopsPreflightTimeoutMs, isSopsInstalled, resolveAgeKeySource, setKey, SOPS_PREFLIGHT_TIMEOUT_ENV, SopsPreflightTimeoutError, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
 import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsConfig, ensureTestSopsEnv } from '../helpers/sops-test.js';
 
 describe('sops helpers', () => {
@@ -290,11 +290,13 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
   let fakeBinDir: string;
   let originalPath: string | undefined;
   let originalDisableCheck: string | undefined;
+  let originalPreflightTimeout: string | undefined;
 
   beforeEach(() => {
     fakeBinDir = mkdtempSync(join(tmpdir(), 'hush-fake-sops-'));
     originalPath = process.env.PATH;
     originalDisableCheck = process.env.SOPS_DISABLE_VERSION_CHECK;
+    originalPreflightTimeout = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
     process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ''}`;
   });
 
@@ -303,6 +305,8 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
     else process.env.PATH = originalPath;
     if (originalDisableCheck === undefined) delete process.env.SOPS_DISABLE_VERSION_CHECK;
     else process.env.SOPS_DISABLE_VERSION_CHECK = originalDisableCheck;
+    if (originalPreflightTimeout === undefined) delete process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+    else process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = originalPreflightTimeout;
     rmSync(fakeBinDir, { recursive: true, force: true });
   });
 
@@ -316,6 +320,8 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
     // Emulates stock sops phoning github.com on a filtered network where the
     // TLS handshake never completes: `sops --version` blocks indefinitely.
     installFakeSops('sleep 30');
+    // Assert against the shipped default, not the suite-wide loaded-machine budget.
+    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = String(DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS);
 
     const start = Date.now();
     let thrown: unknown;
@@ -346,5 +352,38 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
     // Empty fake bin dir on PATH + a PATH that cannot resolve `sops` → ENOENT.
     process.env.PATH = fakeBinDir;
     expect(isSopsInstalled()).toBe(false);
+  });
+
+  it('keeps the tight 2s default budget when no override is set', () => {
+    delete process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+    expect(DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS).toBe(2000);
+    expect(getSopsPreflightTimeoutMs()).toBe(2000);
+  });
+
+  it('honors an explicit budget override so loaded machines can wait out a slow sops', () => {
+    // Slower than the override below, faster than the raised one.
+    installFakeSops('sleep 1');
+
+    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '200';
+    let thrown: unknown;
+    try {
+      isSopsInstalled();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(SopsPreflightTimeoutError);
+    expect((thrown as SopsPreflightTimeoutError).timeoutMs).toBe(200);
+
+    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '10000';
+    expect(isSopsInstalled()).toBe(true);
+  }, 20_000);
+
+  it('rejects a non-positive or non-numeric budget override instead of silently defaulting', () => {
+    for (const invalid of ['0', '-1', 'abc', '1.5']) {
+      process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = invalid;
+      expect(() => getSopsPreflightTimeoutMs()).toThrow(
+        new RegExp(`Invalid ${SOPS_PREFLIGHT_TIMEOUT_ENV}=${invalid.replace('.', '\\.')}`),
+      );
+    }
   });
 });

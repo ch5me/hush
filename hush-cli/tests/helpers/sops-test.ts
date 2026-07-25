@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import * as nodeFs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { decrypt, decryptYaml, encryptYamlContent } from '../../src/core/sops.js';
+import { decrypt, decryptYaml, encryptYamlContent, SOPS_PREFLIGHT_TIMEOUT_ENV } from '../../src/core/sops.js';
 import { createFileDocument, createFileIndexEntry, createManifestDocument } from '../../src/index.js';
 import type { HushManifestDocument } from '../../src/types.js';
 
@@ -84,15 +84,74 @@ export function readDecryptedDotenvFile(root: string, filePath: string): string 
   return decrypt(filePath, { root });
 }
 
+/**
+ * Thrown instead of writing content that is still SOPS ciphertext back over a
+ * tracked fixture. Silently persisting it corrupts the checked-in fixture and
+ * surfaces later as unrelated failures across the suite (e.g. `Invalid Hush
+ * namespace "ENC[AES256_GCM,...]"`), whose only recovery — `git checkout --
+ * hush-cli/tests/fixtures` — is undiscoverable from the error.
+ */
+export class FixtureNotDecryptedError extends Error {
+  readonly code = 'FIXTURE_NOT_DECRYPTED';
+
+  constructor(readonly fixturePath: string, readonly decryptFailure?: string) {
+    super(
+      [
+        `Refusing to write undecrypted content back to fixture: ${fixturePath}`,
+        'The content still looks like SOPS ciphertext, so decryption did not actually happen.',
+        'The usual cause is sops failing on this machine — e.g. SopsPreflightTimeoutError when the',
+        '"sops --version" preflight blows its budget under heavy load; raise it with',
+        `${SOPS_PREFLIGHT_TIMEOUT_ENV} — not a bad fixture.`,
+        'If an earlier run already corrupted a fixture, restore it with:',
+        '  git checkout -- hush-cli/tests/fixtures',
+        ...(decryptFailure ? ['', `Decryption failure: ${decryptFailure}`] : []),
+      ].join('\n'),
+    );
+    this.name = 'FixtureNotDecryptedError';
+  }
+}
+
+/** SOPS-encrypted YAML keeps a top-level `sops:` envelope and ENC[...] values. */
+function looksLikeSopsCiphertext(content: string): boolean {
+  return content.includes('ENC[AES256_GCM') || /^sops:\s*$/m.test(content);
+}
+
+function describeFailure(failure: unknown): string | undefined {
+  if (failure === undefined) {
+    return undefined;
+  }
+
+  return failure instanceof Error ? `${failure.name}: ${failure.message}` : String(failure);
+}
+
+function assertDecryptedFixtureContent(fixturePath: string, content: string, failure?: unknown): string {
+  if (looksLikeSopsCiphertext(content)) {
+    throw new FixtureNotDecryptedError(fixturePath, describeFailure(failure));
+  }
+
+  return content;
+}
+
 export function ensureEncryptedFixtureRepo(root: string): void {
   ensureTestSopsConfig(root);
 
   const readYaml = (filePath: string): string => {
+    let decryptFailure: unknown;
+
     try {
-      return decryptYaml(filePath, { root });
-    } catch {
-      return nodeFs.readFileSync(filePath, 'utf-8');
+      const decrypted = decryptYaml(filePath, { root });
+      if (!looksLikeSopsCiphertext(decrypted)) {
+        return decrypted;
+      }
+      decryptFailure = new Error('sops exited 0 but returned ciphertext');
+    } catch (error) {
+      decryptFailure = error;
     }
+
+    // A fixture may legitimately be checked in as plaintext awaiting first
+    // encryption; anything that still reads as ciphertext is a failed decrypt.
+    const raw = nodeFs.readFileSync(filePath, 'utf-8');
+    return assertDecryptedFixtureContent(filePath, raw, decryptFailure);
   };
 
   const manifestPath = join(root, '.hush', 'manifest.encrypted');
@@ -136,7 +195,8 @@ export function ensureEncryptedFixtureRepo(root: string): void {
       ...(parseYaml(manifestContent) as Record<string, unknown>),
       fileIndex,
     } as HushManifestDocument);
-    nodeFs.writeFileSync(manifestPath, stringifyYaml(manifest, { indent: 2 }), 'utf-8');
+    const serializedManifest = stringifyYaml(manifest, { indent: 2 });
+    nodeFs.writeFileSync(manifestPath, assertDecryptedFixtureContent(manifestPath, serializedManifest), 'utf-8');
   }
 
   const queue = [join(root, '.hush')];
@@ -162,7 +222,9 @@ export function ensureEncryptedFixtureRepo(root: string): void {
         continue;
       }
 
-      writeEncryptedYamlFile(root, entryPath, raw);
+      // No `sops:` envelope but ENC[...] values means a half-corrupted fixture:
+      // re-encrypting it would entrench the ciphertext as plaintext.
+      writeEncryptedYamlFile(root, entryPath, assertDecryptedFixtureContent(entryPath, raw));
     }
   }
 }
