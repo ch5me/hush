@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SOPS_PREFLIGHT_TIMEOUT_ENV, encryptYamlContent } from '../../src/core/sops.js';
 import {
@@ -55,12 +55,22 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
     );
   }
 
-  /** Emulate the reported failure: sops stalls, so its preflight budget blows. */
+  /**
+   * Emulate the reported failure: sops stalls, so its preflight budget blows.
+   *
+   * PATH is *prepended*, never replaced. The fake shadows the real sops either
+   * way, but replacing PATH also strips `sleep` from the stub's own lookup, so
+   * on Linux the stub exited 127 and `isSopsInstalled()` reported "not
+   * installed" instead of timing out — the assertion below then compared
+   * against the wrong error. macOS hid it: its `spawnSync` resolved the real
+   * sops regardless of PATH, whose cold start happens to exceed the 200ms
+   * budget, so the test passed for the wrong reason.
+   */
   function stallSopsOnThisMachine(): void {
     const fakeSops = join(fakeBinDir, 'sops');
     writeFileSync(fakeSops, '#!/bin/sh\nsleep 5\n', 'utf-8');
     chmodSync(fakeSops, 0o755);
-    process.env.PATH = fakeBinDir;
+    process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ''}`;
     process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '200';
   }
 
