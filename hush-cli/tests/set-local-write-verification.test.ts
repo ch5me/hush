@@ -545,7 +545,7 @@ describe('storage class is named by the path, never by manifest state', () => {
     ).rejects.toThrow(/reserved "user\/" namespace/);
   }, 60000);
 
-  it('never lets copy-key or delete-key reach the machine-local store', async () => {
+  it('never lets copy-key reach the machine-local store', async () => {
     const root = join(TEST_DIR, 'key-transfer-fail-closed');
     const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
     const { ctx } = createContext(root);
@@ -555,9 +555,39 @@ describe('storage class is named by the path, never by manifest state', () => {
     await expect(
       copyKeyCommand(ctx, { store, key: 'ANY_KEY', from: 'env/project/shared', to: 'user/local', move: false }),
     ).rejects.toThrow(/reserved "user\/" namespace/);
+  }, 60000);
 
+  /**
+   * `delete-key` REACHES the machine-local store on purpose; `copy-key` still
+   * does not.
+   *
+   * The asymmetry is deliberate. Copying INTO the machine-local store creates a
+   * shadowing override, which is the hazard. Deleting FROM it removes one — and
+   * that removal is the remediation the shadow guard prints, so it has to exist
+   * as a runnable command. It previously did not: `--from user/local` was
+   * refused here, leaving an interactive `hush edit --file local` as the only
+   * way to clear an override.
+   *
+   * "Not found" (rather than a namespace refusal) is the proof that the command
+   * reached the machine-local store and looked.
+   */
+  it('lets delete-key target the machine-local store, without reinterpreting selectors', async () => {
+    const root = join(TEST_DIR, 'delete-key-machine-local');
+    const repository = writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    for (const from of ['user/local', 'local']) {
+      await expect(
+        deleteKeyCommand(ctx, { store, key: 'ANY_KEY', from, yes: true }),
+      ).rejects.toThrow(/was not found in user\/local/);
+    }
+
+    // Any OTHER reserved-namespace path is still refused: an explicit selector
+    // is never widened into "some machine-local file".
     await expect(
-      deleteKeyCommand(ctx, { store, key: 'ANY_KEY', from: 'user/local', yes: true }),
+      deleteKeyCommand(ctx, { store, key: 'ANY_KEY', from: 'user/anything-else', yes: true }),
     ).rejects.toThrow(/reserved "user\/" namespace/);
   }, 60000);
 
