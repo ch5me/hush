@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { SOPS_PREFLIGHT_TIMEOUT_ENV, encryptYamlContent } from '../../src/core/sops.js';
+import {
+  SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV,
+  SOPS_PREFLIGHT_TIMEOUT_ENV,
+  encryptYamlContent,
+  resetSopsPreflightCache,
+} from '../../src/core/sops.js';
 import {
   FixtureNotDecryptedError,
   TEST_AGE_PUBLIC_KEY,
@@ -27,6 +32,7 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
   let fakeBinDir: string;
   let originalPath: string | undefined;
   let originalPreflightTimeout: string | undefined;
+  let originalRetryTimeout: string | undefined;
 
   beforeEach(() => {
     ensureTestSopsEnv();
@@ -36,6 +42,7 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
     mkdirSync(join(fixtureRoot, '.hush'), { recursive: true });
     originalPath = process.env.PATH;
     originalPreflightTimeout = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+    originalRetryTimeout = process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
   });
 
   afterEach(() => {
@@ -43,6 +50,10 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
     else process.env.PATH = originalPath;
     if (originalPreflightTimeout === undefined) delete process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
     else process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = originalPreflightTimeout;
+    if (originalRetryTimeout === undefined) delete process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
+    else process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = originalRetryTimeout;
+    // Drop any verdict reached against the stub or the tightened budgets.
+    resetSopsPreflightCache();
     rmSync(fixtureRoot, { recursive: true, force: true });
     rmSync(fakeBinDir, { recursive: true, force: true });
   });
@@ -72,6 +83,13 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
     chmodSync(fakeSops, 0o755);
     process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ''}`;
     process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '200';
+    // Both budgets, or the retry waits out the real 20s default and the stub
+    // (`sleep 5`) returns first, so no timeout is ever observed.
+    process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = '200';
+    // The preflight memoizes a runnable verdict process-wide, and this test's
+    // own setup (encryptYamlContent above) already proved the real sops
+    // runnable. Without this the stub is never consulted at all.
+    resetSopsPreflightCache();
   }
 
   it('throws a typed error naming the fixture instead of persisting undecryptable content', () => {
