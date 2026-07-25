@@ -59,9 +59,15 @@ Each has dedicated functions: `encrypt`/`decrypt` for dotenv, `encryptYaml`/`dec
 
 Every SOPS call is gated by an `isSopsInstalled()` preflight that runs `sops --version` with a **2000ms** budget (`DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS`). Blowing it throws `SopsPreflightTimeoutError`; the budget exists to catch a real captive-portal hang (sops' GitHub update check stalling on filtered TLS) instead of wedging forever.
 
-A heavily loaded machine can also just be slow to start sops — measured 17.8s wall at load average ~490. Override the budget with `HUSH_SOPS_PREFLIGHT_TIMEOUT_MS` (positive integer ms; invalid values throw rather than silently defaulting). The production default is deliberately unchanged; `hush-cli/vitest.config.ts` sets it to 30000 for test runs only.
+A heavily loaded machine can also just be slow to start sops — measured 17.8s wall at load average ~490, and 1475/1908/2193/2638/6256ms across five samples at load average 873 on chrislaptop (2026-07-25) **with the network version check already disabled**. So a blown 2000ms budget does not mean the network is wrong; it usually means the box is busy.
 
-Sharp edge: a timed-out preflight makes *every* decrypt fail, which used to surface as unrelated failures elsewhere. `ensureEncryptedFixtureRepo()` in `hush-cli/tests/helpers/sops-test.ts` now throws `FixtureNotDecryptedError` rather than writing still-encrypted content back over a tracked fixture.
+Because of that, a blown fast budget is **retried once** with `SOPS_PREFLIGHT_RETRY_TIMEOUT_MS` (20s default, overridable with `HUSH_SOPS_PREFLIGHT_RETRY_TIMEOUT_MS`, never lower than an explicitly raised fast budget). Only when *both* budgets blow does `SopsPreflightTimeoutError` throw, reporting `attempts: 2`. The fast path stays fast, a genuinely wedged sops still fails loud and bounded, and plain CPU starvation no longer masquerades as a captive portal. Override the fast budget itself with `HUSH_SOPS_PREFLIGHT_TIMEOUT_MS` (positive integer ms; invalid values throw rather than silently defaulting); `hush-cli/vitest.config.ts` sets it to 30000 for test runs only.
+
+The preflight guards *every* encrypt/decrypt entry point, so it re-spawned `sops --version` once per decrypted file — two spawns measured for a `hush run` that aborted early at target selection. A **runnable** verdict is now memoized per process (`resetSopsPreflightCache()` clears it); a failure is never cached.
+
+Sharp edges:
+- A timed-out preflight makes *every* decrypt fail, which used to surface as unrelated failures elsewhere. `ensureEncryptedFixtureRepo()` in `hush-cli/tests/helpers/sops-test.ts` throws `FixtureNotDecryptedError` rather than writing still-encrypted content back over a tracked fixture.
+- `loadMachineLocalOverrides()` wraps decrypt failures as `Invalid machine-local override file at <path>`. A `SopsPreflightTimeoutError` is now **re-thrown unwrapped**: relabeling an environment failure as file corruption sent `ch5-managed-runtime ensure ch5-devtools` chasing a nonexistent bad file for hours on 2026-07-25. Any new wrapper on a sops call must preserve typed environment failures the same way.
 
 ## Error Handling
 

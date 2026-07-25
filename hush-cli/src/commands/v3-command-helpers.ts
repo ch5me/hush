@@ -13,6 +13,7 @@ import {
   resolveV3Target,
   shapeTargetArtifacts,
 } from '../index.js';
+import { SopsPreflightTimeoutError } from '../core/sops.js';
 import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
 import {
   LEGACY_MACHINE_LOCAL_FILE_PATH,
@@ -575,6 +576,15 @@ export function loadMachineLocalOverrides(ctx: HushContext, store: StoreContext)
       normalizeMachineLocalDocument(parseYamlObject(overridePath, content) as HushFileDocument),
     );
   } catch (error) {
+    // An environment failure is NOT a corrupt file. Relabeling a transient
+    // SopsPreflightTimeoutError as "Invalid machine-local override file" sent
+    // ch5-managed-runtime setup chasing file corruption for hours on 2026-07-25
+    // when the real cause was a starved `sops --version`. Let a typed sops
+    // failure propagate with its own diagnosis intact.
+    if (error instanceof SopsPreflightTimeoutError) {
+      throw error;
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid machine-local override file at ${overridePath}: ${message}`);
   }

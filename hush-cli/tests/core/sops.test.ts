@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, st
 import { delimiter, dirname } from 'node:path';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { decrypt, decryptYaml, DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS, encrypt, encryptYamlContent, getSopsPreflightTimeoutMs, isSopsInstalled, resolveAgeKeySource, setKey, SOPS_PREFLIGHT_TIMEOUT_ENV, SopsPreflightTimeoutError, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
+import { decrypt, decryptYaml, DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS, encrypt, encryptYamlContent, getSopsPreflightRetryTimeoutMs, getSopsPreflightTimeoutMs, isSopsInstalled, resetSopsPreflightCache, resolveAgeKeySource, setKey, SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV, SOPS_PREFLIGHT_RETRY_TIMEOUT_MS, SOPS_PREFLIGHT_TIMEOUT_ENV, SopsPreflightTimeoutError, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
 import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsConfig, ensureTestSopsEnv } from '../helpers/sops-test.js';
 
 describe('sops helpers', () => {
@@ -291,13 +291,17 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
   let originalPath: string | undefined;
   let originalDisableCheck: string | undefined;
   let originalPreflightTimeout: string | undefined;
+  let originalRetryTimeout: string | undefined;
 
   beforeEach(() => {
     fakeBinDir = mkdtempSync(join(tmpdir(), 'hush-fake-sops-'));
     originalPath = process.env.PATH;
     originalDisableCheck = process.env.SOPS_DISABLE_VERSION_CHECK;
     originalPreflightTimeout = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+    originalRetryTimeout = process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
     process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ''}`;
+    // A cached "sops is runnable" from an earlier test would skip the fake sops.
+    resetSopsPreflightCache();
   });
 
   afterEach(() => {
@@ -307,7 +311,11 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
     else process.env.SOPS_DISABLE_VERSION_CHECK = originalDisableCheck;
     if (originalPreflightTimeout === undefined) delete process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
     else process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = originalPreflightTimeout;
+    if (originalRetryTimeout === undefined) delete process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
+    else process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = originalRetryTimeout;
     rmSync(fakeBinDir, { recursive: true, force: true });
+    // Never leak a fake-sops verdict into the suites that use the real binary.
+    resetSopsPreflightCache();
   });
 
   function installFakeSops(body: string): void {
@@ -322,6 +330,8 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
     installFakeSops('sleep 30');
     // Assert against the shipped default, not the suite-wide loaded-machine budget.
     process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = String(DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS);
+    // Keep the retry bounded here; the retry budget itself is asserted below.
+    process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = '2000';
 
     const start = Date.now();
     let thrown: unknown;
@@ -365,6 +375,7 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
     installFakeSops('sleep 1');
 
     process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '200';
+    process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = '200';
     let thrown: unknown;
     try {
       isSopsInstalled();
@@ -385,5 +396,136 @@ describe('isSopsInstalled preflight (no indefinite network hang)', () => {
         new RegExp(`Invalid ${SOPS_PREFLIGHT_TIMEOUT_ENV}=${invalid.replace('.', '\\.')}`),
       );
     }
+  });
+
+  it('rejects a non-positive or non-numeric retry budget override instead of silently defaulting', () => {
+    for (const invalid of ['0', '-1', 'abc', '1.5']) {
+      process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = invalid;
+      expect(() => getSopsPreflightRetryTimeoutMs()).toThrow(
+        new RegExp(`Invalid ${SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV}=${invalid.replace('.', '\\.')}`),
+      );
+    }
+  });
+});
+
+/**
+ * Regression guard for the 2026-07-25 chrislaptop delivery failure: on a box at
+ * load average 873, a cold `sops --version` with the network version check
+ * already disabled took up to 6256ms, so the single 2s preflight budget failed
+ * `ch5-managed-runtime ensure ch5-devtools` for hours while blaming github.com
+ * egress. The fast budget must stay fast, but a blown fast budget must be
+ * retried generously before anything is declared wedged, and a proven-runnable
+ * sops must not be re-probed once per encrypt/decrypt entry point.
+ */
+describe('isSopsInstalled preflight (slow process start is not a network hang)', () => {
+  let fakeBinDir: string;
+  let originalPath: string | undefined;
+  let originalPreflightTimeout: string | undefined;
+  let originalRetryTimeout: string | undefined;
+
+  beforeEach(() => {
+    fakeBinDir = mkdtempSync(join(tmpdir(), 'hush-slow-sops-'));
+    originalPath = process.env.PATH;
+    originalPreflightTimeout = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+    originalRetryTimeout = process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
+    process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ''}`;
+    resetSopsPreflightCache();
+  });
+
+  afterEach(() => {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalPreflightTimeout === undefined) delete process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+    else process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = originalPreflightTimeout;
+    if (originalRetryTimeout === undefined) delete process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
+    else process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = originalRetryTimeout;
+    rmSync(fakeBinDir, { recursive: true, force: true });
+    resetSopsPreflightCache();
+  });
+
+  function installFakeSops(body: string): void {
+    const path = join(fakeBinDir, 'sops');
+    writeFileSync(path, `#!/bin/sh\n${body}\n`, 'utf-8');
+    chmodSync(path, 0o755);
+  }
+
+  /**
+   * Spawn counts are asserted only against fakes that exit immediately. A fake
+   * that has to be killed for blowing a budget cannot be counted reliably: at
+   * load average ~850 the stub shell was SIGKILLed before it reached its own
+   * `printf`, so a counter file undercounts. Budget-blowing tests assert the
+   * typed outcome and `attempts` instead, which the implementation reports
+   * directly.
+   */
+  function invocations(counterPath: string): number {
+    return existsSync(counterPath) ? readFileSync(counterPath, 'utf-8').length : 0;
+  }
+
+  it('retries once with a generous budget instead of misreporting a slow sops as a network hang', () => {
+    // A sops that simply takes 3s to answer: blows the fast budget, well inside
+    // the retry budget. Before the retry existed this threw and broke delivery.
+    installFakeSops('sleep 3\necho "sops 3.11.0"\nexit 0');
+    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '300';
+    process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = '20000';
+
+    expect(isSopsInstalled()).toBe(true);
+  }, 40_000);
+
+  it('still fails loud, naming both attempts, when sops is genuinely wedged', () => {
+    installFakeSops('sleep 30');
+    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '300';
+    process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = '600';
+
+    const start = Date.now();
+    let thrown: unknown;
+    try {
+      isSopsInstalled();
+    } catch (error) {
+      thrown = error;
+    }
+    const elapsedMs = Date.now() - start;
+
+    expect(thrown).toBeInstanceOf(SopsPreflightTimeoutError);
+    expect((thrown as SopsPreflightTimeoutError).attempts).toBe(2);
+    expect((thrown as SopsPreflightTimeoutError).timeoutMs).toBe(600);
+    expect((thrown as Error).message).toMatch(/2 attempts/);
+    // Bounded by fast + retry, not a 30s hang.
+    expect(elapsedMs).toBeLessThan(15_000);
+  }, 40_000);
+
+  it('spawns one preflight for a runnable sops no matter how many callers ask', () => {
+    const counterPath = join(fakeBinDir, 'invocations');
+    installFakeSops(`printf 'x' >> '${counterPath}'\nexit 0`);
+
+    // The guard is re-entered once per decrypted file; two spawns were measured
+    // for a `hush run` that aborted early, and the count scales from there.
+    for (let i = 0; i < 4; i += 1) {
+      expect(isSopsInstalled()).toBe(true);
+    }
+    expect(invocations(counterPath)).toBe(1);
+  });
+
+  it('never caches a NOT-runnable sops, so a later install is picked up', () => {
+    const counterPath = join(fakeBinDir, 'invocations');
+    installFakeSops(`printf 'x' >> '${counterPath}'\nexit 1`);
+
+    expect(isSopsInstalled()).toBe(false);
+    expect(isSopsInstalled()).toBe(false);
+    expect(invocations(counterPath)).toBe(2);
+  });
+
+  it('keeps a retry budget generous enough for the measured worst-case cold start', () => {
+    delete process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
+    delete process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
+    // Measured 2026-07-25 on chrislaptop: 6256ms at load average 873, and 17.8s
+    // at load ~490 during a full suite run. Do not regress below that.
+    expect(SOPS_PREFLIGHT_RETRY_TIMEOUT_MS).toBeGreaterThanOrEqual(18_000);
+    expect(getSopsPreflightRetryTimeoutMs()).toBeGreaterThanOrEqual(18_000);
+  });
+
+  it('never lets the retry budget fall below an explicitly raised fast budget', () => {
+    delete process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
+    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '60000';
+    expect(getSopsPreflightRetryTimeoutMs()).toBe(60_000);
   });
 });

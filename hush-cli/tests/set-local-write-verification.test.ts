@@ -16,9 +16,9 @@ import {
   loadV3Repository,
   setActiveIdentity,
 } from '../src/index.js';
-import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
+import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled, SopsPreflightTimeoutError } from '../src/core/sops.js';
 import type { HushContext, HushManifestDocument, LegacyHushConfig, StoreContext } from '../src/types.js';
-import { getMachineLocalOverridePath } from '../src/commands/v3-command-helpers.js';
+import { getMachineLocalOverridePath, loadMachineLocalOverrides } from '../src/commands/v3-command-helpers.js';
 import { ensureTestSopsEnv, writeEncryptedYamlFile } from './helpers/sops-test.js';
 
 const TEST_DIR = join('/tmp', 'hush-test-set-local-write-verification');
@@ -559,5 +559,57 @@ describe('storage class is named by the path, never by manifest state', () => {
     await expect(
       deleteKeyCommand(ctx, { store, key: 'ANY_KEY', from: 'user/local', yes: true }),
     ).rejects.toThrow(/reserved "user\/" namespace/);
+  }, 60000);
+
+  /**
+   * Regression for the 2026-07-25 chrislaptop delivery failure: a starved
+   * `sops --version` preflight surfaced as "Invalid machine-local override file
+   * at .../local-overrides.encrypted", so `ch5-managed-runtime ensure
+   * ch5-devtools` looked like file corruption for hours. An environment failure
+   * must keep its own diagnosis instead of being relabeled a bad file.
+   */
+  it('reports a sops preflight timeout as itself, not as a corrupt machine-local override file', () => {
+    const root = join(TEST_DIR, 'preflight-timeout-attribution');
+    writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+
+    const overridePath = getMachineLocalOverridePath(store);
+    nodeFs.mkdirSync(join(overridePath, '..'), { recursive: true });
+    nodeFs.writeFileSync(overridePath, 'placeholder\n', 'utf-8');
+
+    const preflightFailure = new SopsPreflightTimeoutError(20_000, 2);
+    const ctxWithWedgedSops: HushContext = {
+      ...ctx,
+      sops: { ...ctx.sops, decryptYaml: () => { throw preflightFailure; } },
+    };
+
+    expect(() => loadMachineLocalOverrides(ctxWithWedgedSops, store)).toThrow(SopsPreflightTimeoutError);
+    try {
+      loadMachineLocalOverrides(ctxWithWedgedSops, store);
+    } catch (error) {
+      expect(error).toBe(preflightFailure);
+      expect((error as Error).message).not.toMatch(/Invalid machine-local override file/);
+    }
+  }, 60000);
+
+  it('still reports a genuinely corrupt machine-local override file as a bad file', () => {
+    const root = join(TEST_DIR, 'corrupt-override-attribution');
+    writeRepo(root, MANIFEST, { 'env/project/shared': SHARED_FILE });
+    const { ctx } = createContext(root);
+    const store = createStore(root);
+
+    const overridePath = getMachineLocalOverridePath(store);
+    nodeFs.mkdirSync(join(overridePath, '..'), { recursive: true });
+    nodeFs.writeFileSync(overridePath, 'placeholder\n', 'utf-8');
+
+    const ctxWithBadFile: HushContext = {
+      ...ctx,
+      sops: { ...ctx.sops, decryptYaml: () => 'not: [a, valid, document' },
+    };
+
+    expect(() => loadMachineLocalOverrides(ctxWithBadFile, store)).toThrow(
+      /Invalid machine-local override file/,
+    );
   }, 60000);
 });

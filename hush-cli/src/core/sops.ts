@@ -265,11 +265,27 @@ export const DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS = 2000;
 export const SOPS_PREFLIGHT_TIMEOUT_ENV = 'HUSH_SOPS_PREFLIGHT_TIMEOUT_MS';
 
 /**
+ * Second-attempt budget, used ONLY after the fast budget above already timed
+ * out. The fast budget stays tight so a genuine captive-portal hang is caught in
+ * ~2s, but on its own it misreports plain process-start starvation as a network
+ * hang: measured 2026-07-25 on chrislaptop at load average 873 (several agent
+ * lanes running), a cold `sops --version` WITH the network version check already
+ * disabled took 1475 / 1908 / 2193 / 2638 / 6256 ms across five samples — so the
+ * 2s budget failed roughly half the time for a reason that has nothing to do
+ * with the network. An earlier measurement on the same box recorded 17.8s at
+ * load ~490 during a full test-suite run. 20s covers both with headroom.
+ *
+ * This is a retry, not a widened window: the fast path is unchanged, a hung sops
+ * still fails loud (bounded at fast + retry), and the load-induced false failure
+ * — the actual cause — is removed rather than papered over.
+ */
+export const SOPS_PREFLIGHT_RETRY_TIMEOUT_MS = 20_000;
+
+/**
  * The default budget stays deliberately tight: it exists to catch a real
  * captive-portal hang fast. A heavily loaded machine can still blow past it for
- * mundane reasons (a cold `sops --version` measured at 17.8s wall under load
- * average ~490 while running the test suite), so the budget is an explicit
- * opt-in env override rather than a raised default.
+ * mundane reasons, which is what `SOPS_PREFLIGHT_RETRY_TIMEOUT_MS` absorbs; this
+ * env override remains for callers that want a different fast budget outright.
  */
 export function getSopsPreflightTimeoutMs(): number {
   const raw = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
@@ -287,19 +303,40 @@ export function getSopsPreflightTimeoutMs(): number {
   return parsed;
 }
 
+export const SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV = 'HUSH_SOPS_PREFLIGHT_RETRY_TIMEOUT_MS';
+
+export function getSopsPreflightRetryTimeoutMs(): number {
+  const raw = process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
+  if (raw !== undefined && raw.trim() !== '') {
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error(
+        `Invalid ${SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV}=${raw}: expected a positive integer number of milliseconds.`
+      );
+    }
+    return parsed;
+  }
+
+  // Never let the retry be tighter than the fast budget a caller asked for.
+  return Math.max(SOPS_PREFLIGHT_RETRY_TIMEOUT_MS, getSopsPreflightTimeoutMs());
+}
+
 /**
- * Thrown when the `sops --version` preflight does not return within its budget.
- * The usual cause is sops blocking on a network call (its GitHub release check)
- * behind a captive portal or filtered TLS to github.com, where TCP connects but
- * the handshake never completes. Fail loud naming the cause instead of hanging
- * forever or masquerading as "not installed".
+ * Thrown when the `sops --version` preflight does not return within its budget,
+ * on BOTH the fast attempt and the generous retry. Surviving both budgets means
+ * sops is genuinely wedged rather than merely slow to start, so the usual cause
+ * is sops blocking on a network call (its GitHub release check) behind a captive
+ * portal or filtered TLS to github.com, where TCP connects but the handshake
+ * never completes. Fail loud naming the cause instead of hanging forever or
+ * masquerading as "not installed".
  */
 export class SopsPreflightTimeoutError extends Error {
   readonly code = 'SOPS_PREFLIGHT_TIMEOUT';
 
-  constructor(readonly timeoutMs: number) {
+  constructor(readonly timeoutMs: number, readonly attempts: number = 1) {
     super(
-      `sops preflight ("sops --version") did not return within ${timeoutMs}ms. ` +
+      `sops preflight ("sops --version") did not return within ${timeoutMs}ms` +
+        `${attempts > 1 ? ` on any of ${attempts} attempts` : ''}. ` +
         'This usually means sops is blocked on a network call (its GitHub update ' +
         'check) behind a captive portal or filtered TLS to github.com. hush sets ' +
         'SOPS_DISABLE_VERSION_CHECK=1 to prevent this; if it persists, check network ' +
@@ -310,16 +347,56 @@ export class SopsPreflightTimeoutError extends Error {
   }
 }
 
-export function isSopsInstalled(): boolean {
-  const timeoutMs = getSopsPreflightTimeoutMs();
-  const result = spawnSync('sops', ['--version'], {
+/**
+ * Cached only for a RUNNABLE sops. `isSopsInstalled()` guards every encrypt and
+ * decrypt entry point, so the preflight is re-spawned once per decrypted file:
+ * measured 2026-07-25 via a `--version`-vs-other witness stub, a `hush run` that
+ * aborted early at target selection still spawned `sops --version` twice, and the
+ * count scales with the number of files a command touches. Each one is a cold
+ * process start competing for CPU on an already-loaded box, and each one can blow
+ * the preflight budget on its own. sops cannot become un-runnable mid-process in
+ * any way that matters (the real decrypt call would fail loud anyway), so a
+ * proven-runnable sops is remembered; a failure is never cached.
+ */
+let sopsKnownRunnable = false;
+
+/** Forget a cached preflight result. For tests and long-lived hosts. */
+export function resetSopsPreflightCache(): void {
+  sopsKnownRunnable = false;
+}
+
+function runSopsPreflight(timeoutMs: number): ReturnType<typeof spawnSync> {
+  return spawnSync('sops', ['--version'], {
     stdio: 'ignore',
     timeout: timeoutMs,
     env: baseSopsEnv(),
   });
+}
 
-  if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
-    throw new SopsPreflightTimeoutError(timeoutMs);
+function timedOut(result: ReturnType<typeof spawnSync>): boolean {
+  return (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+}
+
+export function isSopsInstalled(): boolean {
+  if (sopsKnownRunnable) {
+    return true;
+  }
+
+  const fastTimeoutMs = getSopsPreflightTimeoutMs();
+  let result = runSopsPreflight(fastTimeoutMs);
+  let attempts = 1;
+
+  // A blown fast budget is ambiguous: wedged sops, or just a starved process
+  // start. Retry once with a generous budget so only a genuinely wedged sops
+  // fails — the fast path stays fast for everyone else.
+  if (timedOut(result)) {
+    const retryTimeoutMs = getSopsPreflightRetryTimeoutMs();
+    result = runSopsPreflight(retryTimeoutMs);
+    attempts = 2;
+
+    if (timedOut(result)) {
+      throw new SopsPreflightTimeoutError(retryTimeoutMs, attempts);
+    }
   }
 
   // Any other spawn error (ENOENT, EACCES, ...) means sops is genuinely not runnable.
@@ -327,7 +404,12 @@ export function isSopsInstalled(): boolean {
     return false;
   }
 
-  return result.status === 0;
+  if (result.status === 0) {
+    sopsKnownRunnable = true;
+    return true;
+  }
+
+  return false;
 }
 
 export function isAgeKeyConfigured(): boolean {
