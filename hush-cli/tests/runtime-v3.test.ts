@@ -263,6 +263,123 @@ describe('task 8 v3 runtime and mutating commands', () => {
     );
   });
 
+  /**
+   * Regression: `hush set --repo-local` wrote a value that `hush has` confirmed
+   * and `hush run` never injected, because machine-local overrides were merged
+   * onto resolver output in a command-layer wrapper that `run` does not call.
+   *
+   * These assertions go through `runCommand` on purpose. The previous fix for
+   * the same class of defect asserted through `hasCommand`, which reads via that
+   * wrapper — the one path that always did merge overrides — so it proved
+   * nothing about the entrypoint that actually consumes secrets.
+   */
+  describe('run and machine-local overrides', () => {
+    function writeOverrideRepo(root: string) {
+      return writeRepo(
+        root,
+        `
+        version: 3
+        identities:
+          developer-local:
+            roles: [owner]
+        bundles:
+          app:
+            files:
+              - path: env/project/shared
+        targets:
+          runtime:
+            bundle: app
+            format: dotenv
+        `,
+        {
+          'env/project/shared': `
+            path: env/project/shared
+            readers:
+              roles: [owner]
+              identities: [developer-local]
+            sensitive: true
+            entries:
+              env/project/shared/DATABASE_URL:
+                value: postgres://shared
+                sensitive: true
+          `,
+        },
+      );
+    }
+
+    it('injects a machine-local-only key into the child process', async () => {
+      const root = join(TEST_DIR, 'run-local-only');
+      const repository = writeOverrideRepo(root);
+      const { ctx, store } = createContext(root);
+      setIdentity(ctx, store, repository, 'developer-local');
+
+      await setCommand(ctx, { store, repoLocal: true, key: 'MY_KEY', value: 'machine-value' });
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: root,
+        command: ['sh', '-c', 'echo "[$MY_KEY]"'],
+      })).rejects.toThrow('Process exit: 0');
+
+      expect(ctx.exec.spawnSync).toHaveBeenCalledWith(
+        'sh',
+        ['-c', 'echo "[$MY_KEY]"'],
+        expect.objectContaining({
+          env: expect.objectContaining({ MY_KEY: 'machine-value' }),
+        }),
+      );
+    }, 60000);
+
+    it('lets a machine-local override win over the repository value it shadows', async () => {
+      const root = join(TEST_DIR, 'run-local-override');
+      const repository = writeOverrideRepo(root);
+      const { ctx, store } = createContext(root);
+      setIdentity(ctx, store, repository, 'developer-local');
+
+      await setCommand(ctx, { store, repoLocal: true, key: 'DATABASE_URL', value: 'postgres://laptop' });
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: root,
+        command: ['echo', 'ok'],
+      })).rejects.toThrow('Process exit: 0');
+
+      expect(ctx.exec.spawnSync).toHaveBeenCalledWith(
+        'echo',
+        ['ok'],
+        expect.objectContaining({
+          env: expect.objectContaining({ DATABASE_URL: 'postgres://laptop' }),
+        }),
+      );
+    }, 60000);
+
+    it('keeps the repository value for a key with no machine-local override', async () => {
+      const root = join(TEST_DIR, 'run-local-untouched');
+      const repository = writeOverrideRepo(root);
+      const { ctx, store } = createContext(root);
+      setIdentity(ctx, store, repository, 'developer-local');
+
+      await setCommand(ctx, { store, repoLocal: true, key: 'OTHER_KEY', value: 'machine-value' });
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: root,
+        command: ['echo', 'ok'],
+      })).rejects.toThrow('Process exit: 0');
+
+      expect(ctx.exec.spawnSync).toHaveBeenCalledWith(
+        'echo',
+        ['ok'],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            DATABASE_URL: 'postgres://shared',
+            OTHER_KEY: 'machine-value',
+          }),
+        }),
+      );
+    }, 60000);
+  });
+
   it('run denies unreadable files before decrypting malformed file docs', async () => {
     const root = join(TEST_DIR, 'run-acl-before-decrypt');
     nodeFs.mkdirSync(join(root, '.hush', 'files', 'env', 'app'), { recursive: true });

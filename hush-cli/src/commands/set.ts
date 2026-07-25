@@ -291,6 +291,14 @@ function findSharedConflicts(ctx: HushContext, store: SetOptions['store'], repos
   return machineLocalConflict ? [...repositoryConflicts, MACHINE_LOCAL_FILE_PATH] : repositoryConflicts;
 }
 
+/** Repository files holding `key`, which a machine-local override displaces. */
+function findMachineLocalShadows(repository: HushV3Repository, key: string): string[] {
+  return FILE_KEYS
+    .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey])
+    .filter((filePath) => repository.filesByPath[filePath]
+      && getDocumentValue(repository.loadFile(filePath), filePath, key) !== undefined);
+}
+
 async function promptForValue(ctx: HushContext, key: string, forceGui: boolean): Promise<string> {
   if (!forceGui && hasStdinPipe(ctx)) {
     return normalizePromptValue(await readFromStdinPipe(ctx));
@@ -410,6 +418,18 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       const conflicts = findSharedConflicts(ctx, store, repository, key);
       if (conflicts.length > 0) {
         if (!json) ctx.logger.warn(pc.yellow(`warning: ${key} already exists in ${conflicts.join(', ')}; shared may not win at runtime.`));
+      }
+    }
+
+    // A machine-local override wins for every command that resolves for this
+    // machine, so say which repository values it displaces. Write time is the
+    // only moment the operator is looking; after this the override is silent by
+    // design, and a stale one masking a rotated shared secret is the failure
+    // this notice exists to make findable.
+    if (editable.scope === 'machine-local') {
+      const shadowed = findMachineLocalShadows(repository, key);
+      if (shadowed.length > 0 && !json) {
+        ctx.logger.warn(pc.yellow(`warning: ${key} is also set in ${shadowed.join(', ')}; the repo-local value now wins on this machine.`));
       }
     }
 

@@ -16,6 +16,8 @@ import {
   type HushImportRepositoryMap,
   type HushV3Repository,
 } from '../../src/index.js';
+import { writeMachineLocalOverrides } from '../../src/commands/v3-command-helpers.js';
+import { MACHINE_LOCAL_FILE_PATH } from '../../src/v3/schema.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../../src/core/sops.js';
 import type { HushContext, HushManifestDocument, LegacyHushConfig, StoreContext } from '../../src/types.js';
 import { ensureEncryptedFixtureRepo, ensureTestSopsEnv, writeEncryptedYamlFile } from '../helpers/sops-test.js';
@@ -722,5 +724,208 @@ describe('resolveV3Target interpolation', () => {
       'env/app/secrets',
       'env/app/shared',
     ]);
+  });
+});
+
+describe('resolveV3Target machine-local layer', () => {
+  beforeEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  function writeSharedRepo(root: string): HushV3Repository {
+    return writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        app:
+          files:
+            - path: env/app/shared
+      targets:
+        app-env:
+          bundle: app
+          format: dotenv
+      `,
+      {
+        'env/app/shared': `
+          path: env/app/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/app/shared/API_URL:
+              value: https://shared.example.com
+              sensitive: false
+            env/app/shared/GREETING:
+              value: hello \${env/app/shared/API_URL}
+              sensitive: false
+        `,
+      },
+    );
+  }
+
+  function writeOverrides(ctx: HushContext, store: StoreContext, entries: Record<string, string>): void {
+    writeMachineLocalOverrides(ctx, store, createFileDocument({
+      path: MACHINE_LOCAL_FILE_PATH,
+      readers: { roles: ['owner', 'member', 'ci'], identities: [] },
+      sensitive: true,
+      entries: Object.fromEntries(
+        Object.entries(entries).map(([key, value]) => [
+          `${MACHINE_LOCAL_FILE_PATH}/${key}`,
+          { value, sensitive: true },
+        ]),
+      ),
+    }));
+  }
+
+  function resolveApp(ctx: HushContext, store: StoreContext, repository: HushV3Repository, machineLocal: 'include' | 'exclude') {
+    return resolveV3Target(ctx, {
+      store,
+      repository,
+      targetName: 'app-env',
+      command: { name: 'resolve', args: ['app-env'] },
+      machineLocal,
+    });
+  }
+
+  it('overrides the repository value for the same environment key and reports what it shadowed', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'machine-local-override');
+    const repository = writeSharedRepo(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    const resolution = resolveApp(ctx, store, repository, 'include');
+    const shaped = shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution);
+
+    expect(shaped.env.API_URL).toBe('https://laptop.example.com');
+    expect(shaped.shadowed).toEqual([{
+      key: 'API_URL',
+      overridePath: 'user/local/API_URL',
+      shadowedPaths: ['env/app/shared/API_URL'],
+      shadowedFiles: ['env/app/shared'],
+    }]);
+  });
+
+  it('keeps the shadowed repository node resolvable so interpolation still finds it', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'machine-local-interpolation');
+    const repository = writeSharedRepo(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    const resolution = resolveApp(ctx, store, repository, 'include');
+
+    // The node an override shadows stays in the resolution: only the
+    // environment view collapses. Dropping it during path-level selection would
+    // leave `${env/app/shared/API_URL}` pointing at nothing.
+    expect(resolution.values['env/app/shared/API_URL']?.entry.value).toBe('https://shared.example.com');
+    expect(resolution.values['env/app/shared/GREETING']?.entry.value).toBe('hello https://shared.example.com');
+    expect(resolution.files).toContain(MACHINE_LOCAL_FILE_PATH);
+  });
+
+  it('attributes an override to the machine-local file in provenance', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'machine-local-provenance');
+    const repository = writeSharedRepo(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    const resolution = resolveApp(ctx, store, repository, 'include');
+
+    expect(resolution.values['user/local/API_URL']?.provenance).toEqual([
+      expect.objectContaining({
+        logicalPath: 'user/local/API_URL',
+        filePath: MACHINE_LOCAL_FILE_PATH,
+        namespace: 'user',
+      }),
+    ]);
+  });
+
+  it('omits the store entirely when participation is excluded', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'machine-local-excluded');
+    const repository = writeSharedRepo(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com', LAPTOP_ONLY: 'yes' });
+
+    const resolution = resolveApp(ctx, store, repository, 'exclude');
+    const shaped = shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution);
+
+    expect(shaped.env.API_URL).toBe('https://shared.example.com');
+    expect(shaped.env.LAPTOP_ONLY).toBeUndefined();
+    expect(shaped.shadowed).toEqual([]);
+    expect(resolution.files).not.toContain(MACHINE_LOCAL_FILE_PATH);
+  });
+
+  it('still rejects two repository paths that collide on one environment key', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'machine-local-not-a-collision-escape');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        app:
+          files:
+            - path: env/apps/one
+            - path: env/apps/two
+      targets:
+        app-env:
+          bundle: app
+          format: dotenv
+      `,
+      {
+        'env/apps/one': `
+          path: env/apps/one
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/apps/one/API_URL:
+              value: https://one.example.com
+              sensitive: false
+        `,
+        'env/apps/two': `
+          path: env/apps/two
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: false
+          entries:
+            env/apps/two/API_URL:
+              value: https://two.example.com
+              sensitive: false
+        `,
+      },
+    );
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    const resolution = resolveApp(ctx, store, repository, 'include');
+
+    // An override resolves its own collision with a repository value. It must
+    // not also paper over an ambiguity between two repository files that
+    // neither one asked to win.
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution))
+      .toThrow(/Multiple logical paths resolve to environment key "API_URL"/);
   });
 });

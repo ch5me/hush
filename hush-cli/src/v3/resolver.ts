@@ -4,11 +4,28 @@ import { createProvenanceRecord, isIdentityAllowed, type HushBundleName, type Hu
 import { getNamespaceFromPath } from './schema.js';
 import { requireActiveIdentity } from './identity.js';
 import type { HushContext, HushV3Repository, StoreContext } from '../types.js';
-import { formatDuplicateKeyHint } from '../commands/v3-command-helpers.js';
+import { collectMachineLocalCandidates, formatDuplicateKeyHint } from '../commands/v3-command-helpers.js';
 import { interpolateCandidates } from './interpolation.js';
 import { collectAllRepositoryPaths, collectBundleCandidates } from './imports.js';
 import type { HushImportRepositoryMap, HushSelectedFileCandidate } from './imports.js';
 import type { HushBundleConflictDetail, HushBundleResolution, HushResolvedNode, HushSelectedEntryCandidate, HushTargetResolution } from './provenance.js';
+
+/**
+ * Whether the machine-local override store (`user/local`) participates in this
+ * resolution.
+ *
+ * Deliberately required, with no default. Machine-local participation used to
+ * be an accident of which command-layer wrapper a command happened to call, so
+ * `hush run` silently resolved without overrides that `hush set --repo-local`
+ * had written and `hush has` confirmed. Making the field required puts that
+ * choice in the type system: a new command cannot inherit the wrong answer by
+ * saying nothing.
+ *
+ * `include` for anything describing what this machine will actually run.
+ * `exclude` for anything describing committed repository content — otherwise
+ * one developer's machine state leaks into a shared artifact.
+ */
+export type MachineLocalParticipation = 'include' | 'exclude';
 
 export interface ResolveV3Options {
   store: StoreContext;
@@ -17,6 +34,7 @@ export interface ResolveV3Options {
   activeIdentity?: HushIdentityName;
   command?: HushAuditCommandContext;
   importPrecedence?: 'local' | 'imported';
+  machineLocal: MachineLocalParticipation;
 }
 
 export interface ResolveV3BundleOptions extends ResolveV3Options {
@@ -288,7 +306,17 @@ export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOption
     });
   }
 
-  const { selected, conflicts } = selectWinningCandidates(materializeReadableCandidates(readableCandidates));
+  // Machine-local entries live in the reserved `user/**` namespace, which no
+  // repository file may claim, so they can never contend for a logical path
+  // with a repository entry and never reach the conflict branch below. They
+  // override at the environment-key layer instead, in `collectEnvVars`.
+  const machineLocalCandidates = options.machineLocal === 'include'
+    ? collectMachineLocalCandidates(ctx, options.store)
+    : [];
+  const { selected, conflicts } = selectWinningCandidates([
+    ...materializeReadableCandidates(readableCandidates),
+    ...machineLocalCandidates,
+  ]);
 
   if (conflicts.length > 0) {
     const [firstConflict] = conflicts;

@@ -232,6 +232,9 @@ function resolveSelection(
       bundleName: selection.name,
       activeIdentity: identity,
       command: { name: 'diff', args: [selection.name] },
+      // Diff compares committed repository content across git refs. Machine-local
+      // state is not versioned, so it is not part of what is being compared.
+      machineLocal: 'exclude',
     });
   }
 
@@ -241,6 +244,7 @@ function resolveSelection(
     targetName: selection.name,
     activeIdentity: identity,
     command: { name: 'diff', args: [selection.name] },
+    machineLocal: 'exclude',
   });
 }
 

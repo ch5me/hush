@@ -429,6 +429,9 @@ function validateMigratedRepository(ctx: HushContext, store: StoreContext, targe
       activeIdentity: DEFAULT_IDENTITY,
       command: { name: 'migrate', args: ['--from', 'v2', '--validate', targetName] },
       mode: 'memory',
+      // Validating the migrated repository, not this machine: an override must
+      // never be able to make a repository with a missing key look migrated.
+      machineLocal: 'exclude',
     }).cleanup();
   }
 }

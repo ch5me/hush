@@ -414,6 +414,7 @@ function pushConfiguredCloudflareTarget(
     targetName,
     command: { name: 'push', args: buildCommandArgs(options) },
     mode: 'memory',
+    machineLocal: 'include',
   }, (materialization) => {
     const envPairs = toEnvPairs(materialization.env);
     const deployment = resolveTargetDeploymentContext(options.store, repository, targetName);

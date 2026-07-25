@@ -423,6 +423,16 @@ The first path segment names where a secret is stored, and a selector's meaning 
 
 \`user/**\` can never be declared as a repository file: \`hush file add user/...\` fails, and \`copy-key\`/\`move-key\`/\`delete-key\` reject the namespace rather than reinterpreting it as machine-local.
 
+#### Machine-local overrides in resolution
+
+The machine-local store is a resolver layer, not a per-command extra. Commands that resolve for **this machine** include it: \`run\`, \`materialize\`, \`decrypt --force\`, \`push\`, \`has\`, \`list\`, \`project\`, and the diagnostics that must agree with \`run\` — \`resolve\`, \`trace\`, \`verify-target\`. Commands that describe **committed repository content** exclude it: \`diff\` and \`export-example\`.
+
+An override wins at the environment-variable layer: \`hush set DATABASE_URL --repo-local\` shadows \`env/project/shared/DATABASE_URL\` because both produce \`DATABASE_URL\`. The shadowed repository value stays addressable by its own logical path, so \`\${env/project/shared/DATABASE_URL}\` interpolation still reads the repository value.
+
+An override resolves a collision with exactly one repository value. Two repository files colliding on one environment key stay a hard error with or without an override, so the ambiguity cannot be visible on one machine and broken everywhere else.
+
+Overrides are otherwise silent, which is how a stale one masks a rotated shared secret. \`hush set --repo-local\` names what it displaces at write time, \`hush resolve <target>\` lists overrides under "Machine-local overrides" (\`shadowed\` in \`--json\`), and \`hush trace <KEY>\` attributes an override to \`user/local\`. When a secret works for one person and nobody else, check \`hush resolve\` first.
+
 \`env/project/local\` is an ordinary **repository** path — committed and readable by the whole team, despite the name. It is not an alias for machine-local storage. \`hush set --file env/project/local\` writes the repository file when it is declared, and hard-errors when it is not (it never silently falls back to the machine-local store). \`hush doctor\` flags any repository file still named \`local\`; if a value there was meant to stay on one machine, treat it as disclosed and rotate it.
 
 \`hush set\` verifies every write by reading the value back from durable storage before reporting success, and fails loudly ("Write verification failed for ...") if it did not persist. Treat that error as "the secret is NOT saved". If the write persists but the active target does not resolve the destination file, \`hush set\` still succeeds and warns that \`hush get\` will not return the key there — run \`hush trace <KEY>\` to see which targets select it.

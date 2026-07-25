@@ -75,6 +75,7 @@ export async function verifyTargetCommand(ctx: HushContext, options: VerifyTarge
       repository,
       targetName: options.target,
       command: { name: 'verify-target', args: [options.target] },
+      machineLocal: 'include',
     });
     const allNodes = { ...resolution.values, ...resolution.artifacts };
     const resolvedKeys = getResolvedKeyMap(allNodes);

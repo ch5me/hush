@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { formatVars } from '../formats/index.js';
 import { formatDuplicateKeyHint } from '../commands/v3-command-helpers.js';
 import type { EnvVar, OutputFormat } from '../types.js';
+import { isMachineLocalPath } from './schema.js';
 import type { HushArtifactEntry, HushArtifactFormat, HushLogicalPath, HushTargetDefinition } from './domain.js';
 import type { HushResolvedNode, HushTargetResolution } from './provenance.js';
 
@@ -41,6 +42,8 @@ export interface HushArtifactShapeResult {
   env: Record<string, string>;
   targetArtifact: HushTargetArtifactDescriptor | null;
   artifacts: HushArtifactDescriptor[];
+  /** Repository values that machine-local overrides displaced, if any. */
+  shadowed: HushShadowedEnvVar[];
 }
 
 function isOutputFormat(format: HushArtifactFormat): format is OutputFormat {
@@ -81,42 +84,116 @@ function buildTargetPrecedenceFiles(values: HushTargetResolution['values']): str
   ));
 }
 
-function collectEnvVars(values: HushTargetResolution['values'], target: string): EnvVar[] {
-  const pairs = Object.entries(values)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([path, node]) => {
-      const key = logicalPathToEnvKey(path);
-      return {
-        key,
-        path,
-        value: toEnvVarValue(node.entry.value),
-      };
-    });
+/**
+ * A repository value that a machine-local override displaced at the
+ * environment-key layer.
+ *
+ * The displaced node stays in the resolution's `values` — only the environment
+ * view collapses. That keeps `${env/project/shared/KEY}` interpolation, `hush
+ * trace`, and the audit log able to see a path that an override shadows, and it
+ * is why shadowing lives here rather than in the resolver's path-level
+ * selection: dropping the node there would leave interpolation pointing at a
+ * path that no longer exists.
+ */
+export interface HushShadowedEnvVar {
+  key: string;
+  /** The winning machine-local logical path. */
+  overridePath: HushLogicalPath;
+  /** Repository logical paths the override displaced. */
+  shadowedPaths: HushLogicalPath[];
+  /** Repository files the displaced values came from. */
+  shadowedFiles: string[];
+}
 
-  const collisions = new Map<string, string[]>();
+interface EnvVarPair {
+  path: HushLogicalPath;
+  value: string;
+}
 
-  for (const pair of pairs) {
-    const existing = collisions.get(pair.key) ?? [];
-    existing.push(pair.path);
-    collisions.set(pair.key, existing);
+interface CollectedEnvVars {
+  envVars: EnvVar[];
+  shadowed: HushShadowedEnvVar[];
+}
+
+/**
+ * Resolve one environment key claimed by several logical paths.
+ *
+ * A machine-local override deliberately shares an environment key with the one
+ * repository value it replaces (`hush set DATABASE_URL --repo-local` shadows
+ * `env/project/shared/DATABASE_URL`), so that exact pairing means "override".
+ *
+ * Anything else stays a hard error, including an override sitting on top of two
+ * colliding repository paths. Those two are ambiguous whether an override exists
+ * or not, and resolving them here would make the ambiguity visible only to
+ * whoever lacks the override — green on one laptop, broken in CI and for every
+ * other developer.
+ */
+function resolveKeyCollision(
+  key: string,
+  contenders: EnvVarPair[],
+  values: HushTargetResolution['values'],
+  target: string,
+): { winner: EnvVarPair; shadowed: HushShadowedEnvVar | null } {
+  const [first] = contenders;
+
+  if (contenders.length === 1 && first) {
+    return { winner: first, shadowed: null };
   }
 
-  const duplicate = Array.from(collisions.entries()).find(([, paths]) => paths.length > 1);
+  const overrides = contenders.filter((pair) => isMachineLocalPath(pair.path));
+  const [override] = overrides;
 
-  if (duplicate) {
-    const duplicateFiles = duplicate[1]
-      .map((path) => values[path]?.resolvedFrom ?? [])
-      .flat()
+  if (contenders.length !== 2 || overrides.length !== 1 || !override) {
+    const paths = contenders.map((pair) => pair.path);
+    const duplicateFiles = paths
+      .flatMap((path) => values[path]?.resolvedFrom ?? [])
       .sort((left, right) => left.localeCompare(right));
     const precedenceFiles = buildTargetPrecedenceFiles(values);
 
     throw new Error(
-      `Multiple logical paths resolve to environment key "${duplicate[0]}": ${duplicate[1].sort().join(', ')}. `
-      + formatDuplicateKeyHint(duplicate[0], duplicateFiles.length > 0 ? duplicateFiles : precedenceFiles, target),
+      `Multiple logical paths resolve to environment key "${key}": ${paths.sort().join(', ')}. `
+      + formatDuplicateKeyHint(key, duplicateFiles.length > 0 ? duplicateFiles : precedenceFiles, target),
     );
   }
 
-  return pairs.map(({ key, value }) => ({ key, value }));
+  const shadowedPaths = contenders.filter((pair) => pair !== override).map((pair) => pair.path);
+
+  return {
+    winner: override,
+    shadowed: {
+      key,
+      overridePath: override.path,
+      shadowedPaths: shadowedPaths.sort(),
+      shadowedFiles: Array.from(new Set(
+        shadowedPaths.flatMap((path) => values[path]?.resolvedFrom ?? []),
+      )).sort(),
+    },
+  };
+}
+
+function collectEnvVars(values: HushTargetResolution['values'], target: string): CollectedEnvVars {
+  const byKey = new Map<string, EnvVarPair[]>();
+
+  for (const [path, node] of Object.entries(values)) {
+    const key = logicalPathToEnvKey(path);
+    const contenders = byKey.get(key) ?? [];
+    contenders.push({ path, value: toEnvVarValue(node.entry.value) });
+    byKey.set(key, contenders);
+  }
+
+  const envVars: EnvVar[] = [];
+  const shadowed: HushShadowedEnvVar[] = [];
+
+  for (const [key, contenders] of Array.from(byKey.entries()).sort(([left], [right]) => left.localeCompare(right))) {
+    const resolved = resolveKeyCollision(key, contenders, values, target);
+    envVars.push({ key, value: resolved.winner.value });
+
+    if (resolved.shadowed) {
+      shadowed.push(resolved.shadowed);
+    }
+  }
+
+  return { envVars, shadowed };
 }
 
 function toEnvRecord(envVars: readonly EnvVar[]): Record<string, string> {
@@ -268,7 +345,7 @@ export function shapeTargetArtifacts(
   target: HushTargetDefinition,
   resolution: HushTargetResolution,
 ): HushArtifactShapeResult {
-  const envVars = collectEnvVars(resolution.values, targetName);
+  const { envVars, shadowed } = collectEnvVars(resolution.values, targetName);
   const env = toEnvRecord(envVars);
   const targetArtifact = createTargetArtifact(targetName, target, resolution, envVars);
   const artifacts = Object.entries(resolution.artifacts)
@@ -280,6 +357,7 @@ export function shapeTargetArtifacts(
     env,
     targetArtifact,
     artifacts,
+    shadowed,
   };
 }
 
@@ -292,7 +370,7 @@ export function shapeResolvedArtifacts(
 }
 
 export function shapeBundleArtifacts(resolution: HushTargetResolution | { values: HushTargetResolution['values']; artifacts: HushTargetResolution['artifacts'] }): HushArtifactShapeResult {
-  const envVars = collectEnvVars(resolution.values, 'bundle');
+  const { envVars, shadowed } = collectEnvVars(resolution.values, 'bundle');
   const env = toEnvRecord(envVars);
   const artifacts = Object.entries(resolution.artifacts)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -303,5 +381,6 @@ export function shapeBundleArtifacts(resolution: HushTargetResolution | { values
     env,
     targetArtifact: null,
     artifacts,
+    shadowed,
   };
 }

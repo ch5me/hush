@@ -5,7 +5,8 @@ import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { resolveV3Target } from '../v3/resolver.js';
 import { isIdentityAllowed, type HushFileIndexEntry } from '../v3/domain.js';
-import { formatCompactRecord, toCompactRecord } from './v3-command-helpers.js';
+import { MACHINE_LOCAL_FILE_PATH } from '../v3/schema.js';
+import { formatCompactRecord, loadMachineLocalOverrides, toCompactRecord } from './v3-command-helpers.js';
 import type { HushCompactRecord, HushContext, HushResolvedNode, HushV3Repository, TraceOptions } from '../types.js';
 
 function canReadFile(file: HushFileIndexEntry, identity: string, roles: readonly string[]): boolean {
@@ -92,7 +93,17 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
     }))
     .filter((entry) => entry.matches.length > 0)
     .sort((left, right) => left.file.path.localeCompare(right.file.path));
-  const allMatchedLogicalPaths = Array.from(new Set(matchedFiles.flatMap((entry) => entry.matches))).sort();
+  // Machine-local overrides are not repository files, so they are absent from
+  // `repository.files`. Matching only against that set is what made trace report
+  // repository provenance for a key an override had already displaced, and
+  // report "not found" for a machine-local-only key that `hush run` injects.
+  const machineLocalMatches = Object.keys(loadMachineLocalOverrides(ctx, options.store)?.entries ?? {})
+    .filter((logicalPath) => matchLogicalPath(options.key, logicalPath))
+    .sort();
+  const allMatchedLogicalPaths = Array.from(new Set([
+    ...matchedFiles.flatMap((entry) => entry.matches),
+    ...machineLocalMatches,
+  ])).sort();
   const matchedFilePaths = matchedFiles.map((entry) => entry.file.path);
   const candidateBundles = getBundlesReferencingFiles(repository, matchedFilePaths);
   const lines: string[] = [];
@@ -105,7 +116,10 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
     activeIdentity: identity,
     success: true,
     command: { name: 'trace', args: [options.key] },
-    files: matchedFiles.map((entry) => entry.file.path),
+    files: [
+      ...matchedFiles.map((entry) => entry.file.path),
+      ...(machineLocalMatches.length > 0 ? [MACHINE_LOCAL_FILE_PATH] : []),
+    ],
     logicalPaths: allMatchedLogicalPaths,
   });
 
@@ -114,7 +128,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
   lines.push(`Active identity: ${pc.green(identity)}`);
   lines.push(`Matched logical paths: ${pc.cyan(String(allMatchedLogicalPaths.length))}`);
 
-  if (matchedFiles.length === 0) {
+  if (allMatchedLogicalPaths.length === 0) {
     if (options.json || compactJsonMode) {
       writeJsonSuccess(ctx, 'trace', compactJsonMode
         ? []
@@ -123,6 +137,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
           activeIdentity: identity,
           matchedLogicalPaths: [],
           matchedFiles: [],
+          machineLocalPaths: [],
           candidateBundles: [],
           targets: [],
         });
@@ -137,10 +152,22 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
 
   lines.push('');
   lines.push('Repository files:');
+  if (matchedFiles.length === 0) {
+    lines.push(`  ${pc.dim('(none)')}`);
+  }
   for (const entry of matchedFiles) {
     const status = entry.readable ? pc.green('readable') : pc.red('unreadable');
     lines.push(`  ${pc.cyan(entry.file.path)} ${pc.dim(`(${status}; ${formatReaders(entry.file)})`)}`);
     for (const logicalPath of entry.matches) {
+      lines.push(`    ${logicalPath}`);
+    }
+  }
+
+  if (machineLocalMatches.length > 0) {
+    lines.push('');
+    lines.push('Machine-local overrides:');
+    lines.push(`  ${pc.cyan(MACHINE_LOCAL_FILE_PATH)} ${pc.dim('(this machine only)')}`);
+    for (const logicalPath of machineLocalMatches) {
       lines.push(`    ${logicalPath}`);
     }
   }
@@ -157,6 +184,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
         repository,
         targetName,
         command: { name: 'trace', args: [options.key] },
+        machineLocal: 'include',
       });
       const matchedNodes = [
         ...Object.entries(resolution.values),
@@ -234,6 +262,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
         readers: entry.file.readers,
         matches: entry.matches,
       })),
+      machineLocalPaths: machineLocalMatches,
       candidateBundles,
       targets: targetResults,
     });

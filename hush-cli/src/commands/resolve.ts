@@ -3,6 +3,7 @@ import { appendAuditEvent } from '../v3/audit.js';
 import { resolveV3Target, HushResolutionConflictError } from '../v3/resolver.js';
 import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
+import { shapeTargetArtifacts, type HushShadowedEnvVar } from '../v3/artifacts.js';
 import { formatCompactRecord, toCompactRecord } from './v3-command-helpers.js';
 import type { HushBundleConflictDetail, HushCompactRecord, HushContext, HushResolvedNode, ResolveOptions } from '../types.js';
 import { globalStoreHint } from '../lib/global-store-hint.js';
@@ -70,6 +71,7 @@ function toSafeResolutionJson(
   resolution: ReturnType<typeof resolveV3Target>,
   target: NonNullable<ReturnType<typeof loadV3Repository>['manifest']['targets']>[string],
   only: string | undefined,
+  shadowed: HushShadowedEnvVar[],
 ): object {
   const filteredValues = filterResolvedNodes(resolution.values, only);
   const filteredArtifacts = filterResolvedNodes(resolution.artifacts, only);
@@ -94,6 +96,7 @@ function toSafeResolutionJson(
         .map(([logicalPath, node]) => [logicalPath, toSafeNodeSummary(node)]),
     ),
     conflicts: resolution.conflicts,
+    shadowed,
   };
 }
 
@@ -148,7 +151,13 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
       repository,
       targetName: options.target,
       command: { name: 'resolve', args: [options.target] },
+      machineLocal: 'include',
     });
+    // Shadowing is an environment-key outcome, not a resolution one, so it only
+    // exists once the target is shaped. Reporting it is the whole reason an
+    // override is not silent: `run` would otherwise use the machine-local value
+    // with nothing anywhere saying which repository value it displaced.
+    const { shadowed } = shapeTargetArtifacts(options.target, target, resolution);
     const lines: string[] = [];
     const logicalPaths = [...Object.keys(resolution.values), ...Object.keys(resolution.artifacts)].sort();
     const filteredValues = filterResolvedNodes(resolution.values, options.only);
@@ -176,7 +185,7 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
     }
 
     if (options.json) {
-      writeJsonSuccess(ctx, 'resolve', toSafeResolutionJson(resolution, target, options.only));
+      writeJsonSuccess(ctx, 'resolve', toSafeResolutionJson(resolution, target, options.only, shadowed));
       return;
     }
 
@@ -203,6 +212,17 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
       }
       ctx.logger.log(compactLines.join('\n'));
       return;
+    }
+
+    if (shadowed.length > 0) {
+      lines.push('');
+      lines.push('Machine-local overrides:');
+      for (const override of shadowed) {
+        lines.push(`  ${pc.yellow(override.key)} ${pc.dim(`from ${override.overridePath}`)}`);
+        for (const shadowedPath of override.shadowedPaths) {
+          lines.push(`    ${pc.dim(`shadows ${shadowedPath}`)}`);
+        }
+      }
     }
 
     lines.push('');

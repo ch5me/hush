@@ -10,6 +10,8 @@ import { verifyTargetCommand } from '../src/commands/verify-target.js';
 import { createFileDocument, createFileIndexEntry, createManifestDocument, createProjectSlug, loadV3Repository, setActiveIdentity } from '../src/index.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
 import type { HushContext, HushManifestDocument, LegacyHushConfig, StoreContext } from '../src/types.js';
+import { writeMachineLocalOverrides } from '../src/commands/v3-command-helpers.js';
+import { MACHINE_LOCAL_FILE_PATH } from '../src/v3/schema.js';
 import { ensureEncryptedFixtureRepo, ensureTestSopsEnv, writeEncryptedYamlFile } from './helpers/sops-test.js';
 
 const TEST_DIR = join('/tmp', 'hush-test-diagnostics-v3');
@@ -578,4 +580,111 @@ describe('task 7 v3 diagnostic commands', () => {
     expect(payload.error.details.missing).toEqual(['RESEND_API_KEY']);
     expect(JSON.stringify(payload)).not.toContain('postgres://single-user-db');
   });
+});
+
+describe('machine-local overrides in diagnostics', () => {
+  beforeEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    vi.clearAllMocks();
+  });
+
+  function writeOverrideProject(root: string) {
+    return writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        project:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: project
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/project/shared/API_URL:
+              value: https://shared.example.com
+              sensitive: false
+        `,
+      },
+    );
+  }
+
+  function writeOverrides(ctx: HushContext, store: StoreContext, entries: Record<string, string>): void {
+    writeMachineLocalOverrides(ctx, store, createFileDocument({
+      path: MACHINE_LOCAL_FILE_PATH,
+      readers: { roles: ['owner', 'member', 'ci'], identities: [] },
+      sensitive: true,
+      entries: Object.fromEntries(
+        Object.entries(entries).map(([key, value]) => [
+          `${MACHINE_LOCAL_FILE_PATH}/${key}`,
+          { value, sensitive: true },
+        ]),
+      ),
+    }));
+  }
+
+  it('trace attributes an overridden key to the machine-local file', async () => {
+    const root = join(TEST_DIR, 'trace-machine-local-override');
+    const repository = writeOverrideProject(root);
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    await traceCommand(ctx, { store, env: 'development', key: 'API_URL' });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain('Machine-local overrides:');
+    expect(output).toContain('user/local/API_URL');
+    expect(output).toContain('file=user/local');
+    // The repository value it displaces stays visible: an override that hides
+    // what it replaced is the failure this reporting exists to prevent.
+    expect(output).toContain('env/project/shared/API_URL');
+  }, 60000);
+
+  it('trace finds a machine-local-only key instead of reporting it missing', async () => {
+    const root = join(TEST_DIR, 'trace-machine-local-only');
+    const repository = writeOverrideProject(root);
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { LAPTOP_ONLY: 'yes' });
+
+    await traceCommand(ctx, { store, env: 'development', key: 'LAPTOP_ONLY' });
+
+    const output = getLogOutput(logger);
+    expect(output).not.toContain('No matching logical path found in the repository.');
+    expect(output).toContain('user/local/LAPTOP_ONLY');
+    expect(output).toContain('runtime (resolved)');
+  }, 60000);
+
+  it('resolve lists which repository value an override shadows', async () => {
+    const root = join(TEST_DIR, 'resolve-machine-local-shadow');
+    const repository = writeOverrideProject(root);
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    await resolveCommand(ctx, { store, env: 'development', target: 'runtime' });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain('Machine-local overrides:');
+    expect(output).toContain('API_URL from user/local/API_URL');
+    expect(output).toContain('shadows env/project/shared/API_URL');
+  }, 60000);
 });

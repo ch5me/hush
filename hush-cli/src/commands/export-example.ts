@@ -227,6 +227,9 @@ export async function exportExampleCommand(ctx: HushContext, options: ExportExam
       bundleName: selection.name,
       activeIdentity: identity,
       command: { name: 'export-example', args: [selection.name] },
+      // The example is committed and shared. One developer's machine-local keys
+      // must never appear in it.
+      machineLocal: 'exclude',
     });
     const output = createBundleExampleOutput(selection.name, resolution);
     const filePath = options.write ? resolveWritePath(options) : undefined;
@@ -245,6 +248,7 @@ export async function exportExampleCommand(ctx: HushContext, options: ExportExam
     targetName: selection.name,
     activeIdentity: identity,
     command: { name: 'export-example', args: [selection.name] },
+    machineLocal: 'exclude',
   });
   const output = createTargetExampleOutput(selection, resolution);
   const filePath = options.write ? resolveWritePath(options) : undefined;

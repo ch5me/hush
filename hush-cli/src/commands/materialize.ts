@@ -358,6 +358,7 @@ function createMaterialization(ctx: HushContext, options: MaterializeOptions, ou
         activeIdentity: identity ?? undefined,
         command: { name: 'materialize', args: ['--bundle', options.bundle] },
         mode: 'persisted',
+        machineLocal: 'include',
         outputRoot,
       })
     : (() => {
@@ -369,6 +370,7 @@ function createMaterialization(ctx: HushContext, options: MaterializeOptions, ou
           activeIdentity: identity ?? undefined,
           command: { name: 'materialize', args: ['--target', targetName] },
           mode: 'persisted',
+          machineLocal: 'include',
           outputRoot,
         });
       })();

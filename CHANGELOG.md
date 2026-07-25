@@ -10,6 +10,28 @@ published to npm, and given a Forgejo Release by CI.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`hush run` now sees machine-local overrides.** `hush set --repo-local KEY value`
+  reported success and `hush has KEY` confirmed it, but `hush run -- <cmd>` injected
+  nothing: the override store was merged onto resolver output inside one command-layer
+  wrapper that `run` does not call. Machine-local participation is now a property of
+  resolution, not of which wrapper a command happens to use, so `run`, `materialize`,
+  `decrypt --force`, `resolve`, `trace`, and `verify-target` all see overrides.
+  - Overrides win at the environment-variable layer, as before. The repository value
+    they displace stays addressable by its own logical path, so
+    `${env/project/shared/KEY}` interpolation still reads the repository value.
+  - An override resolves a collision with exactly one repository value. Two repository
+    files colliding on one environment key remain a hard error with or without an
+    override.
+  - `diff` and `export-example` deliberately exclude overrides: they describe committed
+    repository content, which machine-local state is not part of.
+  - `hush trace <KEY>` now finds machine-local-only keys and attributes overrides to
+    `user/local` instead of reporting only repository provenance.
+  - Overrides are no longer silent: `hush set --repo-local` names the repository values
+    it displaces, and `hush resolve <target>` lists them under **Machine-local
+    overrides** (`shadowed` in `--json`).
+
 ### Changed
 
 - **BREAKING: one path, one storage location.** The first path segment now names

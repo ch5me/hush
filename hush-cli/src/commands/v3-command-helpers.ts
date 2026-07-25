@@ -18,11 +18,15 @@ import {
   LEGACY_MACHINE_LOCAL_FILE_PATH,
   MACHINE_LOCAL_FILE_PATH,
   ReservedFilePathError,
+  getNamespaceFromPath,
   isMachineLocalPath,
   normalizeHushPath,
 } from '../v3/schema.js';
+import { createProvenanceRecord, type HushFileEntry } from '../v3/domain.js';
+import type { HushShadowedEnvVar } from '../v3/artifacts.js';
 import { loadV3Repository, persistV3FileDocument } from '../v3/repository.js';
 import type { HushImportRepositoryMap } from '../v3/imports.js';
+import type { HushSelectedEntryCandidate } from '../v3/provenance.js';
 import type {
   EnvVar,
   PushConfig,
@@ -227,6 +231,7 @@ export interface V3ResolvedEnvView extends V3TargetRuntimeSelection {
   files: string[];
   logicalPaths: string[];
   localOverrideFile?: string;
+  shadowed: HushShadowedEnvVar[];
 }
 
 interface LegacyMigrationTargetMetadata {
@@ -292,35 +297,32 @@ function envVarKeyToLogicalPath(filePath: string, key: string): string {
   return `${filePath}/${normalizedKey}`;
 }
 
-function toEnvVarValue(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
+/**
+ * Precedence of the machine-local layer.
+ *
+ * Repository files resolve at 200 (local) and 100 (imported), and
+ * `importPrecedence` can swap those two. Nothing reachable from configuration
+ * reaches this number, so the machine-local layer cannot be tied — and an
+ * equal-precedence tie is a hard resolution error the user could not act on.
+ *
+ * It is a backstop rather than the mechanism: `user/**` is reserved, so a
+ * machine-local logical path never contends with a repository one in the first
+ * place.
+ */
+const MACHINE_LOCAL_PRECEDENCE = 1000;
 
-  if (value === null || value === undefined) {
-    return '';
-  }
+/**
+ * Read the machine-local override store as resolver candidates.
+ *
+ * Value entries only, matching what the machine-local store can express: it is
+ * written exclusively by `hush set --repo-local`, which writes scalars. Passing
+ * an artifact entry through would let a per-machine file start materializing
+ * artifacts onto disk, which is not something any command offers a way to
+ * create or remove.
+ */
+export function collectMachineLocalCandidates(ctx: HushContext, store: StoreContext): HushSelectedEntryCandidate[] {
+  const document = loadMachineLocalOverrides(ctx, store);
 
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-
-  return JSON.stringify(value);
-}
-
-function upsertEnvVars(base: EnvVar[], overrides: EnvVar[]): EnvVar[] {
-  const byKey = new Map(base.map((variable) => [variable.key, variable.value]));
-
-  for (const variable of overrides) {
-    byKey.set(variable.key, variable.value);
-  }
-
-  return Array.from(byKey.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => ({ key, value }));
-}
-
-function localOverrideEntriesToEnvVars(document: HushFileDocument | null): EnvVar[] {
   if (!document) {
     return [];
   }
@@ -329,8 +331,16 @@ function localOverrideEntriesToEnvVars(document: HushFileDocument | null): EnvVa
     .filter(([, entry]) => !('type' in entry))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([logicalPath, entry]) => ({
-      key: logicalPath.split('/').filter(Boolean).at(-1) ?? logicalPath,
-      value: toEnvVarValue(entry.value),
+      path: logicalPath,
+      entry: entry as HushFileEntry,
+      precedence: MACHINE_LOCAL_PRECEDENCE,
+      provenance: [
+        createProvenanceRecord({
+          logicalPath,
+          filePath: MACHINE_LOCAL_FILE_PATH,
+          namespace: getNamespaceFromPath(logicalPath),
+        }),
+      ],
     }));
 }
 
@@ -871,27 +881,19 @@ export function resolveTargetEnvView(
   const repository = requireV3Repository(store, command.name);
   const activeIdentity = requireActiveIdentity(ctx, store, repository.manifest.identities, command);
   const { targetName, target } = selectRuntimeTargetForCommand(repository, store, command, requestedTarget, ctx.process.cwd());
+  // Machine-local overrides are a property of resolution, not of this wrapper.
+  // They used to be post-merged here, which is exactly why `hush run` — which
+  // resolves without going through this function — never saw them.
   const resolution = resolveV3Target(ctx, {
     store,
     repository,
     importedRepositories: loadImportedRepositories(repository),
     targetName,
     command,
+    machineLocal: 'include',
   });
   const shaped = shapeTargetArtifacts(targetName, target, resolution);
-  const localOverrides = loadMachineLocalOverrides(ctx, store);
-  const localEnvVars = localOverrideEntriesToEnvVars(localOverrides);
-  const envVars = upsertEnvVars(shaped.envVars, localEnvVars);
-  const env = Object.fromEntries(envVars.map((variable) => [variable.key, variable.value]));
-  const files = Array.from(new Set([
-    ...resolution.files,
-    ...(localOverrides ? [localOverrides.path] : []),
-  ])).sort();
-  const logicalPaths = Array.from(new Set([
-    ...Object.keys(resolution.values),
-    ...Object.keys(resolution.artifacts),
-    ...(localOverrides ? Object.keys(localOverrides.entries) : []),
-  ])).sort();
+  const logicalPaths = [...Object.keys(resolution.values), ...Object.keys(resolution.artifacts)].sort();
 
   return {
     repository,
@@ -899,11 +901,12 @@ export function resolveTargetEnvView(
     target,
     activeIdentity,
     resolution,
-    envVars,
-    env,
-    files,
+    envVars: shaped.envVars,
+    env: shaped.env,
+    files: resolution.files,
     logicalPaths,
-    localOverrideFile: localOverrides?.path,
+    localOverrideFile: resolution.files.includes(MACHINE_LOCAL_FILE_PATH) ? MACHINE_LOCAL_FILE_PATH : undefined,
+    shadowed: shaped.shadowed,
   };
 }
 

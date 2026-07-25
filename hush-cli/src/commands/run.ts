@@ -49,6 +49,7 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
       targetName,
       command: { name: 'run', args: [targetName, '--', ...command] },
       mode: 'memory',
+      machineLocal: 'include',
     }, (materialization) => {
       const childEnv: NodeJS.ProcessEnv = {
         ...ctx.process.env,

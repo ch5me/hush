@@ -102,6 +102,7 @@ export async function decryptCommand(ctx: HushContext, options: DecryptOptions):
         targetName,
         command: { name: 'decrypt', args: ['--force', targetName] },
         mode: 'persisted',
+        machineLocal: 'include',
         outputRoot,
       }, (materialization) => {
         const writtenFiles = materialization.stagedArtifacts.map((artifact) => artifact.path);

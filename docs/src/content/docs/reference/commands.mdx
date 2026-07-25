@@ -71,12 +71,16 @@ hush run --global -- npm start
 ### How It Works
 
 1. Loads the v3 repository from `.hush/`
-2. Resolves the selected target through the shared resolver/materializer
+2. Resolves the selected target through the shared resolver/materializer, including the machine-local override store
 3. Decrypts to memory only and emits audit events
 4. Spawns the child process with the resolved environment
 5. Cleans up any staged runtime state automatically on failure or signals
 
 When `--global` is used, Hush reads only from `~/.hush`. It does not merge project secrets.
+
+Machine-local overrides written with `hush set --repo-local` participate in this
+resolution. A value in `user/local` wins over the repository value that shares
+its environment variable name — see [Machine-local overrides](#machine-local-overrides).
 
 ### Examples
 
@@ -260,6 +264,39 @@ The first segment of a path names where the secret is stored. A selector's meani
 | everything else (`env/**`, `artifacts/**`, …) | Repository file under `.hush/files/` | Yes | Every identity in the file's reader set |
 
 `user/local` is the only machine-local destination, and `user/**` can never be declared as a repository file — `hush file add user/anything` fails, and `copy-key` / `move-key` / `delete-key` reject the namespace outright rather than reinterpreting it.
+
+### Machine-local overrides
+
+The machine-local store is a **resolver layer**, not a per-command extra. Every
+command that resolves for *this machine* sees it, and the ones that describe
+committed repository content do not:
+
+| Command | Machine-local overrides |
+|---------|------------------------|
+| `run`, `materialize`, `decrypt --force`, `push`, `has`, `list`, `project` | Included — this is what the machine will actually run |
+| `resolve`, `trace`, `verify-target` | Included — these must report what `run` will do |
+| `diff`, `export-example` | Excluded — these describe committed content, which machine-local state is not part of |
+
+An override wins at the **environment variable** layer: `hush set DATABASE_URL
+--repo-local` shadows `env/project/shared/DATABASE_URL` because both produce
+`DATABASE_URL`. The shadowed repository value stays resolvable by its own logical
+path, so `${env/project/shared/DATABASE_URL}` interpolation still reads the
+repository value.
+
+An override only resolves a collision with a *single* repository value. If two
+repository files already collide on one environment key, that stays a hard error
+with or without an override — otherwise the ambiguity would be invisible on the
+one machine that has the override and broken everywhere else.
+
+`hush set --repo-local` names the repository values an override displaces, and
+`hush resolve <target>` lists them under **Machine-local overrides** (as
+`shadowed` in `--json`). `hush trace <KEY>` attributes an override to `user/local`.
+
+<Aside type="caution">
+An override is silent once written. A stale one can mask a rotated shared secret:
+`hush run` uses your local value while everyone else gets the new one. Check
+`hush resolve <target>` when a secret works for you and for nobody else.
+</Aside>
 
 <Aside type="caution">
 `env/project/local` is an ordinary **repository** path — committed, and decryptable by everyone in its reader set. It is no longer an alias for machine-local storage. Writing to it when it is not declared fails with an explicit error instead of silently landing in the machine-local store, and `hush doctor` reports any repository file still named `local`. See the [v7 → v8 migration](/migrations/v7-to-v8/).
@@ -1229,6 +1266,10 @@ hush resolve runtime --json
 | `-e, --env <env>` | Environment: `development` or `production` |
 | `--json` | Output target, bundle, file, logical path, and provenance metadata without values |
 
+Resolution includes the machine-local override store, so `hush resolve` reports
+what `hush run` will actually inject. Overrides that displace a repository value
+are listed under **Machine-local overrides** (`shadowed` in `--json`).
+
 ### Example Output
 
 ```
@@ -1238,12 +1279,17 @@ Target: app-dev
 Bundle: app
 Format: dotenv
 Active identity: developer-local
-Resolved files: 2
-Resolved logical paths: 2
+Resolved files: 3
+Resolved logical paths: 3
+
+Machine-local overrides:
+  STRIPE_SECRET_KEY from user/local/STRIPE_SECRET_KEY
+    shadows env/apps/api/env/STRIPE_SECRET_KEY
 
 Files:
   env/app/shared
   env/app/secrets
+  user/local
 
 Values:
   env/apps/api/env/STRIPE_SECRET_KEY
