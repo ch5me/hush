@@ -14,6 +14,72 @@ import {
   describeLegacyLocalRepositoryFile,
   findLegacyLocalRepositoryFile,
 } from './v3-command-helpers.js';
+import { resolveV3Target } from '../v3/resolver.js';
+import { shapeTargetArtifacts, type HushShadowedEnvVar } from '../v3/artifacts.js';
+import type { HushV3Repository, StoreContext } from '../types.js';
+
+export interface ShadowFinding extends HushShadowedEnvVar {
+  target: string;
+}
+
+/**
+ * Find every machine-local override that shadows a repository value, across all
+ * targets.
+ *
+ * This is the PROACTIVE half of the shadow guard. The guard itself only fires
+ * when someone resolves the affected target, which means the first thing to
+ * notice a stale override is usually a production process failing to
+ * authenticate. Reporting it from `doctor` turns that into something you find
+ * on a quiet afternoon instead of during an incident.
+ *
+ * Resolution is best-effort per target: a target that cannot resolve (unreadable
+ * files for this identity, a genuine collision) is skipped rather than failing
+ * the whole check, because those have their own checks and their own errors.
+ */
+export function findShadowedOverrides(
+  ctx: HushContext,
+  store: StoreContext,
+  repository: HushV3Repository,
+): ShadowFinding[] {
+  const findings: ShadowFinding[] = [];
+
+  for (const [targetName, target] of Object.entries(repository.manifest.targets ?? {})) {
+    try {
+      const resolution = resolveV3Target(ctx, {
+        store,
+        repository,
+        targetName,
+        command: { name: 'doctor', args: [] },
+        machineLocal: 'include',
+      });
+      // 'report': doctor's job is to SHOW the shadowing, not to refuse.
+      const { shadowed } = shapeTargetArtifacts(targetName, target, resolution, 'report');
+      findings.push(...shadowed.map((entry) => ({ ...entry, target: targetName })));
+    } catch {
+      continue;
+    }
+  }
+
+  return findings;
+}
+
+export function describeShadowedOverrides(findings: ShadowFinding[]): string {
+  const unique = new Map<string, ShadowFinding>();
+  for (const finding of findings) {
+    if (!unique.has(finding.key)) unique.set(finding.key, finding);
+  }
+
+  const lines = Array.from(unique.values()).map((finding) => {
+    const files = finding.shadowedFiles.join(', ') || finding.shadowedPaths.join(', ');
+    return `  ${finding.key}: user/local shadows ${files}  ->  hush delete-key ${finding.key} --from local --yes`;
+  });
+
+  return `${unique.size} machine-local override(s) shadow a committed repository value. `
+    + 'Only this machine sees them, so commands that work here fail everywhere else '
+    + '(and value-producing commands now refuse outright):\n'
+    + `${lines.join('\n')}\n`
+    + 'Inspect one with: hush trace <KEY>';
+}
 
 interface DoctorOptions {
   startDir: string;
@@ -185,6 +251,18 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
         detail: legacyLocal
           ? describeLegacyLocalRepositoryFile(legacyLocal)
           : 'no committed repository file shadows the machine-local override store',
+      });
+
+      // Check 6: the reverse direction of check 5 — a machine-local override
+      // sitting on top of a committed value. Check 5 catches a repository file
+      // misnamed "local"; this catches the real override that silently wins.
+      const shadowed = findShadowedOverrides(ctx, store, repo);
+      checks.push({
+        name: 'machine_local_shadowing',
+        ok: shadowed.length === 0,
+        detail: shadowed.length > 0
+          ? describeShadowedOverrides(shadowed)
+          : 'no machine-local override shadows a committed repository value',
       });
     } catch (error) {
       checks.push({

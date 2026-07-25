@@ -825,6 +825,43 @@ describe('resolveV3Target machine-local layer', () => {
    * is precisely how a stale local token masked a rotated repository secret and
    * took a service down box-wide on 2026-07-25.
    */
+  /**
+   * The guard only fires when someone resolves the affected target, so without a
+   * proactive scan the first thing to notice a stale override is a production
+   * process failing to authenticate. `doctor` has to find it on a quiet
+   * afternoon instead.
+   */
+  it('doctor detects a machine-local override shadowing a repository value', async () => {
+    const { findShadowedOverrides, describeShadowedOverrides } = await import('../../src/commands/doctor.js');
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'doctor-shadow-detect');
+    const repository = writeSharedRepo(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    const findings = findShadowedOverrides(ctx, store, repository);
+
+    expect(findings.map((finding) => finding.key)).toContain('API_URL');
+    expect(findings[0]?.shadowedFiles).toContain('env/app/shared');
+
+    // The report must carry a command the reader can run, not just a complaint.
+    const described = describeShadowedOverrides(findings);
+    expect(described).toContain('hush delete-key API_URL --from local --yes');
+    expect(described).toContain('hush trace');
+  });
+
+  it('doctor reports nothing when no override shadows a repository value', async () => {
+    const { findShadowedOverrides } = await import('../../src/commands/doctor.js');
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'doctor-shadow-clean');
+    const repository = writeSharedRepo(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    expect(findShadowedOverrides(ctx, store, repository)).toEqual([]);
+  });
+
   it('refuses by default rather than silently preferring the machine-local value', () => {
     const ctx = createContext();
     const root = join(TEST_DIR, 'machine-local-override-default');
