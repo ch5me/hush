@@ -12,6 +12,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,6 +69,56 @@ set -eu
 exec ${quote(nodePath)} ${quote(entrypoint)} "$@"
 `;
 
+// Installing the managed hush is not the same as DELIVERING it. If another copy
+// sits earlier on PATH -- typically a stray `npm install -g @chriscode/hush`
+// under a Homebrew npm prefix -- then every login shell, and anything launched
+// through one, keeps running that copy. It resolves, it answers, and nothing
+// upstream notices: on 2026-07-25 a box ran a two-week-old 7.5.0 secrets front
+// door while this installer kept reporting success. hush is the fleet's secrets
+// boundary, so a silent shadow is a hazard, not cosmetics. Assert on the
+// consuming surface rather than trusting that writing the file was enough.
+function reportShadowedInstall() {
+  if (process.env.HUSH_INSTALL_SKIP_SHADOW_CHECK === "1") return false;
+
+  const loginShell = process.env.SHELL && existsSync(process.env.SHELL) ? process.env.SHELL : "/bin/sh";
+  let resolved = "";
+  try {
+    resolved = execFileSync(loginShell, ["-lc", "command -v hush"], {
+      encoding: "utf8",
+      timeout: 30_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    resolved = "";
+  }
+
+  if (!resolved) {
+    console.error(
+      `hush: installed ${target}, but a login shell (${loginShell} -lc) resolves no hush at all -- ` +
+        `${binDir} is missing from the login PATH, so this install is not delivered.`,
+    );
+    return false;
+  }
+
+  let same;
+  try {
+    same = realpathSync(resolved) === realpathSync(target);
+  } catch {
+    same = resolved === target;
+  }
+  if (same) return false;
+
+  console.error(
+    `hush: SHADOWED INSTALL. Installed ${target}, but a login shell resolves ${resolved} first.\n` +
+      `hush is the secrets front door: every interactive shell would keep using that other copy, ` +
+      `and this installer does not upgrade it.\n` +
+      `Fix the shadow (for a global npm copy: npm uninstall -g @chriscode/hush), or put ${binDir} ` +
+      `ahead of it on the login PATH, then re-run.\n` +
+      `Set HUSH_INSTALL_SKIP_SHADOW_CHECK=1 to bypass deliberately.`,
+  );
+  return true;
+}
+
 if (process.argv.includes("--check")) {
   if (runtimeRoot !== root && (!existsSync(runtimeEntrypoint) || !existsSync(runtimeCli))) {
     throw new Error(`Hush runtime incomplete: ${runtimeRoot}. Remove it and reinstall.`);
@@ -75,8 +126,9 @@ if (process.argv.includes("--check")) {
   if (!existsSync(target) || readFileSync(target, "utf8") !== launcher) {
     throw new Error(`Hush launcher drift: ${target}. Re-run \`node scripts/install-local.mjs\`.`);
   }
+  const shadowed = reportShadowedInstall();
   console.log(target);
-  process.exit(0);
+  process.exit(shadowed ? 1 : 0);
 }
 
 mkdirSync(binDir, { recursive: true });
@@ -110,5 +162,7 @@ if (runtimeRoot !== root) {
     }
   }
 }
+
+if (reportShadowedInstall()) process.exitCode = 1;
 
 console.log(target);
