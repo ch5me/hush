@@ -135,7 +135,11 @@ jobs:
 
   release:
     needs: [docs-lint, cli-smoke, ci]
-    if: (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/prerelease-next') && forgejo.event_name == 'push'
+    # workflow_dispatch is included deliberately: a release that fails for an
+    # environmental reason (an unset Actions secret, a registry blip) previously had
+    # NO retry path, because this job ran on push only. The fix then had to ride on
+    # an unrelated commit, or wait for one. Manual re-run is the recovery path.
+    if: (forgejo.ref == 'refs/heads/main' || forgejo.ref == 'refs/heads/prerelease-next') && (forgejo.event_name == 'push' || forgejo.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
@@ -331,7 +335,14 @@ jobs:
           if [ "$WHOAMI_RC" -ne 0 ]; then
             echo "npm whoami failed (exit $WHOAMI_RC) against ${NPM_REGISTRY_URL}. Output:"
             printf '%s\n' "$WHOAMI_OUT"
-            if printf '%s' "$WHOAMI_OUT" | grep -qE 'E401|E403|ENEEDAUTH|Unauthorized|Forbidden'; then
+            if printf '%s' "$WHOAMI_OUT" | grep -q 'ENEEDAUTH'; then
+              # ENEEDAUTH means NO credential reached npm, which is the opposite of a
+              # rejected one. Lumping it in with 401/403 cost hours on 2026-07-25: the
+              # Hush token authenticated fine by hand, so "rejected" sent everyone off
+              # rotating a healthy credential when the Actions secret was simply not
+              # reaching the job. Name the two failures separately.
+              echo "::error::No npm credential reached this job (ENEEDAUTH) at ${NPM_REGISTRY_URL}. The token is not rejected -- it is ABSENT. Check that the NPM_TOKEN Actions secret is set and visible to this repo (a repo-level secret overrides the org-level one); do NOT rotate the credential first."
+            elif printf '%s' "$WHOAMI_OUT" | grep -qE 'E401|E403|Unauthorized|Forbidden'; then
               echo "::error::NPM_TOKEN was rejected by CH5 Verdaccio at ${NPM_REGISTRY_URL} (see output above); cannot publish."
             else
               echo "::error::Could not verify npm auth against ${NPM_REGISTRY_URL} (see output above). This is NOT necessarily a bad token -- check registry reachability before rotating the credential."
