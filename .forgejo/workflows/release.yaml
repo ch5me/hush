@@ -313,10 +313,28 @@ jobs:
           printf '%s\n' "@chriscode:registry=${NPM_REGISTRY_URL}" >> "$HOME/.npmrc"
           printf '%s\n' "registry=${NPM_REGISTRY_URL}" >> "$HOME/.npmrc"
 
-          if ! npx -y "npm@${NPM_VERSION}" whoami --registry="${NPM_REGISTRY_URL}" >/dev/null 2>&1; then
-            echo "::error::NPM_TOKEN was rejected by CH5 Verdaccio at ${NPM_REGISTRY_URL}; cannot publish."
+          # Show what actually failed. This check used to send both streams to
+          # /dev/null and report EVERY failure as "token rejected", so a network
+          # blip, a registry outage, or npx failing to fetch npm itself all
+          # produced a confident, wrong diagnosis pointing at the credential --
+          # and the credential was then rotated in response to an error it never
+          # caused. Capture the output and print it, and only call it a rejection
+          # when the registry actually said 401/403.
+          WHOAMI_OUT=$(npx -y "npm@${NPM_VERSION}" whoami --registry="${NPM_REGISTRY_URL}" 2>&1)
+          WHOAMI_RC=$?
+
+          if [ "$WHOAMI_RC" -ne 0 ]; then
+            echo "npm whoami failed (exit $WHOAMI_RC) against ${NPM_REGISTRY_URL}. Output:"
+            printf '%s\n' "$WHOAMI_OUT"
+            if printf '%s' "$WHOAMI_OUT" | grep -qE 'E401|E403|ENEEDAUTH|Unauthorized|Forbidden'; then
+              echo "::error::NPM_TOKEN was rejected by CH5 Verdaccio at ${NPM_REGISTRY_URL} (see output above); cannot publish."
+            else
+              echo "::error::Could not verify npm auth against ${NPM_REGISTRY_URL} (see output above). This is NOT necessarily a bad token -- check registry reachability before rotating the credential."
+            fi
             exit 1
           fi
+
+          echo "npm auth OK against ${NPM_REGISTRY_URL} as: ${WHOAMI_OUT}"
 
           echo "can_publish=true" >> "$FORGEJO_OUTPUT"
 
