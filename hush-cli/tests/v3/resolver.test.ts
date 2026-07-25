@@ -797,7 +797,7 @@ describe('resolveV3Target machine-local layer', () => {
     });
   }
 
-  it('overrides the repository value for the same environment key and reports what it shadowed', () => {
+  it('reports what a machine-local override shadowed when asked to report', () => {
     const ctx = createContext();
     const root = join(TEST_DIR, 'machine-local-override');
     const repository = writeSharedRepo(root);
@@ -806,7 +806,9 @@ describe('resolveV3Target machine-local layer', () => {
     writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
 
     const resolution = resolveApp(ctx, store, repository, 'include');
-    const shaped = shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution);
+    // 'report' is the DIAGNOSTIC policy (`hush resolve`/`trace`). Shaping still
+    // yields the override's value so those commands can show what it displaced.
+    const shaped = shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution, 'report');
 
     expect(shaped.env.API_URL).toBe('https://laptop.example.com');
     expect(shaped.shadowed).toEqual([{
@@ -815,6 +817,26 @@ describe('resolveV3Target machine-local layer', () => {
       shadowedPaths: ['env/app/shared/API_URL'],
       shadowedFiles: ['env/app/shared'],
     }]);
+  });
+
+  /**
+   * The default has to be the safe one. A caller that never thought about
+   * shadowing must not silently hand a machine-only secret to a process — that
+   * is precisely how a stale local token masked a rotated repository secret and
+   * took a service down box-wide on 2026-07-25.
+   */
+  it('refuses by default rather than silently preferring the machine-local value', () => {
+    const ctx = createContext();
+    const root = join(TEST_DIR, 'machine-local-override-default');
+    const repository = writeSharedRepo(root);
+    const store = createStore(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+    writeOverrides(ctx, store, { API_URL: 'https://laptop.example.com' });
+
+    const resolution = resolveApp(ctx, store, repository, 'include');
+
+    expect(() => shapeTargetArtifacts('app-env', repository.manifest.targets!['app-env']!, resolution))
+      .toThrow(/machine-local override shadows a repository value/);
   });
 
   it('keeps the shadowed repository node resolvable so interpolation still finds it', () => {

@@ -1,6 +1,6 @@
 import { appendAuditEvent, type HushAuditCommandContext } from './audit.js';
 import type { HushArtifactDescriptor, HushArtifactShapeResult, HushTargetArtifactDescriptor } from './artifacts.js';
-import { shapeBundleArtifacts, shapeResolvedArtifacts } from './artifacts.js';
+import { shadowPolicyFromEnv, shapeBundleArtifacts, shapeResolvedArtifacts } from './artifacts.js';
 import type { HushBundleName, HushTargetName } from './domain.js';
 import type { HushBundleResolution, HushTargetResolution } from './provenance.js';
 import type { HushImportRepositoryMap } from './imports.js';
@@ -170,7 +170,7 @@ export function materializeV3Target(ctx: HushContext, options: HushMaterializeTa
   }
 
   const resolution = resolveV3Target(ctx, options);
-  const shape = shapeResolvedArtifacts(options.targetName, target, resolution);
+  const shape = shapeResolvedArtifacts(options.targetName, target, resolution, shadowPolicyFromEnv(ctx));
   return createMaterialization(ctx, options, resolution, shape, 'target');
 }
 

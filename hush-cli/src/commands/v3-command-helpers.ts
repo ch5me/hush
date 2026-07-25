@@ -25,6 +25,7 @@ import {
 } from '../v3/schema.js';
 import { createProvenanceRecord, type HushFileEntry } from '../v3/domain.js';
 import type { HushShadowedEnvVar } from '../v3/artifacts.js';
+import { shadowPolicyFromEnv } from '../v3/artifacts.js';
 import { loadV3Repository, persistV3FileDocument } from '../v3/repository.js';
 import type { HushImportRepositoryMap } from '../v3/imports.js';
 import type { HushSelectedEntryCandidate } from '../v3/provenance.js';
@@ -902,7 +903,10 @@ export function resolveTargetEnvView(
     command,
     machineLocal: 'include',
   });
-  const shaped = shapeTargetArtifacts(targetName, target, resolution);
+  // Value-producing path: a machine-local override that shadows a repository
+  // value is refused unless the operator opts in for this invocation. See
+  // HushLocalOverrideShadowError for why silence here is the expensive default.
+  const shaped = shapeTargetArtifacts(targetName, target, resolution, shadowPolicyFromEnv(ctx));
   const logicalPaths = [...Object.keys(resolution.values), ...Object.keys(resolution.artifacts)].sort();
 
   return {

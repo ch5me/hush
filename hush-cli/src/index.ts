@@ -145,6 +145,9 @@ export { loadLegacyV2Inventory } from './v3/legacy-v2.js';
 export { loadV3Repository } from './v3/repository.js';
 export { HushResolutionConflictError, resolveV3Bundle, resolveV3Target } from './v3/resolver.js';
 export {
+  ALLOW_LOCAL_OVERRIDES_ENV,
+  HushLocalOverrideShadowError,
+  type ShadowPolicy,
   shapeBundleArtifacts,
   shapeResolvedArtifacts,
   shapeTargetArtifacts,

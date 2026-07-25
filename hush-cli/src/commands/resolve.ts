@@ -157,7 +157,10 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
     // exists once the target is shaped. Reporting it is the whole reason an
     // override is not silent: `run` would otherwise use the machine-local value
     // with nothing anywhere saying which repository value it displaced.
-    const { shadowed } = shapeTargetArtifacts(options.target, target, resolution);
+    // `report`, not `error`: this command exists to SHOW the shadowing. Failing
+    // here would remove the one tool that explains why a value-producing command
+    // just refused.
+    const { shadowed } = shapeTargetArtifacts(options.target, target, resolution, 'report');
     const lines: string[] = [];
     const logicalPaths = [...Object.keys(resolution.values), ...Object.keys(resolution.artifacts)].sort();
     const filteredValues = filterResolvedNodes(resolution.values, options.only);

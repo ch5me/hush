@@ -116,11 +116,96 @@ interface CollectedEnvVars {
 }
 
 /**
+ * What to do when a machine-local override shadows a repository value.
+ *
+ * `report` is for the DIAGNOSTIC commands (`hush resolve`, `hush trace`) whose
+ * entire job is to show you the shadowing. Everything that hands a value to a
+ * process uses `error`.
+ */
+export type ShadowPolicy = 'error' | 'report';
+
+/** Opt out per-invocation, deliberately and visibly. */
+export const ALLOW_LOCAL_OVERRIDES_ENV = 'HUSH_ALLOW_LOCAL_OVERRIDES';
+
+/**
+ * Machine-local shadowing is refused unless THIS invocation opted in.
+ *
+ * Deliberately an env var rather than a persisted setting: a stored "allow"
+ * would itself become invisible state, which is the class of bug this guard
+ * exists to remove.
+ */
+export function shadowPolicyFromEnv(ctx: { process: { env: Record<string, string | undefined> } }): ShadowPolicy {
+  const value = ctx.process.env[ALLOW_LOCAL_OVERRIDES_ENV];
+  return value === '1' || value === 'true' ? 'report' : 'error';
+}
+
+export class HushLocalOverrideShadowError extends Error {
+  readonly key: string;
+  readonly overridePath: string;
+  readonly shadowedPaths: string[];
+
+  constructor(message: string, details: { key: string; overridePath: string; shadowedPaths: string[] }) {
+    super(message);
+    this.name = 'HushLocalOverrideShadowError';
+    this.key = details.key;
+    this.overridePath = details.overridePath;
+    this.shadowedPaths = details.shadowedPaths;
+  }
+}
+
+function formatShadowError(
+  key: string,
+  overridePath: string,
+  shadowedPaths: string[],
+  shadowedFiles: string[],
+  target: string,
+): string {
+  const sources = [
+    `  machine-local (this machine only): ${overridePath}`,
+    ...shadowedPaths.map((path) => `  repository:                        ${path}`),
+  ].join('\n');
+  const removal = shadowedFiles.length > 0
+    ? `\n\nThe repository value lives in:\n${shadowedFiles.map((file) => `  - ${file}`).join('\n')}`
+    : '';
+
+  return `Refusing to resolve "${key}" for target "${target}": a machine-local override shadows a repository value.
+
+${sources}${removal}
+
+Two sources define this key and only THIS machine sees the override, so the same
+command yields different values here than in CI or on any other machine. For a
+secret that surfaces as an auth failure, not a config error.
+
+Pick one, explicitly:
+
+  # keep the repository value (drop the local override)
+  hush delete-key ${key} --from user/local
+
+  # or promote the local value into the repository, then drop the override
+  hush set ${key} --file <repo-file>
+  hush delete-key ${key} --from user/local
+
+  # or, if the override is genuinely intended for this run only
+  ${ALLOW_LOCAL_OVERRIDES_ENV}=1 <your command>
+
+Inspect both sources first with:  hush trace ${key}`;
+}
+
+/**
  * Resolve one environment key claimed by several logical paths.
  *
- * A machine-local override deliberately shares an environment key with the one
- * repository value it replaces (`hush set DATABASE_URL --repo-local` shadows
+ * A machine-local override shares an environment key with the one repository
+ * value it replaces (`hush set DATABASE_URL --repo-local` shadows
  * `env/project/shared/DATABASE_URL`), so that exact pairing means "override".
+ *
+ * That pairing used to resolve SILENTLY. It is now an error unless the caller
+ * opts in, because a silent override is indistinguishable from a correct
+ * resolution until something downstream rejects the value. On 2026-07-25 a stale
+ * `user/local` bearer token shadowed a rotated repository secret and took a
+ * box-wide service down: every client presented the local token, the server
+ * expected the repository one, and the whole failure surfaced as HTTP 401 —
+ * which sends diagnosis at the authority, not at the secret store. `hush trace`
+ * showed both sources in seconds, but nothing had pointed anyone there.
  *
  * Anything else stays a hard error, including an override sitting on top of two
  * colliding repository paths. Those two are ambiguous whether an override exists
@@ -133,6 +218,7 @@ function resolveKeyCollision(
   contenders: EnvVarPair[],
   values: HushTargetResolution['values'],
   target: string,
+  shadowPolicy: ShadowPolicy,
 ): { winner: EnvVarPair; shadowed: HushShadowedEnvVar | null } {
   const [first] = contenders;
 
@@ -156,22 +242,34 @@ function resolveKeyCollision(
     );
   }
 
-  const shadowedPaths = contenders.filter((pair) => pair !== override).map((pair) => pair.path);
+  const shadowedPaths = contenders.filter((pair) => pair !== override).map((pair) => pair.path).sort();
+  const shadowedFiles = Array.from(new Set(
+    shadowedPaths.flatMap((path) => values[path]?.resolvedFrom ?? []),
+  )).sort();
+
+  if (shadowPolicy === 'error') {
+    throw new HushLocalOverrideShadowError(
+      formatShadowError(key, override.path, shadowedPaths, shadowedFiles, target),
+      { key, overridePath: override.path, shadowedPaths },
+    );
+  }
 
   return {
     winner: override,
     shadowed: {
       key,
       overridePath: override.path,
-      shadowedPaths: shadowedPaths.sort(),
-      shadowedFiles: Array.from(new Set(
-        shadowedPaths.flatMap((path) => values[path]?.resolvedFrom ?? []),
-      )).sort(),
+      shadowedPaths,
+      shadowedFiles,
     },
   };
 }
 
-function collectEnvVars(values: HushTargetResolution['values'], target: string): CollectedEnvVars {
+function collectEnvVars(
+  values: HushTargetResolution['values'],
+  target: string,
+  shadowPolicy: ShadowPolicy,
+): CollectedEnvVars {
   const byKey = new Map<string, EnvVarPair[]>();
 
   for (const [path, node] of Object.entries(values)) {
@@ -185,7 +283,7 @@ function collectEnvVars(values: HushTargetResolution['values'], target: string):
   const shadowed: HushShadowedEnvVar[] = [];
 
   for (const [key, contenders] of Array.from(byKey.entries()).sort(([left], [right]) => left.localeCompare(right))) {
-    const resolved = resolveKeyCollision(key, contenders, values, target);
+    const resolved = resolveKeyCollision(key, contenders, values, target, shadowPolicy);
     envVars.push({ key, value: resolved.winner.value });
 
     if (resolved.shadowed) {
@@ -340,12 +438,18 @@ export function targetFormatToArtifactFormat(format: HushTargetDefinition['forma
   return format;
 }
 
+/**
+ * `shadowPolicy` defaults to `error`: a caller that forgets to think about
+ * machine-local shadowing gets the safe behaviour, and only the diagnostic
+ * commands opt down to `report`.
+ */
 export function shapeTargetArtifacts(
   targetName: string,
   target: HushTargetDefinition,
   resolution: HushTargetResolution,
+  shadowPolicy: ShadowPolicy = 'error',
 ): HushArtifactShapeResult {
-  const { envVars, shadowed } = collectEnvVars(resolution.values, targetName);
+  const { envVars, shadowed } = collectEnvVars(resolution.values, targetName, shadowPolicy);
   const env = toEnvRecord(envVars);
   const targetArtifact = createTargetArtifact(targetName, target, resolution, envVars);
   const artifacts = Object.entries(resolution.artifacts)
@@ -365,12 +469,16 @@ export function shapeResolvedArtifacts(
   targetName: string,
   target: HushTargetDefinition,
   resolution: HushTargetResolution,
+  shadowPolicy: ShadowPolicy = 'error',
 ): HushArtifactShapeResult {
-  return shapeTargetArtifacts(targetName, target, resolution);
+  return shapeTargetArtifacts(targetName, target, resolution, shadowPolicy);
 }
 
-export function shapeBundleArtifacts(resolution: HushTargetResolution | { values: HushTargetResolution['values']; artifacts: HushTargetResolution['artifacts'] }): HushArtifactShapeResult {
-  const { envVars, shadowed } = collectEnvVars(resolution.values, 'bundle');
+export function shapeBundleArtifacts(
+  resolution: HushTargetResolution | { values: HushTargetResolution['values']; artifacts: HushTargetResolution['artifacts'] },
+  shadowPolicy: ShadowPolicy = 'error',
+): HushArtifactShapeResult {
+  const { envVars, shadowed } = collectEnvVars(resolution.values, 'bundle', shadowPolicy);
   const env = toEnvRecord(envVars);
   const artifacts = Object.entries(resolution.artifacts)
     .sort(([left], [right]) => left.localeCompare(right))

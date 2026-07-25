@@ -330,13 +330,72 @@ describe('task 8 v3 runtime and mutating commands', () => {
       );
     }, 60000);
 
-    it('lets a machine-local override win over the repository value it shadows', async () => {
+    /**
+     * A machine-local override that shadows a repository value used to win
+     * SILENTLY. It now refuses.
+     *
+     * Only this machine sees the override, so the same command yields a
+     * different value here than in CI or on any other machine — and for a
+     * secret that surfaces downstream as an auth failure, which sends diagnosis
+     * at the authority instead of at the secret store. A stale `user/local`
+     * bearer token shadowing a rotated repository secret took a box-wide service
+     * down on 2026-07-25 exactly this way.
+     */
+    it('refuses to run when a machine-local override shadows a repository value', async () => {
       const root = join(TEST_DIR, 'run-local-override');
+      const repository = writeOverrideRepo(root);
+      const { ctx, store, logger } = createContext(root);
+      setIdentity(ctx, store, repository, 'developer-local');
+
+      await setCommand(ctx, { store, repoLocal: true, key: 'DATABASE_URL', value: 'postgres://laptop' });
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: root,
+        command: ['echo', 'ok'],
+      })).rejects.toThrow('Process exit: 1');
+
+      expect(stripAnsi(logger.error.mock.calls.map(([entry]) => String(entry)).join('\n')))
+        .toMatch(/machine-local override shadows a repository value/);
+      // Refusing means refusing: the child must never have been spawned with
+      // either value.
+      expect(ctx.exec.spawnSync).not.toHaveBeenCalled();
+    }, 60000);
+
+    it('names both sources and the exact commands that resolve the ambiguity', async () => {
+      const root = join(TEST_DIR, 'run-local-override-message');
+      const repository = writeOverrideRepo(root);
+      const { ctx, store, logger } = createContext(root);
+      setIdentity(ctx, store, repository, 'developer-local');
+
+      await setCommand(ctx, { store, repoLocal: true, key: 'DATABASE_URL', value: 'postgres://laptop' });
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: root,
+        command: ['echo', 'ok'],
+      })).rejects.toThrow('Process exit: 1');
+
+      const message = stripAnsi(logger.error.mock.calls.map(([entry]) => String(entry)).join('\n'));
+
+      // Both sources, named — the reader must not have to guess which files.
+      expect(message).toContain('user/local');
+      expect(message).toContain('env/project/shared');
+      // The remediation is a command the agent can run verbatim, not prose.
+      expect(message).toContain('hush delete-key DATABASE_URL --from user/local');
+      expect(message).toContain('hush trace DATABASE_URL');
+      // And the explicit, per-invocation escape hatch.
+      expect(message).toContain('HUSH_ALLOW_LOCAL_OVERRIDES=1');
+    }, 60000);
+
+    it('allows the override only when the invocation explicitly opts in', async () => {
+      const root = join(TEST_DIR, 'run-local-override-optin');
       const repository = writeOverrideRepo(root);
       const { ctx, store } = createContext(root);
       setIdentity(ctx, store, repository, 'developer-local');
 
       await setCommand(ctx, { store, repoLocal: true, key: 'DATABASE_URL', value: 'postgres://laptop' });
+      ctx.process.env.HUSH_ALLOW_LOCAL_OVERRIDES = '1';
 
       await expect(runCommand(ctx, {
         store,
