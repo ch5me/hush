@@ -529,7 +529,18 @@ jobs:
           RELEASE_JSON=$(curl -fsS \
             -H "Authorization: token ${FORGEJO_TOKEN}" \
             "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${TAG}")
-          RELEASE_ID=$(printf '%s' "$RELEASE_JSON" | jq -r '.id')
+          # `node -p`, not `jq`: jq is NOT in the node:24-bookworm runner image,
+          # so this step died with "jq: command not found" on every release from
+          # at least v8.0.0 onward. The binaries themselves built fine (the
+          # --version check above passed), and `release` had already gone green,
+          # so each release published to npm with NO binaries attached and
+          # nothing said so. Node is already a hard requirement of this job.
+          RELEASE_ID=$(printf '%s' "$RELEASE_JSON" \
+            | node -p "JSON.parse(require('node:fs').readFileSync(0,'utf8')).id")
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "undefined" ]; then
+            echo "No release id for tag ${TAG}; refusing to upload assets nowhere." >&2
+            exit 1
+          fi
 
           for asset in dist-bin/hush-* dist-bin/SHA256SUMS; do
             name=$(basename "$asset")
