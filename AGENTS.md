@@ -41,6 +41,13 @@ When changing a CLI command, update all three in the same change:
 - If pushing to `main`, always pull/rebase first because release automation can advance remote history.
 - Use conventional commits.
 - Major behavior changes need migration docs in `docs/src/content/docs/migrations/`.
+- The `release` job runs only on a **push** to `main` (`event_name == 'push'`). A
+  `workflow_dispatch` re-runs `ci` but never republishes — retrying a failed
+  publish takes a real commit.
+- `release` failing with `NPM_TOKEN was rejected by CH5 Verdaccio` means the
+  Forgejo org Actions secret has drifted from Hush, not that the credential is
+  lost. Re-sync it: `scripts/sync-forgejo-npm-token.sh` (`--check` verifies the
+  Hush value without writing).
 
 ## Keys / Secrets
 
