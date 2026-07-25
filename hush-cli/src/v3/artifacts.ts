@@ -179,11 +179,11 @@ secret that surfaces as an auth failure, not a config error.
 Pick one, explicitly:
 
   # keep the repository value (drop the local override)
-  hush delete-key ${key} --from user/local
+  hush delete-key ${key} --from local --yes
 
   # or promote the local value into the repository, then drop the override
   hush set ${key} --file <repo-file>
-  hush delete-key ${key} --from user/local
+  hush delete-key ${key} --from local --yes
 
   # or, if the override is genuinely intended for this run only
   ${ALLOW_LOCAL_OVERRIDES_ENV}=1 <your command>

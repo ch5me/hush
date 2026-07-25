@@ -382,10 +382,45 @@ describe('task 8 v3 runtime and mutating commands', () => {
       expect(message).toContain('user/local');
       expect(message).toContain('env/project/shared');
       // The remediation is a command the agent can run verbatim, not prose.
-      expect(message).toContain('hush delete-key DATABASE_URL --from user/local');
+      expect(message).toContain('hush delete-key DATABASE_URL --from local --yes');
       expect(message).toContain('hush trace DATABASE_URL');
       // And the explicit, per-invocation escape hatch.
       expect(message).toContain('HUSH_ALLOW_LOCAL_OVERRIDES=1');
+    }, 60000);
+
+    /**
+     * The remediation the error prints must actually run.
+     *
+     * It first said `--from user/local`, which delete-key REFUSED ("repository
+     * files only"), leaving an interactive `hush edit --file local` as the only
+     * way out. An error that hands an agent a command that errors is not a
+     * remediation, so this test executes the printed command end-to-end.
+     */
+    it('resolves the refusal by running exactly the command the error prints', async () => {
+      const root = join(TEST_DIR, 'run-local-override-remediation');
+      const repository = writeOverrideRepo(root);
+      const { ctx, store } = createContext(root);
+      setIdentity(ctx, store, repository, 'developer-local');
+
+      await setCommand(ctx, { store, repoLocal: true, key: 'DATABASE_URL', value: 'postgres://laptop' });
+
+      // The printed remediation, verbatim: hush delete-key DATABASE_URL --from local --yes
+      await deleteKeyCommand(ctx, { store, key: 'DATABASE_URL', from: 'local', yes: true });
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: root,
+        command: ['echo', 'ok'],
+      })).rejects.toThrow('Process exit: 0');
+
+      // Refusal cleared, and the REPOSITORY value is what the process receives.
+      expect(ctx.exec.spawnSync).toHaveBeenCalledWith(
+        'echo',
+        ['ok'],
+        expect.objectContaining({
+          env: expect.objectContaining({ DATABASE_URL: 'postgres://shared' }),
+        }),
+      );
     }, 60000);
 
     it('allows the override only when the invocation explicitly opts in', async () => {
