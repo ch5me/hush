@@ -28,9 +28,9 @@
     "docs:deploy": "cd docs && bun x astro build && bun run deploy",
     "changelog": "./scripts/changelog.sh",
     "release": "./scripts/release.sh",
-    "svc:ensure": "./node_modules/.bin/devmux ensure docs",
-    "svc:status": "./node_modules/.bin/devmux status --json",
-    "svc:stop": "./node_modules/.bin/devmux stop all"
+    "svc:ensure": "pitchfork start docs",
+    "svc:status": "pitchfork list --json",
+    "svc:stop": "pitchfork stop --local"
   },
   "devDependencies": {
     "@chriscode/devmux": "1.15.6"
