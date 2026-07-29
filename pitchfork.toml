@@ -4,5 +4,5 @@ enable = true
 [daemons.docs]
 run = "./node_modules/.bin/astro dev --host 0.0.0.0 --port $PORT"
 dir = "docs"
-port = 18161
-ready_http = { url = "http://127.0.0.1:18161/", status = [200], timeout = "30s" }
+port = { expect = [18161], bump = 20 }
+ready_port = { port = 18161, timeout = "30s" }
