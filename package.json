@@ -32,9 +32,6 @@
     "svc:status": "pitchfork list --json",
     "svc:stop": "pitchfork stop --local"
   },
-  "devDependencies": {
-    "@chriscode/devmux": "1.15.6"
-  },
   "engines": {
     "node": ">=24 <25"
   },

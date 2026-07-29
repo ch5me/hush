@@ -61,12 +61,11 @@ When changing a CLI command, update all three in the same change:
 - Read `.llm/wiki/CONTEXT.md` before touching code.
 - Update the wiki when architecture, commands, or sharp edges change.
 - Keep AGENTS concise; long command/reference/tutorial content belongs in docs or skills.
-- The docs site runs as the `docs` daemon in `pitchfork.toml` (pitchfork, not devmux):
+- The docs site runs as the `docs` daemon in `pitchfork.toml`:
   `svc:ensure` = `pitchfork start docs`, `svc:stop` = `pitchfork stop --local`
   (never `--all` — the supervisor is shared box-wide), `svc:status` =
   `pitchfork list --json`, which reports *every* project on the machine because
-  pitchfork 2.19.0 has no namespace filter. `devmux.config.json` and the
-  `@chriscode/devmux` dependency stay until the fleet migration is proven.
+  pitchfork 2.19.0 has no namespace filter.
 
 ## Keep Out Of This File
 
