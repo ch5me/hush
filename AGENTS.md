@@ -86,6 +86,9 @@ When changing a CLI command, update all three in the same change:
 - Read `.llm/wiki/CONTEXT.md` before touching code.
 - Update the wiki when architecture, commands, or sharp edges change.
 - Keep AGENTS concise; long command/reference/tutorial content belongs in docs or skills.
+- Measured, if you ever drop to raw pitchfork: `pitchfork list --json` has no
+  namespace filter in 2.19.0, so it reports every project on the box, not just
+  this repo's `docs` daemon.
 
 ## Keep Out Of This File
 
