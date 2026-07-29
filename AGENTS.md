@@ -2,6 +2,31 @@
 
 AI-native secrets manager. This file is the repo-local operating contract, not a full handbook.
 
+## Running this repo's dev services
+
+`ch5-svc` is the one front door. `pitchfork.toml` in this repo declares the
+services; you do not choose ports and you do not launch dev servers in a harness
+pane.
+
+```bash
+ch5-svc up            # start this repo's services (serialized) and print URLs
+ch5-svc status        # status, resolved port, measured liveness, URL
+ch5-svc logs <name>   # tail one service
+ch5-svc down          # stop this repo's services only
+```
+
+Services here: `docs`
+
+URLs are `http://<service>.<tree>.localhost:7300/`, where `<tree>` is the
+directory basename — the repo name in the canonical checkout, the Grove Tree name
+in a Tree. So two Grove Trees of this repo are reachable at once, each at its own
+hostname, and nobody types a port. `ch5-svc status` prints the exact URLs; do not
+guess or hardcode them.
+
+If a URL shows a "not answering" page, the service is declared but down — the page
+has a button that starts it. Never `pitchfork stop --all` (box-wide) and never add
+`--force` (`start` is already idempotent).
+
 ## Mission
 
 - Hush is the encrypted secrets manager for AI-first workflows.
@@ -61,11 +86,6 @@ When changing a CLI command, update all three in the same change:
 - Read `.llm/wiki/CONTEXT.md` before touching code.
 - Update the wiki when architecture, commands, or sharp edges change.
 - Keep AGENTS concise; long command/reference/tutorial content belongs in docs or skills.
-- The docs site runs as the `docs` daemon in `pitchfork.toml`:
-  `svc:ensure` = `pitchfork start docs`, `svc:stop` = `pitchfork stop --local`
-  (never `--all` — the supervisor is shared box-wide), `svc:status` =
-  `pitchfork list --json`, which reports *every* project on the machine because
-  pitchfork 2.19.0 has no namespace filter.
 
 ## Keep Out Of This File
 
