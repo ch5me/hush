@@ -1,6 +1,6 @@
 {
   "name": "@chriscode/hush",
-  "version": "8.2.1",
+  "version": "8.3.0",
   "description": "AI-native secrets manager. Secrets stay encrypted at rest; AI agents help without seeing values.",
   "type": "module",
   "bin": {
