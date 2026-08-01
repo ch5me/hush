@@ -18,7 +18,9 @@ staged entrypoint. It must not invoke Bun or a mutable `~/src/ch5/hush`
 checkout. `node scripts/install-local.mjs --check` fails on launcher drift.
 Installer accepts only complete staged entrypoint/build pairs and retains active
 plus one previous revision. Installation rejects tracked drift in copied
-manifests and launcher inputs.
+manifests and launcher inputs. Managed runtime and bin roots must be absolute,
+non-root, canonical directories; any symlinked root or ancestor fails before
+staging, launcher replacement, or old-runtime cleanup.
 
 The read-only runtime manifest keeps provenance boundaries explicit: Git
 commit/tree identify tracked inputs, a separate digest identifies ignored

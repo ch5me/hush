@@ -26,7 +26,7 @@ import {
 } from "../../scripts/install-local.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const binDir = mkdtempSync(join(tmpdir(), "hush-local-install-"));
+const binDir = realpathSync(mkdtempSync(join(tmpdir(), "hush-local-install-")));
 const installer = join(root, "scripts", "install-local.mjs");
 const runtimeBase = join(binDir, "runtimes");
 const runtimeRoot = join(runtimeBase, "c".repeat(40));
@@ -279,6 +279,41 @@ try {
   assert.equal(check.status, 0, check.stderr);
   const reuse = runInstaller();
   assert.equal(reuse.status, 0, reuse.stderr);
+
+  const outsideRuntimeRoot = join(fixtureBase, "outside-runtime-root");
+  const runtimeRootLink = join(fixtureBase, "runtime-root-link");
+  const safeBinRoot = join(fixtureBase, "safe-bin-root");
+  mkdirSync(outsideRuntimeRoot);
+  mkdirSync(safeBinRoot);
+  symlinkSync(outsideRuntimeRoot, runtimeRootLink, "dir");
+  const escapedRuntimeName = "d".repeat(40);
+  const linkedRuntimeInstall = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: join(runtimeRootLink, escapedRuntimeName),
+    HUSH_INSTALL_BIN_DIR: safeBinRoot,
+  });
+  assert.notEqual(linkedRuntimeInstall.status, 0);
+  assert.match(linkedRuntimeInstall.stderr, /Hush runtime parent must (?:not traverse symlinked ancestors|be a real directory)/);
+  assert.equal(existsSync(join(outsideRuntimeRoot, escapedRuntimeName)), false);
+
+  const outsideBinRoot = join(fixtureBase, "outside-bin-root");
+  const binRootLink = join(fixtureBase, "bin-root-link");
+  mkdirSync(outsideBinRoot);
+  symlinkSync(outsideBinRoot, binRootLink, "dir");
+  const linkedBinInstall = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: runtimeRoot,
+    HUSH_INSTALL_BIN_DIR: binRootLink,
+  });
+  assert.notEqual(linkedBinInstall.status, 0);
+  assert.match(linkedBinInstall.stderr, /Hush bin root must (?:not traverse symlinks|be a real directory)/);
+  assert.equal(existsSync(join(outsideBinRoot, "hush")), false);
+
+  const installedRuntimeLink = join(fixtureBase, "installed-runtime-link");
+  symlinkSync(runtimeRoot, installedRuntimeLink, "dir");
+  const linkedRuntimeCheck = runInstaller(["--check"], {
+    HUSH_INSTALL_RUNTIME_ROOT: installedRuntimeLink,
+  });
+  assert.notEqual(linkedRuntimeCheck.status, 0);
+  assert.match(linkedRuntimeCheck.stderr, /Hush runtime root must (?:not traverse symlinks|be a real directory)/);
 
   const runtimeCliPath = join(runtimeRoot, "hush-cli", "dist", "cli.js");
   const runtimeCli = readFileSync(runtimeCliPath);

@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertNode24 } from "./install-local-helpers.mjs";
 
@@ -39,6 +39,55 @@ const stagedSourcePaths = [...trackedSourcePaths, "hush-cli/dist"];
 function isInside(parent, child) {
   const path = relative(parent, child);
   return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+}
+
+function configuredDirectory(label, configured, fallback) {
+  const value = configured || fallback;
+  if (!isAbsolute(value)) {
+    throw new Error(`${label} must be absolute: ${value}`);
+  }
+  const candidate = resolve(value);
+  if (candidate === parse(candidate).root) {
+    throw new Error(`${label} must not be a filesystem root: ${candidate}`);
+  }
+  return candidate;
+}
+
+function assertCanonicalDirectory(label, candidate, create = false) {
+  let ancestor = dirname(candidate);
+  while (!existsSync(ancestor)) {
+    const parent = dirname(ancestor);
+    if (parent === ancestor) {
+      throw new Error(`${label} has no existing directory ancestor: ${candidate}`);
+    }
+    ancestor = parent;
+  }
+
+  const ancestorMetadata = lstatSync(ancestor);
+  if (ancestorMetadata.isSymbolicLink() || !ancestorMetadata.isDirectory()) {
+    throw new Error(`${label} ancestor must be a real directory: ${ancestor}`);
+  }
+  const canonicalAncestor = realpathSync(ancestor);
+  if (canonicalAncestor !== ancestor) {
+    throw new Error(`${label} must not traverse symlinked ancestors: ${ancestor} -> ${canonicalAncestor}`);
+  }
+
+  if (create) mkdirSync(candidate, { recursive: true });
+
+  let metadata;
+  try {
+    metadata = lstatSync(candidate);
+  } catch {
+    throw new Error(`${label} directory is missing: ${candidate}`);
+  }
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(`${label} must be a real directory: ${candidate}`);
+  }
+  const canonicalCandidate = realpathSync(candidate);
+  if (canonicalCandidate !== candidate || !isInside(canonicalAncestor, canonicalCandidate)) {
+    throw new Error(`${label} must not traverse symlinks: ${candidate} -> ${canonicalCandidate}`);
+  }
+  return canonicalCandidate;
 }
 
 function sha256(value) {
@@ -479,8 +528,8 @@ function reportShadowedInstall(target, binDir) {
 
 function main() {
   const builtCli = join(root, "hush-cli", "dist", "cli.js");
-  const runtimeRoot = resolve(process.env.HUSH_INSTALL_RUNTIME_ROOT || root);
-  const binDir = resolve(process.env.HUSH_INSTALL_BIN_DIR || join(homedir(), ".local", "bin"));
+  const runtimeRoot = configuredDirectory("Hush runtime root", process.env.HUSH_INSTALL_RUNTIME_ROOT, root);
+  const binDir = configuredDirectory("Hush bin root", process.env.HUSH_INSTALL_BIN_DIR, join(homedir(), ".local", "bin"));
   const target = join(binDir, "hush");
   const temporary = `${target}.tmp-${process.pid}`;
   const nodePath = realpathSync(process.execPath);
@@ -498,11 +547,15 @@ function main() {
     throw new Error(`Hush installer requires ${packageManager}; found bun@${actualBunVersion}.`);
   }
 
+  const runtimeParent = dirname(runtimeRoot);
+  assertCanonicalDirectory("Hush runtime parent", runtimeParent, !checkOnly);
+  assertCanonicalDirectory("Hush bin root", binDir, !checkOnly);
+
   if (runtimeRoot !== root && !existsSync(runtimeRoot) && !checkOnly) {
     const runtimeTemporary = `${runtimeRoot}.tmp-${process.pid}`;
-    mkdirSync(dirname(runtimeRoot), { recursive: true });
     try {
       mkdirSync(runtimeTemporary);
+      assertCanonicalDirectory("Hush staged runtime", runtimeTemporary);
       stageRuntime(root, runtimeTemporary);
       const source = sourceIdentityFromInputs(root, runtimeTemporary);
       execFileSync("bun", [
@@ -522,11 +575,14 @@ function main() {
       const collected = validateRuntimeGraph(runtimeTemporary, true);
       writeRuntimeManifest(runtimeTemporary, source, collected.entries);
       validateRuntimeManifest(runtimeTemporary, source, collected.entries);
+      assertCanonicalDirectory("Hush runtime parent", runtimeParent);
       renameSync(runtimeTemporary, runtimeRoot);
+      assertCanonicalDirectory("Hush runtime root", runtimeRoot);
     } finally {
       rmSync(runtimeTemporary, { recursive: true, force: true });
     }
   } else {
+    assertCanonicalDirectory("Hush runtime root", runtimeRoot);
     const source = sourceIdentity();
     const collected = validateRuntimeGraph(runtimeRoot, runtimeRoot !== root);
     if (runtimeRoot !== root) validateRuntimeManifest(runtimeRoot, source, collected.entries);
@@ -547,10 +603,11 @@ exec ${quote(nodePath)} ${quote(runtimeEntrypoint)} "$@"
     process.exit(shadowed ? 1 : 0);
   }
 
-  mkdirSync(binDir, { recursive: true });
   try {
-    writeFileSync(temporary, launcher, { mode: 0o755 });
+    assertCanonicalDirectory("Hush bin root", binDir);
+    writeFileSync(temporary, launcher, { mode: 0o755, flag: "wx" });
     chmodSync(temporary, 0o755);
+    assertCanonicalDirectory("Hush bin root", binDir);
     renameSync(temporary, target);
   } finally {
     rmSync(temporary, { force: true });
@@ -558,7 +615,6 @@ exec ${quote(nodePath)} ${quote(runtimeEntrypoint)} "$@"
   validateLauncher(target, launcher);
 
   if (runtimeRoot !== root) {
-    const runtimeParent = dirname(runtimeRoot);
     const activeName = basename(runtimeRoot);
     if (/^[0-9a-f]{40}$/.test(activeName)) {
       const candidates = readdirSync(runtimeParent, { withFileTypes: true })
@@ -573,7 +629,11 @@ exec ${quote(nodePath)} ${quote(runtimeEntrypoint)} "$@"
         .sort((left, right) => right.modified - left.modified || right.name.localeCompare(left.name));
       const keep = new Set([activeName, ...candidates.slice(0, 1).map((entry) => entry.name)]);
       for (const candidate of candidates) {
-        if (!keep.has(candidate.name)) rmSync(candidate.path, { recursive: true, force: true });
+        if (!keep.has(candidate.name)) {
+          assertCanonicalDirectory("Hush retained runtime", candidate.path);
+          assertCanonicalDirectory("Hush runtime parent", runtimeParent);
+          rmSync(candidate.path, { recursive: true, force: true });
+        }
       }
     }
   }
