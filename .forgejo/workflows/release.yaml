@@ -127,6 +127,9 @@ jobs:
       - name: Build CLI
         run: bun run cli:build
 
+      - name: Verify detached local runtime
+        run: bun run cli:verify-local-install
+
       - name: Type check
         run: bun run type-check
 

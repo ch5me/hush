@@ -9,20 +9,25 @@
 ## CH5 Local Launcher
 
 Fleet installs build with Node 24 from the managed Hush clone after `bun run
-cli:build`, then stage complete runtime files under the managed runtime root.
+cli:build`, then copy an explicit runtime input list into a temporary revision
+and install frozen production dependencies for only the CLI workspace there.
+The installer does not copy ambient `node_modules` or recursively scan the
+source checkout.
 The generated `~/.local/bin/hush` launcher pins the actual Node executable and
 staged entrypoint. It must not invoke Bun or a mutable `~/src/ch5/hush`
 checkout. `node scripts/install-local.mjs --check` fails on launcher drift.
 Installer accepts only complete staged entrypoint/build pairs and retains active
-plus one previous revision. Installation rejects tracked drift in files copied
-from the source checkout, so the recorded commit/tree cannot label different
-tracked bytes.
+plus one previous revision. Installation rejects tracked drift in copied
+manifests and launcher inputs.
 
-The read-only runtime manifest inventories file content, mode, and internal
-symlink targets. It detects accidental post-install drift; it is not a
-cryptographic trust boundary against an actor who can rewrite both the runtime
-and its manifest. Commit identity and the managed runtime path remain external
-attribution anchors. No separate signing service is involved.
+The read-only runtime manifest keeps provenance boundaries explicit: Git
+commit/tree identify tracked inputs, a separate digest identifies ignored
+`hush-cli/dist`, and the tracked `bun.lock` digest identifies dependency
+resolution input. Installed dependency bytes, every runtime file, directory
+mode, and internal symlink target are inventoried separately. This detects
+accidental post-install drift; it is not a cryptographic trust boundary against
+an actor who can rewrite both the runtime and its manifest. Commit identity and
+the managed runtime path remain external attribution anchors.
 
 ## Entry Point (`hush-cli/src/commands/run.ts`)
 

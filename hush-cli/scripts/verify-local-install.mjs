@@ -40,6 +40,7 @@ const env = {
   HUSH_INSTALL_RUNTIME_ROOT: runtimeRoot,
   HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
   HUSH_NO_UPDATE_CHECK: "1",
+  NODE_PATH: "",
 };
 
 function runInstaller(args = [], overrides = {}) {
@@ -58,11 +59,6 @@ function writePackage(path, document, entrypoint = "export default true;\n") {
   }
 }
 
-function linkPackage(path, target) {
-  mkdirSync(dirname(path), { recursive: true });
-  symlinkSync(relative(dirname(path), target), path, "dir");
-}
-
 function writeRuntimeFixture(name, packageDocument = {}) {
   const fixtureRoot = join(fixtureBase, name);
   mkdirSync(join(fixtureRoot, "hush-cli", "bin"), { recursive: true });
@@ -76,16 +72,14 @@ function writeRuntimeFixture(name, packageDocument = {}) {
   return fixtureRoot;
 }
 
-function assertDirtySourceRejected() {
-  const sourceRoot = join(fixtureBase, "dirty-source");
-  writeRuntimeFixture("dirty-source", { dependencies: { "fixture-workspace": "1.0.0" } });
-  const workspacePackage = join(sourceRoot, "packages", "fixture-workspace");
-  writePackage(workspacePackage, {
-    name: "fixture-workspace",
-    version: "1.0.0",
-    main: "index.cjs",
-  }, 'module.exports = "clean";\n');
-  linkPackage(join(sourceRoot, "hush-cli", "node_modules", "fixture-workspace"), workspacePackage);
+function assertSourceProvenance() {
+  const sourceRoot = writeRuntimeFixture("source-provenance");
+  mkdirSync(join(sourceRoot, "docs"), { recursive: true });
+  writeFileSync(join(sourceRoot, ".npmrc"), "registry=https://example.invalid/\n");
+  writeFileSync(join(sourceRoot, "bun.lock"), "fixture lock\n");
+  writeFileSync(join(sourceRoot, "package.json"), '{"name":"fixture-root"}\n');
+  writeFileSync(join(sourceRoot, "docs", "package.json"), '{"name":"fixture-docs"}\n');
+  writeFileSync(join(sourceRoot, "hush-cli", "schema.json"), "{}\n");
   const git = (...args) => {
     const result = spawnSync("git", args, { cwd: sourceRoot, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -93,87 +87,44 @@ function assertDirtySourceRejected() {
   git("init", "-q");
   git("config", "user.name", "Hush Installer Test");
   git("config", "user.email", "hush-installer-test@example.invalid");
-  git("add", "hush-cli/bin/hush.js", "hush-cli/package.json", "packages/fixture-workspace");
+  git("add", ".npmrc", "bun.lock", "docs/package.json", "hush-cli/bin/hush.js",
+    "hush-cli/package.json", "hush-cli/schema.json", "package.json");
   git("commit", "-qm", "test fixture");
-  assert.match(sourceIdentity(sourceRoot).commit, /^[0-9a-f]{40}$/);
+  const original = sourceIdentity(sourceRoot);
+  assert.match(original.tracked.commit, /^[0-9a-f]{40}$/);
+  assert.match(original.tracked.tree, /^[0-9a-f]{40}$/);
+  assert.match(original.build.sha256, /^[0-9a-f]{64}$/);
+  assert.match(original.dependencies.sha256, /^[0-9a-f]{64}$/);
+
   writeFileSync(join(sourceRoot, "hush-cli", "package.json"), '{"name":"dirty"}\n');
   assert.throws(
     () => sourceIdentity(sourceRoot),
-    /Hush tracked shipped inputs are dirty:\nhush-cli\/package\.json/,
+    /Hush tracked shipped input differs from HEAD: hush-cli\/package\.json/,
   );
   git("checkout", "-q", "--", "hush-cli/package.json");
-  writeFileSync(join(workspacePackage, "index.cjs"), 'module.exports = "dirty";\n');
-  git("add", "packages/fixture-workspace/index.cjs");
-  assert.throws(
-    () => sourceIdentity(sourceRoot),
-    /Hush tracked shipped inputs are dirty:\npackages\/fixture-workspace\/index\.cjs/,
-  );
-}
 
-function assertBunRuntimeStaging() {
-  const sourceRoot = writeRuntimeFixture("bun-source", {
-    type: "module",
-    dependencies: { "fixture-parent": "1.0.0" },
-    optionalDependencies: {
-      "fixture-optional": "1.0.0",
-      "fixture-missing": "1.0.0",
-    },
-    peerDependencies: { "fixture-optional-peer": "1.0.0" },
-    peerDependenciesMeta: { "fixture-optional-peer": { optional: true } },
-  });
-  writeFileSync(
-    join(sourceRoot, "hush-cli", "bin", "hush.js"),
-    '#!/usr/bin/env node\nimport "../dist/cli.js";\n',
-  );
-  writeFileSync(
-    join(sourceRoot, "hush-cli", "dist", "cli.js"),
-    'import parent from "fixture-parent";\n' +
-      'import optional from "fixture-optional";\n' +
-      'console.log(`${parent}:${optional}`);\n',
-  );
+  writeFileSync(join(sourceRoot, "hush-cli", "dist", "cli.js"), "changed build\n");
+  mkdirSync(join(sourceRoot, "hush-cli", "node_modules", "ambient"), { recursive: true });
+  writeFileSync(join(sourceRoot, "hush-cli", "node_modules", "ambient", "index.js"), "ambient\n");
+  const rebuilt = sourceIdentity(sourceRoot);
+  assert.deepEqual(rebuilt.tracked, original.tracked);
+  assert.notEqual(rebuilt.build.sha256, original.build.sha256);
+  assert.deepEqual(rebuilt.dependencies, original.dependencies);
 
-  const bunRoot = join(sourceRoot, "node_modules", ".bun");
-  const parentPackage = join(bunRoot, "fixture-parent@1.0.0", "node_modules", "fixture-parent");
-  const childPackage = join(bunRoot, "fixture-child@1.0.0", "node_modules", "fixture-child");
-  const optionalPackage = join(bunRoot, "fixture-optional@1.0.0", "node_modules", "fixture-optional");
-  writePackage(parentPackage, {
-    name: "fixture-parent",
-    version: "1.0.0",
-    main: "index.cjs",
-    dependencies: { "fixture-child": "1.0.0" },
-  }, 'module.exports = require("fixture-child");\n');
-  writePackage(childPackage, {
-    name: "fixture-child",
-    version: "1.0.0",
-    main: "index.cjs",
-  }, 'module.exports = "nested";\n');
-  writePackage(optionalPackage, {
-    name: "fixture-optional",
-    version: "1.0.0",
-    main: "index.cjs",
-  }, 'module.exports = "optional";\n');
-  linkPackage(join(sourceRoot, "hush-cli", "node_modules", "fixture-parent"), parentPackage);
-  linkPackage(join(sourceRoot, "hush-cli", "node_modules", "fixture-optional"), optionalPackage);
-  linkPackage(join(parentPackage, "node_modules", "fixture-child"), childPackage);
-
-  const stagedRoot = join(fixtureBase, "bun-staged");
+  const stagedRoot = join(fixtureBase, "source-staged");
   mkdirSync(stagedRoot);
   stageRuntime(sourceRoot, stagedRoot);
-  assert.doesNotThrow(() => validateRuntimeGraph(stagedRoot));
-  assert.equal(existsSync(join(stagedRoot, "hush-cli", "node_modules", ".bun")), false);
-  assert.equal(lstatSync(join(stagedRoot, "hush-cli", "node_modules", "fixture-parent")).isDirectory(), true);
-  assert.equal(
-    lstatSync(join(stagedRoot, "hush-cli", "node_modules", "fixture-parent", "node_modules", "fixture-child"))
-      .isDirectory(),
-    true,
+  assert.equal(existsSync(join(stagedRoot, "hush-cli", "dist", "cli.js")), true);
+  assert.equal(existsSync(join(stagedRoot, "hush-cli", "node_modules")), false);
+
+  const outsideInput = join(fixtureBase, "outside-input");
+  writeFileSync(outsideInput, "outside\n");
+  rmSync(join(sourceRoot, ".npmrc"));
+  symlinkSync(outsideInput, join(sourceRoot, ".npmrc"));
+  assert.throws(
+    () => stageRuntime(sourceRoot, join(fixtureBase, "symlinked-source-staged")),
+    /Hush runtime input must be a regular file/,
   );
-  const execution = spawnSync(
-    process.execPath,
-    [join(stagedRoot, "hush-cli", "bin", "hush.js")],
-    { cwd: neutralCwd, encoding: "utf8" },
-  );
-  assert.equal(execution.status, 0, execution.stderr);
-  assert.equal(execution.stdout, "nested:optional\n");
 }
 
 function escapingMain(packageRoot, outsideFile) {
@@ -269,9 +220,8 @@ try {
   utimesSync(retainedRuntime, 2, 2);
   assert.throws(() => assertNode24("23.11.0"), /requires Node 24/);
   assert.doesNotThrow(() => assertNode24(process.version));
-  assertDirtySourceRejected();
+  assertSourceProvenance();
   assertRuntimeFixtures();
-  assertBunRuntimeStaging();
 
   mkdirSync(join(runtimeRoot, "hush-cli", "bin"), { recursive: true });
   writeFileSync(join(runtimeRoot, "hush-cli", "bin", "hush.js"), "");
@@ -296,8 +246,12 @@ try {
   assert.doesNotMatch(launcher, /\/src\/ch5\/hush(?:\/|$)/);
   assert.doesNotMatch(launcher, /\bbun\b/);
   assert.ok(readFileSync(join(runtimeRoot, "hush-cli", "dist", "cli.js"), "utf8").length > 0);
-  assert.match(manifest.source.commit, /^[0-9a-f]{40}$/);
-  assert.match(manifest.source.tree, /^[0-9a-f]{40}$/);
+  assert.equal(manifest.version, 2);
+  assert.match(manifest.source.tracked.commit, /^[0-9a-f]{40}$/);
+  assert.match(manifest.source.tracked.tree, /^[0-9a-f]{40}$/);
+  assert.match(manifest.source.build.sha256, /^[0-9a-f]{64}$/);
+  assert.match(manifest.source.dependencies.sha256, /^[0-9a-f]{64}$/);
+  assert.ok(manifest.files.some((entry) => entry.path === "hush-cli/dist" && entry.type === "directory"));
   assert.ok(manifest.files.some((entry) => entry.path === "hush-cli/dist/cli.js" && entry.sha256));
   assert.equal(lstatSync(manifestPath).mode & 0o777, 0o444);
   assert.equal(existsSync(oldRuntime), false);
@@ -306,6 +260,20 @@ try {
   const version = spawnSync(launcherPath, ["--version"], { cwd: neutralCwd, env, encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);
   assert.match(version.stdout, /^\d+\.\d+\.\d+\s*$/);
+  const preloadMarker = join(binDir, "preload-ran");
+  const preload = join(binDir, "ambient-preload.cjs");
+  writeFileSync(preload, `require("node:fs").writeFileSync(${JSON.stringify(preloadMarker)}, "ran");\n`);
+  const isolatedVersion = spawnSync(launcherPath, ["--version"], {
+    cwd: neutralCwd,
+    env: {
+      ...env,
+      NODE_OPTIONS: `--require ${preload}`,
+      NODE_PATH: join(root, "node_modules"),
+    },
+    encoding: "utf8",
+  });
+  assert.equal(isolatedVersion.status, 0, isolatedVersion.stderr);
+  assert.equal(existsSync(preloadMarker), false);
 
   const check = runInstaller(["--check"]);
   assert.equal(check.status, 0, check.stderr);
@@ -327,9 +295,17 @@ try {
   assert.match(runtimeModeDrift.stderr, /Hush runtime manifest drift: changed hush-cli\/dist\/cli\.js/);
   chmodSync(runtimeCliPath, runtimeCliMode);
 
+  const runtimeDistPath = join(runtimeRoot, "hush-cli", "dist");
+  const runtimeDistMode = lstatSync(runtimeDistPath).mode & 0o777;
+  chmodSync(runtimeDistPath, runtimeDistMode ^ 0o1000);
+  const runtimeDirectoryModeDrift = runInstaller(["--check"]);
+  assert.notEqual(runtimeDirectoryModeDrift.status, 0);
+  assert.match(runtimeDirectoryModeDrift.stderr, /Hush runtime manifest drift: changed hush-cli\/dist/);
+  chmodSync(runtimeDistPath, runtimeDistMode);
+
   const manifestText = readFileSync(manifestPath, "utf8");
   const driftedManifest = JSON.parse(manifestText);
-  driftedManifest.source.tree = "0".repeat(40);
+  driftedManifest.source.build.sha256 = "0".repeat(64);
   chmodSync(manifestPath, 0o644);
   writeFileSync(manifestPath, `${JSON.stringify(driftedManifest, null, 2)}\n`);
   chmodSync(manifestPath, 0o444);
@@ -381,6 +357,21 @@ try {
   assert.notEqual(launcherDrift.status, 0);
   assert.match(launcherDrift.stderr, /Hush launcher drift/);
   writeFileSync(launcherPath, launcher, { mode: 0o755 });
+
+  const runtimeDependencyPackage = join(runtimeRoot, "hush-cli", "node_modules", "picocolors", "package.json");
+  const runtimeDependencyPackageText = readFileSync(runtimeDependencyPackage);
+  writeFileSync(runtimeDependencyPackage, Buffer.concat([runtimeDependencyPackageText, Buffer.from("\n")]));
+  const dependencyTamper = runInstaller(["--check"]);
+  assert.notEqual(dependencyTamper.status, 0);
+  assert.match(dependencyTamper.stderr, /Hush runtime manifest drift: changed hush-cli\/node_modules\/picocolors/);
+  writeFileSync(runtimeDependencyPackage, runtimeDependencyPackageText);
+
+  const unexpectedRuntimeFile = join(runtimeRoot, "hush-cli", "node_modules", "tampered.js");
+  writeFileSync(unexpectedRuntimeFile, "tampered\n");
+  const unexpectedFile = runInstaller(["--check"]);
+  assert.notEqual(unexpectedFile.status, 0);
+  assert.match(unexpectedFile.stderr, /Hush runtime manifest drift: unexpected hush-cli\/node_modules\/tampered\.js/);
+  rmSync(unexpectedRuntimeFile);
 
   const runtimeDependency = join(runtimeRoot, "hush-cli", "node_modules", "picocolors");
   const runtimeDependencyCopy = join(runtimeRoot, "picocolors-copy");
