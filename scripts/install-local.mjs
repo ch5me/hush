@@ -3,6 +3,7 @@ import {
   chmodSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -14,7 +15,7 @@ import {
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertNode24 } from "./install-local-helpers.mjs";
 
@@ -34,30 +35,85 @@ if (!existsSync(builtCli)) {
 
 assertNode24(process.version);
 
-if (runtimeRoot !== root) {
-  const runtimeReady = existsSync(runtimeEntrypoint) && existsSync(runtimeCli);
-  if (!runtimeReady) {
-    if (existsSync(runtimeRoot)) {
-      throw new Error(`Hush runtime incomplete: ${runtimeRoot}. Remove it and reinstall.`);
-    }
-    const runtimeTemporary = `${runtimeRoot}.tmp-${process.pid}`;
-    mkdirSync(dirname(runtimeRoot), { recursive: true });
-    try {
-      cpSync(root, runtimeTemporary, {
-        recursive: true,
-        filter: (source) => {
-          const path = relative(root, source);
-          return path !== ".git" && !path.startsWith(`.git${sep}`);
-        },
-      });
-      if (!existsSync(join(runtimeTemporary, "hush-cli", "bin", "hush.js"))
-        || !existsSync(join(runtimeTemporary, "hush-cli", "dist", "cli.js"))) {
-        throw new Error(`Hush runtime staging incomplete: ${runtimeTemporary}`);
+function isWithin(parent, child) {
+  const path = relative(parent, child);
+  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
+}
+
+function assertRuntime(runtime) {
+  const entrypoint = join(runtime, "hush-cli", "bin", "hush.js");
+  const cli = join(runtime, "hush-cli", "dist", "cli.js");
+  if (!existsSync(entrypoint) || !existsSync(cli)) {
+    throw new Error(`Hush runtime incomplete: ${runtime}`);
+  }
+
+  const pending = [runtime];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (lstatSync(path).isSymbolicLink()) {
+        const target = realpathSync(path);
+        if (!isWithin(runtime, target)) {
+          throw new Error(`Hush runtime symlink escapes runtime root: ${path} -> ${target}`);
+        }
+        if (statSync(path).isDirectory()) pending.push(path);
+      } else if (entry.isDirectory()) {
+        pending.push(path);
       }
-      renameSync(runtimeTemporary, runtimeRoot);
-    } finally {
-      rmSync(runtimeTemporary, { recursive: true, force: true });
     }
+  }
+
+  const dependencies = Object.keys(JSON.parse(readFileSync(join(runtime, "hush-cli", "package.json"), "utf8")).dependencies ?? {});
+  const resolved = JSON.parse(execFileSync(nodePath, [
+    "--input-type=module",
+    "--eval",
+    `import { createRequire } from "node:module"; const require = createRequire(${JSON.stringify(cli)}); console.log(JSON.stringify(${JSON.stringify(dependencies)}.map((name) => require.resolve(name))));`,
+  ], { encoding: "utf8" }));
+  for (const dependency of resolved) {
+    if (!isWithin(runtime, realpathSync(dependency))) {
+      throw new Error(`Hush runtime dependency resolves outside runtime root: ${dependency}`);
+    }
+  }
+
+  execFileSync(nodePath, [entrypoint, "--version"], {
+    env: { ...process.env, HUSH_NO_UPDATE_CHECK: "1" },
+    stdio: "ignore",
+  });
+}
+
+if (runtimeRoot !== root && existsSync(runtimeRoot)) {
+  assertRuntime(runtimeRoot);
+}
+
+if (runtimeRoot !== root && !existsSync(runtimeRoot)) {
+  const runtimeTemporary = `${runtimeRoot}.tmp-${process.pid}`;
+  mkdirSync(dirname(runtimeRoot), { recursive: true });
+  try {
+    cpSync(root, runtimeTemporary, {
+      recursive: true,
+      filter: (source) => {
+        const path = relative(root, source);
+        if (path === "") return true;
+        if (path === "package.json" || path === "bun.lock" || path === ".npmrc") return true;
+        if (path === "docs" || path === `docs${sep}package.json`) return true;
+        if (path === "hush-cli") return true;
+        if (!path.startsWith(`hush-cli${sep}`)) return false;
+        return !path.split(sep).includes("node_modules");
+      },
+    });
+    execFileSync("bun", [
+      "install",
+      "--production",
+      "--frozen-lockfile",
+      "--ignore-scripts",
+      "--backend",
+      "copyfile",
+    ], { cwd: runtimeTemporary, stdio: "inherit" });
+    assertRuntime(runtimeTemporary);
+    renameSync(runtimeTemporary, runtimeRoot);
+  } finally {
+    rmSync(runtimeTemporary, { recursive: true, force: true });
   }
 }
 
@@ -120,9 +176,7 @@ function reportShadowedInstall() {
 }
 
 if (process.argv.includes("--check")) {
-  if (runtimeRoot !== root && (!existsSync(runtimeEntrypoint) || !existsSync(runtimeCli))) {
-    throw new Error(`Hush runtime incomplete: ${runtimeRoot}. Remove it and reinstall.`);
-  }
+  if (runtimeRoot !== root) assertRuntime(runtimeRoot);
   if (!existsSync(target) || readFileSync(target, "utf8") !== launcher) {
     throw new Error(`Hush launcher drift: ${target}. Re-run \`node scripts/install-local.mjs\`.`);
   }
