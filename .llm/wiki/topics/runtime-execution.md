@@ -104,6 +104,13 @@ Child process inherits:
 - `cwd` — working directory for the command
 - `env` — merged environment including secrets
 
+Repository Node pins are a narrow exception to target-over-parent precedence. When `cwd/.nvmrc`
+contains an exact semantic version, `run` requires a matching Node executable already present on
+the parent `PATH`, prepends that executable's directory to the merged child `PATH`, and restores
+the merged path at the start of `sh`/`bash`/`zsh` command strings so login-shell initialization
+cannot bypass the pin. Target-only tools remain reachable. Missing pins keep ordinary merge
+behavior; invalid or unavailable pins fail before child execution.
+
 ## Error Handling
 
 - Resolution failures (missing bundle, unreadable files) are caught and logged

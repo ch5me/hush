@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync as nodeSpawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import * as nodeFs from 'node:fs';
 import { hasCommand } from '../src/commands/has.js';
 import { inspectCommand } from '../src/commands/inspect.js';
@@ -32,7 +32,7 @@ function createStore(root: string, mode: 'project' | 'global' = 'project'): Stor
   };
 }
 
-function createContext(cwd: string): {
+function createContext(cwd: string, env: NodeJS.ProcessEnv = {}): {
   ctx: HushContext;
   logger: { log: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn> };
   spawnCalls: Array<{ cmd: string; args: readonly string[]; options: Parameters<typeof nodeSpawnSync>[2] }>;
@@ -85,7 +85,7 @@ function createContext(cwd: string): {
         exit: ((code: number) => {
           throw new Error(`Process exit: ${code}`);
         }) as never,
-        env: {},
+        env,
         stdin: process.stdin,
         stdout: process.stdout,
         on: vi.fn(),
@@ -130,6 +130,47 @@ function getLastLogOutput(logger: { log: ReturnType<typeof vi.fn> }): string {
 
 async function bootstrapGlobalSecret(ctx: HushContext, store: StoreContext, key: string, value: string): Promise<void> {
   await setCommand(ctx, { store, key, value });
+}
+
+const PINNED_NODE_VERSION = 'v24.11.0';
+const TARGET_NODE_VERSION = 'v22.14.0';
+
+function writeFakeNode(binDir: string, version: string, identity: string): void {
+  nodeFs.mkdirSync(binDir, { recursive: true });
+  const executable = join(binDir, 'node');
+  nodeFs.writeFileSync(executable, [
+    '#!/bin/sh',
+    `if [ "$1" = "--version" ]; then printf '%s\\n' '${version}'; else printf '%s\\n' '${identity}' > "$1"; fi`,
+    '',
+  ].join('\n'));
+  nodeFs.chmodSync(executable, 0o755);
+}
+
+function writeTargetTool(binDir: string): void {
+  const executable = join(binDir, 'target-tool');
+  nodeFs.writeFileSync(executable, "#!/bin/sh\nprintf '%s\\n' 'target-entry'\n");
+  nodeFs.chmodSync(executable, 0o755);
+}
+
+async function createNodePathRuntime(name: string) {
+  const workspace = join(TEST_DIR, name, 'workspace');
+  const globalRoot = join(TEST_DIR, name, 'global-store');
+  const pinnedBin = join(workspace, '.nvm', 'versions', 'node', PINNED_NODE_VERSION, 'bin');
+  const targetBin = join(workspace, 'target-bin');
+  const systemPath = ['/usr/bin', '/bin'].join(delimiter);
+  const parentPath = [pinnedBin, systemPath].join(delimiter);
+  const targetPath = [targetBin, systemPath].join(delimiter);
+
+  nodeFs.mkdirSync(workspace, { recursive: true });
+  writeFakeNode(pinnedBin, PINNED_NODE_VERSION, 'pinned-node');
+  writeFakeNode(targetBin, TARGET_NODE_VERSION, 'target-node');
+  writeTargetTool(targetBin);
+
+  const { ctx } = createContext(workspace, { PATH: parentPath, HOME: workspace });
+  const store = createStore(globalRoot, 'global');
+  await bootstrapGlobalSecret(ctx, store, 'PATH', targetPath);
+
+  return { ctx, store, workspace };
 }
 
 describe('global store runtime regressions', () => {
@@ -177,6 +218,73 @@ describe('global store runtime regressions', () => {
       env: 'development',
       command: ['sh', '-c', 'exit 7'],
     })).rejects.toThrow('Process exit: 7');
+  });
+
+  describe('repository Node pin precedence', () => {
+    it('runs a direct command with the Node selected by a valid .nvmrc ahead of target PATH', async () => {
+      const { ctx, store, workspace } = await createNodePathRuntime('direct-node-pin');
+      const observed = join(workspace, 'node-identity.txt');
+      nodeFs.writeFileSync(join(workspace, '.nvmrc'), `${PINNED_NODE_VERSION}\n`);
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: workspace,
+        command: ['node', observed],
+      })).rejects.toThrow('Process exit: 0');
+
+      expect(nodeFs.readFileSync(observed, 'utf-8')).toBe('pinned-node\n');
+    });
+
+    it.each([
+      { shellFlag: '-c', name: 'non-login shell' },
+      { shellFlag: '-lc', name: 'login shell' },
+    ])('keeps pinned Node first and target PATH entries available in a $name command string', async ({ shellFlag }) => {
+      const { ctx, store, workspace } = await createNodePathRuntime(`shell-node-pin-${shellFlag.slice(1)}`);
+      const nodeVersionOutput = join(workspace, 'node-version.txt');
+      const targetToolOutput = join(workspace, 'target-tool.txt');
+      nodeFs.writeFileSync(join(workspace, '.nvmrc'), `${PINNED_NODE_VERSION}\n`);
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: workspace,
+        command: [
+          'sh',
+          shellFlag,
+          `node --version > "${nodeVersionOutput}"; target-tool > "${targetToolOutput}"`,
+        ],
+      })).rejects.toThrow('Process exit: 0');
+
+      expect(nodeFs.readFileSync(nodeVersionOutput, 'utf-8')).toBe(`${PINNED_NODE_VERSION}\n`);
+      expect(nodeFs.readFileSync(targetToolOutput, 'utf-8')).toBe('target-entry\n');
+    });
+
+    it('uses ordinary target-over-parent PATH merging when .nvmrc is absent', async () => {
+      const { ctx, store, workspace } = await createNodePathRuntime('missing-node-pin');
+      const observed = join(workspace, 'node-identity.txt');
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: workspace,
+        command: ['node', observed],
+      })).rejects.toThrow('Process exit: 0');
+
+      expect(nodeFs.readFileSync(observed, 'utf-8')).toBe('target-node\n');
+    });
+
+    it('fails before executing the child when .nvmrc is invalid', async () => {
+      const { ctx, store, workspace } = await createNodePathRuntime('invalid-node-pin');
+      const childSideEffect = join(workspace, 'child-ran.txt');
+      nodeFs.writeFileSync(join(workspace, '.nvmrc'), 'not-a-node-version\n');
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: workspace,
+        command: ['node', childSideEffect],
+      })).rejects.toThrow('Process exit: 1');
+
+      expect(nodeFs.existsSync(childSideEffect)).toBe(false);
+      expect(ctx.logger.error).toHaveBeenCalledWith(expect.stringMatching(/invalid.*\.nvmrc|\.nvmrc.*invalid/i));
+    });
   });
 
   it('inspect --global reports readable entries with redaction', async () => {

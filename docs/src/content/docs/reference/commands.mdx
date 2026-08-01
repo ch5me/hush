@@ -82,6 +82,13 @@ Machine-local overrides written with `hush set --repo-local` participate in this
 resolution. A value in `user/local` wins over the repository value that shares
 its environment variable name — see [Machine-local overrides](#machine-local-overrides).
 
+When the working directory contains a valid exact-version `.nvmrc`, Hush preserves a matching
+Node executable already present on the parent `PATH` ahead of any `PATH` supplied by the target.
+This precedence also survives `sh`, `bash`, and `zsh` command strings, including login shells;
+the target's remaining `PATH` entries stay available. An invalid pin, or a valid pin with no
+matching parent executable, fails before the child starts.
+
+
 ### Examples
 
 ```bash
@@ -103,6 +110,7 @@ Use `-t` to choose a specific v3 target when the repo declares more than one run
 </Aside>
 
 ---
+
 
 ## materialize
 

@@ -103,6 +103,7 @@ npx @chriscode/hush config show --json
 npx @chriscode/hush inspect
 npx @chriscode/hush inspect --json
 npx @chriscode/hush status
+
 npx @chriscode/hush status --json
 npx @chriscode/hush doctor
 npx @chriscode/hush doctor --json
@@ -469,6 +470,11 @@ Materialize a v3 target into memory and execute a child process.
 hush run -- npm start
 hush run -t api -- wrangler dev
 \`\`\`
+
+If the working directory has a valid exact-version \`.nvmrc\`, Hush keeps a matching Node
+already present on the parent \`PATH\` ahead of any \`PATH\` supplied by the target. This also applies
+inside \`sh\`/\`bash\`/\`zsh\` command strings, while retaining the target's other \`PATH\` entries.
+
 
 ### hush push
 

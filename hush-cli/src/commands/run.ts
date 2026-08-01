@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
 import pc from 'picocolors';
 import { withMaterializedTarget } from '../index.js';
 import { requireV3Repository, selectRuntimeTarget } from './v3-command-helpers.js';
@@ -16,6 +16,42 @@ function warnWranglerConflict(ctx: HushContext, cwd: string): void {
   ctx.logger.warn(`   Found .dev.vars in ${cwd}`);
   ctx.logger.warn('   Wrangler may ignore injected environment values while this file exists.');
   ctx.logger.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
+}
+
+const NODE_VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)$/;
+
+function quoteShellValue(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+function findPinnedNodeBin(ctx: HushContext, cwd: string): string | null {
+  const pinPath = join(cwd, '.nvmrc');
+  if (!ctx.fs.existsSync(pinPath)) return null;
+
+  const pin = String(ctx.fs.readFileSync(pinPath, 'utf-8')).trim();
+  const match = NODE_VERSION_PATTERN.exec(pin);
+  if (!match) throw new Error(`Invalid .nvmrc Node version: ${pin || '(empty)'}`);
+  const expected = `v${match[1]}.${match[2]}.${match[3]}`;
+
+  for (const bin of (ctx.process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
+    const node = join(bin, process.platform === 'win32' ? 'node.exe' : 'node');
+    if (!ctx.fs.existsSync(node)) continue;
+    const result = ctx.exec.spawnSync(node, ['--version'], { encoding: 'utf-8' });
+    if (result.status === 0 && String(result.stdout).trim() === expected) return bin;
+  }
+
+  throw new Error(`No Node ${expected} executable from .nvmrc was found on the parent PATH.`);
+}
+
+function preserveShellPath(command: string[], path: string): string[] {
+  const shell = basename(command[0] ?? '');
+  if (!['sh', 'bash', 'zsh'].includes(shell)) return command;
+
+  const commandIndex = command.findIndex((arg, index) => index > 0 && /^-[^-]*c/.test(arg));
+  if (commandIndex < 0 || command[commandIndex + 1] === undefined) return command;
+
+  const preserved = [...command];
+  preserved[commandIndex + 1] = `export PATH=${quoteShellValue(path)}; ${preserved[commandIndex + 1]}`;
+  return preserved;
 }
 
 export async function runCommand(ctx: HushContext, options: RunOptions): Promise<void> {
@@ -51,17 +87,26 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
       mode: 'memory',
       machineLocal: 'include',
     }, (materialization) => {
+      const pinnedNodeBin = findPinnedNodeBin(ctx, cwd);
       const childEnv: NodeJS.ProcessEnv = {
         ...ctx.process.env,
         ...materialization.env,
       };
+      if (pinnedNodeBin) {
+        childEnv.PATH = [
+          pinnedNodeBin,
+          childEnv.PATH,
+        ].filter(Boolean).join(delimiter);
+      }
 
       if (selectedTarget.format === 'wrangler') {
         childEnv.CLOUDFLARE_INCLUDE_PROCESS_ENV = 'true';
         warnWranglerConflict(ctx, cwd);
       }
 
-      const [cmd, ...args] = command;
+      const [cmd, ...args] = pinnedNodeBin
+        ? preserveShellPath(command, childEnv.PATH ?? '')
+        : command;
       const result = ctx.exec.spawnSync(cmd, args, {
         stdio: 'inherit',
         env: childEnv,
