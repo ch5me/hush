@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync as nodeSpawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import * as nodeFs from 'node:fs';
 import { hasCommand } from '../src/commands/has.js';
 import { inspectCommand } from '../src/commands/inspect.js';
@@ -255,6 +255,39 @@ describe('global store runtime regressions', () => {
       })).rejects.toThrow('Process exit: 0');
 
       expect(nodeFs.readFileSync(nodeVersionOutput, 'utf-8')).toBe(`${PINNED_NODE_VERSION}\n`);
+      expect(nodeFs.readFileSync(targetToolOutput, 'utf-8')).toBe('target-entry\n');
+    });
+
+    it('uses the running Node executable when a launchd-style parent PATH omits it', async () => {
+      const workspace = join(TEST_DIR, 'installed-launcher-node-pin', 'workspace');
+      const globalRoot = join(TEST_DIR, 'installed-launcher-node-pin', 'global-store');
+      const targetBin = join(workspace, 'target-bin');
+      const systemPath = ['/usr/bin', '/bin'].join(delimiter);
+      const targetPath = [targetBin, systemPath].join(delimiter);
+      const nodeVersionOutput = join(workspace, 'node-version.txt');
+      const targetToolOutput = join(workspace, 'target-tool.txt');
+
+      nodeFs.mkdirSync(workspace, { recursive: true });
+      writeFakeNode(targetBin, TARGET_NODE_VERSION, 'target-node');
+      writeTargetTool(targetBin);
+      nodeFs.writeFileSync(join(workspace, '.nvmrc'), `${process.version}\n`);
+
+      expect(systemPath.split(delimiter)).not.toContain(dirname(process.execPath));
+      const { ctx } = createContext(workspace, { PATH: systemPath, HOME: workspace });
+      const store = createStore(globalRoot, 'global');
+      await bootstrapGlobalSecret(ctx, store, 'PATH', targetPath);
+
+      await expect(runCommand(ctx, {
+        store,
+        cwd: workspace,
+        command: [
+          'sh',
+          '-c',
+          `node --version > "${nodeVersionOutput}"; target-tool > "${targetToolOutput}"`,
+        ],
+      })).rejects.toThrow('Process exit: 0');
+
+      expect(nodeFs.readFileSync(nodeVersionOutput, 'utf-8')).toBe(`${process.version}\n`);
       expect(nodeFs.readFileSync(targetToolOutput, 'utf-8')).toBe('target-entry\n');
     });
 

@@ -32,14 +32,22 @@ function findPinnedNodeBin(ctx: HushContext, cwd: string): string | null {
   if (!match) throw new Error(`Invalid .nvmrc Node version: ${pin || '(empty)'}`);
   const expected = `v${match[1]}.${match[2]}.${match[3]}`;
 
-  for (const bin of (ctx.process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
-    const node = join(bin, process.platform === 'win32' ? 'node.exe' : 'node');
+  const candidates = [
+    ...((ctx.process.env.PATH ?? '').split(delimiter).filter(Boolean)),
+    process.execPath,
+  ];
+  for (const candidate of candidates) {
+    const node = candidate === process.execPath
+      ? process.execPath
+      : join(candidate, process.platform === 'win32' ? 'node.exe' : 'node');
     if (!ctx.fs.existsSync(node)) continue;
     const result = ctx.exec.spawnSync(node, ['--version'], { encoding: 'utf-8' });
-    if (result.status === 0 && String(result.stdout).trim() === expected) return bin;
+    if (result.status === 0 && String(result.stdout).trim() === expected) {
+      return candidate === process.execPath ? join(process.execPath, '..') : candidate;
+    }
   }
 
-  throw new Error(`No Node ${expected} executable from .nvmrc was found on the parent PATH.`);
+  throw new Error(`No Node ${expected} executable from .nvmrc was found on the parent PATH or running Hush launcher.`);
 }
 
 function preserveShellPath(command: string[], path: string): string[] {
