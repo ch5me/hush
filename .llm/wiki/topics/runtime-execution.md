@@ -9,15 +9,20 @@
 ## CH5 Local Launcher
 
 Fleet installs build with Node 24 from the managed Hush clone after `bun run
-cli:build`, then copy only runtime source/manifests into a temporary revision,
-install frozen production dependencies there, audit every symlink and direct
-dependency resolution, and execute `--version` before publishing the revision.
+cli:build`, then stage complete runtime files under the managed runtime root.
 The generated `~/.local/bin/hush` launcher pins the actual Node executable and
-staged entrypoint. It must not invoke Bun, resolve dependencies outside its
-immutable runtime root, or depend on a mutable `~/src/ch5/hush` checkout.
-`node scripts/install-local.mjs --check` repeats runtime validation and fails on
-launcher drift. Failed staging leaves the prior runtime and launcher unchanged;
-the installer retains the active revision plus one previous revision.
+staged entrypoint. It must not invoke Bun or a mutable `~/src/ch5/hush`
+checkout. `node scripts/install-local.mjs --check` fails on launcher drift.
+Installer accepts only complete staged entrypoint/build pairs and retains active
+plus one previous revision. Installation rejects tracked drift in files copied
+from the source checkout, so the recorded commit/tree cannot label different
+tracked bytes.
+
+The read-only runtime manifest inventories file content, mode, and internal
+symlink targets. It detects accidental post-install drift; it is not a
+cryptographic trust boundary against an actor who can rewrite both the runtime
+and its manifest. Commit identity and the managed runtime path remain external
+attribution anchors. No separate signing service is involved.
 
 ## Entry Point (`hush-cli/src/commands/run.ts`)
 
