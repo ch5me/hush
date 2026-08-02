@@ -931,23 +931,28 @@ async function main() {
 
   const noEnvHome = join(sandbox, "no-env-home");
   const noEnvBin = join(noEnvHome, ".local", "bin");
+  const stalePnpmBin = join(noEnvHome, "Library", "pnpm", "bin");
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   const noEnvRuntime = join(noEnvHome, ".local", "state", "hush", "runtimes", commit);
   mkdirSync(noEnvHome);
+  mkdirSync(stalePnpmBin, { recursive: true });
+  writeFileSync(join(stalePnpmBin, "hush"), "#!/bin/sh\nprintf '7.5.0\\n'\n", { mode: 0o755 });
   const bunPath = execFileSync("bun", ["-e", "console.log(process.execPath)"], {
     cwd: root,
     encoding: "utf8",
   }).trim();
   const loginPath = [
-    noEnvBin,
+    stalePnpmBin,
     dirname(bunPath),
     dirname(process.execPath),
+    noEnvBin,
     "/usr/bin",
     "/bin",
     "/usr/sbin",
     "/sbin",
   ].join(":");
-  writeFileSync(join(noEnvHome, ".zprofile"), `export PATH=${JSON.stringify(loginPath)}\n`);
+  const noEnvZprofile = `export PATH=${JSON.stringify(loginPath)}\n`;
+  writeFileSync(join(noEnvHome, ".zprofile"), noEnvZprofile);
   const noEnvOverrides = {
     HOME: noEnvHome,
     PATH: loginPath,
@@ -962,12 +967,36 @@ async function main() {
   assert.equal(noEnvInstall.status, 0, noEnvInstall.stderr);
   assert.doesNotMatch(noEnvInstall.stderr, /SHADOWED INSTALL|not delivered/);
   const noEnvLauncher = join(noEnvBin, "hush");
+  const noEnvZlogin = join(noEnvHome, ".zlogin");
   const noEnvLauncherText = readFileSync(noEnvLauncher, "utf8");
   const noEnvManifest = JSON.parse(readFileSync(join(noEnvRuntime, ".hush-runtime-manifest.json"), "utf8"));
+  assert.equal(readFileSync(join(noEnvHome, ".zprofile"), "utf8"), noEnvZprofile);
+  assert.match(readFileSync(noEnvZlogin, "utf8"), /hush managed login PATH/);
   assert.match(noEnvLauncherText, new RegExp(noEnvRuntime.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(noEnvLauncherText.includes(root), false);
   assert.doesNotMatch(noEnvLauncherText, /\/src\/ch5\/hush(?:\/|$)/);
   assert.equal(noEnvManifest.source.tracked.commit, commit);
+  const expectedVersion = JSON.parse(readFileSync(join(root, "hush-cli", "package.json"), "utf8")).version;
+  const noEnvLogin = spawnSync(
+    "/usr/bin/env",
+    [
+      "-i",
+      `HOME=${noEnvHome}`,
+      `USER=${process.env.USER || "hush-test"}`,
+      `LOGNAME=${process.env.LOGNAME || process.env.USER || "hush-test"}`,
+      "SHELL=/bin/zsh",
+      "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+      "/bin/zsh",
+      "-lic",
+      "printf '%s\\n' \"$(command -v hush)\" \"$(hush --version)\"",
+    ],
+    { cwd: neutralCwd, encoding: "utf8" },
+  );
+  assert.equal(noEnvLogin.status, 0, noEnvLogin.stderr);
+  assert.deepEqual(
+    noEnvLogin.stdout.trim().split(/\r?\n/).slice(-2),
+    [noEnvLauncher, expectedVersion],
+  );
   const noEnvCheck = runInstaller(["--check"], noEnvOverrides, process.env);
   assert.equal(noEnvCheck.status, 0, noEnvCheck.stderr);
   assert.doesNotMatch(noEnvCheck.stderr, /SHADOWED INSTALL|not delivered/);
@@ -991,6 +1020,23 @@ async function main() {
   assert.match(sourceCheckout.stdout, /hush-cli\/bin\/hush\.js/);
   assert.match(sourceCheckout.stderr, /managed launcher unchanged/);
   assert.equal(readFileSync(noEnvLauncher, "utf8"), noEnvLauncherText);
+
+  const rollbackHome = join(sandbox, "rollback-home");
+  const rollbackShellDir = join(sandbox, "rollback-shell");
+  const rollbackShell = join(rollbackShellDir, "zsh");
+  const rollbackZlogin = join(rollbackHome, ".zlogin");
+  mkdirSync(rollbackHome);
+  mkdirSync(rollbackShellDir);
+  writeFileSync(rollbackShell, "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+  writeFileSync(rollbackZlogin, "# existing login config\n");
+  const rollbackInstall = runInstaller([], {
+    HOME: rollbackHome,
+    SHELL: rollbackShell,
+    HUSH_INSTALL_SKIP_SHADOW_CHECK: "0",
+  });
+  assert.notEqual(rollbackInstall.status, 0);
+  assert.match(rollbackInstall.stderr, /login shell resolution failed/);
+  assert.equal(readFileSync(rollbackZlogin, "utf8"), "# existing login config\n");
 
   const lockPause = await startPausedInstaller("after-lock");
   const lockedOut = runInstaller();

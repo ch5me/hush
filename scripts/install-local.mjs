@@ -9,6 +9,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -44,6 +45,8 @@ const guardedFds = {
 };
 const pinnedBunEnv = "HUSH_INSTALL_PINNED_BUN_PATH";
 const pinnedGitEnv = "HUSH_INSTALL_PINNED_GIT_PATH";
+const loginPathBlockStart = "# >>> hush managed login PATH >>>";
+const loginPathBlockEnd = "# <<< hush managed login PATH <<<";
 
 export class HushInstallError extends Error {
   constructor(code, message) {
@@ -853,36 +856,61 @@ function validateLauncher(config, launcher) {
   }
 }
 
-function reportShadowedInstall(config) {
+function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function loginShellDetails() {
+  const account = userInfo();
+  const shell = process.env.SHELL && existsSync(process.env.SHELL)
+    ? process.env.SHELL
+    : account.shell || "/bin/sh";
+  return {
+    account,
+    shell,
+    args: basename(shell) === "zsh" ? ["-lic"] : ["-lc"],
+  };
+}
+
+function coldLoginEnvironment(details) {
+  return {
+    HOME: homedir(),
+    USER: details.account.username,
+    LOGNAME: details.account.username,
+    SHELL: details.shell,
+    PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+    HUSH_NO_UPDATE_CHECK: "1",
+  };
+}
+
+function probeLoginShell(config) {
   checkRoots(config);
-  if (process.env.HUSH_INSTALL_SKIP_SHADOW_CHECK === "1") return false;
-
-  const loginShell = process.env.SHELL && existsSync(process.env.SHELL) ? process.env.SHELL : "/bin/sh";
-  let resolved;
-  try {
-    resolved = execFileSync(loginShell, ["-lc", "command -v hush"], {
-      encoding: "utf8",
-      timeout: 30_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-  } catch (error) {
-    console.error(
-      `hush: installed ${config.target}, but login shell resolution failed (${loginShell} -lc): ` +
-        `${error.message}. This install is not delivered.`,
-    );
-    return true;
+  const details = loginShellDetails();
+  const marker = "__HUSH_LOGIN_RESOLVED__";
+  const command = `printf '${marker}%s\\n' "$(command -v hush 2>/dev/null || true)"`;
+  const result = spawnSync(details.shell, [...details.args, command], {
+    encoding: "utf8",
+    env: coldLoginEnvironment(details),
+    timeout: 30_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.signal || result.status !== 0) {
+    return {
+      kind: "failure",
+      shell: details.shell,
+      invocation: details.args.join(" "),
+      reason: result.error?.message || (result.signal ? `signal ${result.signal}` : `exit ${result.status}`),
+    };
   }
-
+  const markerLine = result.stdout
+    .split(/\r?\n/)
+    .findLast((line) => line.startsWith(marker));
+  const resolved = markerLine?.slice(marker.length).trim() || "";
   if (!resolved) {
-    console.error(
-      `hush: installed ${config.target}, but a login shell (${loginShell} -lc) resolves no hush at all -- ` +
-        `${config.binDir} is missing from the login PATH, so this install is not delivered.`,
-    );
-    return true;
+    return { kind: "missing", shell: details.shell, invocation: details.args.join(" ") };
   }
   if (!isAbsolute(resolved)) {
-    console.error(`hush: login shell resolved a non-absolute hush path: ${resolved}`);
-    return true;
+    return { kind: "relative", resolved, shell: details.shell, invocation: details.args.join(" ") };
   }
 
   const helperPath = assertGuardedDescriptors();
@@ -897,24 +925,167 @@ function reportShadowedInstall(config) {
   );
   if (comparison.status === 0) {
     checkRoots(config);
-    return false;
+    return { kind: "delivered", resolved, shell: details.shell, invocation: details.args.join(" ") };
   }
   if (comparison.status !== 3) {
-    console.error(
-      `hush: login shell resolved unusable hush path: ${resolved}` +
-        `${comparison.stderr ? ` (${comparison.stderr.trim()})` : ""}`,
-    );
-    return true;
+    return { kind: "unusable", resolved, shell: details.shell, invocation: details.args.join(" ") };
   }
+  return { kind: "shadowed", resolved, shell: details.shell, invocation: details.args.join(" ") };
+}
 
+function reportLoginShellFailure(config, probe) {
+  if (probe.kind === "failure") {
+    console.error(
+      `hush: installed ${config.target}, but login shell resolution failed ` +
+        `(${probe.shell} ${probe.invocation}): ${probe.reason}. This install is not delivered.`,
+    );
+    return;
+  }
+  if (probe.kind === "missing") {
+    console.error(
+      `hush: installed ${config.target}, but a login shell (${probe.shell} ${probe.invocation}) ` +
+        `resolves no hush at all -- ${config.binDir} is missing from the login PATH, ` +
+        "so this install is not delivered.",
+    );
+    return;
+  }
+  if (probe.kind === "relative") {
+    console.error(`hush: login shell resolved a non-absolute hush path: ${probe.resolved}`);
+    return;
+  }
+  if (probe.kind === "unusable") {
+    console.error(`hush: login shell resolved unusable hush path: ${probe.resolved}`);
+    return;
+  }
   console.error(
-    `hush: SHADOWED INSTALL. Installed ${config.target}, but a login shell resolves ${resolved} first.\n` +
+    `hush: SHADOWED INSTALL. Installed ${config.target}, but a login shell resolves ${probe.resolved} first.\n` +
       `hush is the secrets front door: every interactive shell would keep using that other copy, ` +
       `and this installer does not upgrade it.\n` +
       `Fix the shadow (for a global npm copy: npm uninstall -g @chriscode/hush), or put ${config.binDir} ` +
       `ahead of it on the login PATH, then re-run.\n` +
       `Set HUSH_INSTALL_SKIP_SHADOW_CHECK=1 to bypass deliberately.`,
   );
+}
+
+function readShellStartupFile(path) {
+  let metadata;
+  try {
+    metadata = lstatSync(path, { bigint: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return { exists: false };
+    throw error;
+  }
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1n) {
+    throw new Error(`Hush login startup file must be a single-link regular file: ${path}`);
+  }
+  const uid = process.getuid?.();
+  if (uid !== undefined && metadata.uid !== BigInt(uid)) {
+    throw new Error(`Hush login startup file must be owned by the current user: ${path}`);
+  }
+  return {
+    exists: true,
+    content: readFileSync(path, "utf8"),
+    mode: Number(metadata.mode & 0o777n),
+    identity: {
+      dev: metadata.dev,
+      ino: metadata.ino,
+      size: metadata.size,
+      mtimeNs: metadata.mtimeNs,
+    },
+  };
+}
+
+function sameShellStartupFile(left, right) {
+  if (left.exists !== right.exists) return false;
+  if (!left.exists) return true;
+  return left.identity.dev === right.identity.dev
+    && left.identity.ino === right.identity.ino
+    && left.identity.size === right.identity.size
+    && left.identity.mtimeNs === right.identity.mtimeNs;
+}
+
+function renderLoginPathBlock(content, binDir) {
+  const start = content.indexOf(loginPathBlockStart);
+  const end = content.indexOf(loginPathBlockEnd);
+  if ((start === -1) !== (end === -1) || (start !== -1 && end < start)) {
+    throw new Error("Hush managed login PATH block is malformed; repair it before reinstalling.");
+  }
+  let base = content;
+  if (start !== -1) {
+    const secondStart = content.indexOf(loginPathBlockStart, start + loginPathBlockStart.length);
+    const secondEnd = content.indexOf(loginPathBlockEnd, end + loginPathBlockEnd.length);
+    if (secondStart !== -1 || secondEnd !== -1) {
+      throw new Error("Hush managed login PATH block appears more than once; repair it before reinstalling.");
+    }
+    base = `${content.slice(0, start)}${content.slice(end + loginPathBlockEnd.length)}`;
+  }
+  base = base.replace(/(?:\r?\n)*$/, "");
+  const block = [
+    loginPathBlockStart,
+    "# Managed by Hush scripts/install-local.mjs.",
+    `export PATH=${shellQuote(binDir)}:"$PATH"`,
+    loginPathBlockEnd,
+    "",
+  ].join("\n");
+  return `${base}${base ? "\n\n" : ""}${block}`;
+}
+
+function writeShellStartupFile(path, expected, content, mode) {
+  const current = readShellStartupFile(path);
+  if (!sameShellStartupFile(current, expected)) {
+    throw new Error(`Hush login startup file changed during install: ${path}`);
+  }
+  const temporary = join(dirname(path), `.hush-login-${process.pid}-${randomBytes(8).toString("hex")}`);
+  try {
+    writeFileSync(temporary, content, { flag: "wx", mode });
+    chmodSync(temporary, mode);
+    const beforePublish = readShellStartupFile(path);
+    if (!sameShellStartupFile(beforePublish, expected)) {
+      throw new Error(`Hush login startup file changed during install: ${path}`);
+    }
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
+function installZshLoginPath(config) {
+  const details = loginShellDetails();
+  if (basename(details.shell) !== "zsh") return undefined;
+  const path = join(homedir(), ".zlogin");
+  const original = readShellStartupFile(path);
+  const installedContent = renderLoginPathBlock(original.content || "", config.binDir);
+  if (original.exists && original.content === installedContent) return () => {};
+  writeShellStartupFile(path, original, installedContent, original.mode || 0o644);
+  return () => {
+    const installed = readShellStartupFile(path);
+    if (!installed.exists || installed.content !== installedContent) {
+      throw new Error(`Hush login startup file changed before rollback: ${path}`);
+    }
+    if (original.exists) {
+      writeShellStartupFile(path, installed, original.content, original.mode);
+    } else {
+      rmSync(path);
+    }
+  };
+}
+
+function ensureLoginShellDelivery(config, checkOnly) {
+  if (process.env.HUSH_INSTALL_SKIP_SHADOW_CHECK === "1") return false;
+  let probe = probeLoginShell(config);
+  if (probe.kind === "delivered") return false;
+  if (checkOnly) {
+    reportLoginShellFailure(config, probe);
+    return true;
+  }
+
+  const rollback = installZshLoginPath(config);
+  if (rollback) {
+    probe = probeLoginShell(config);
+    if (probe.kind === "delivered") return false;
+    rollback();
+  }
+  reportLoginShellFailure(config, probe);
   return true;
 }
 
@@ -1157,17 +1328,16 @@ function installManagedRuntime(config, checkOnly) {
     }
   }
 
-  const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
   const launcher = `#!/bin/sh
 set -eu
 
 unset NODE_PATH NODE_OPTIONS
-exec ${quote(realpathSync(process.execPath))} ${quote(config.runtimeEntrypoint)} "$@"
+exec ${shellQuote(realpathSync(process.execPath))} ${shellQuote(config.runtimeEntrypoint)} "$@"
 `;
 
   if (checkOnly) {
     validateLauncher(config, launcher);
-    const shadowed = reportShadowedInstall(config);
+    const shadowed = ensureLoginShellDelivery(config, true);
     console.log(config.target);
     if (shadowed) process.exitCode = 1;
     return;
@@ -1203,7 +1373,7 @@ exec ${quote(realpathSync(process.execPath))} ${quote(config.runtimeEntrypoint)}
     }
   }
 
-  if (reportShadowedInstall(config)) process.exitCode = 1;
+  if (ensureLoginShellDelivery(config, false)) process.exitCode = 1;
   console.log(config.target);
 }
 
