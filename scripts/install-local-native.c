@@ -12,6 +12,7 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #if defined(__APPLE__)
@@ -19,6 +20,8 @@
 #elif defined(__linux__)
 #include <linux/fs.h>
 #include <sys/syscall.h>
+#else
+#error "Hush install helper supports only macOS and Linux"
 #endif
 
 #if \
@@ -149,6 +152,77 @@ static int reopen_directory(int fd) {
   int result = openat(fd, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (result < 0) fail_errno("cannot reopen descriptor for", "directory enumeration");
   return result;
+}
+
+static bool directory_contains(int ancestor_fd, int descendant_fd) {
+  struct stat ancestor;
+  if (fstat(ancestor_fd, &ancestor) < 0) fail_errno("cannot inspect", "directory ancestry");
+  int current = duplicate_fd(descendant_fd);
+  for (;;) {
+    struct stat current_metadata;
+    if (fstat(current, &current_metadata) < 0) fail_errno("cannot inspect", "directory ancestry");
+    if (same_inode(&ancestor, &current_metadata)) {
+      close(current);
+      return true;
+    }
+    int parent = openat(current, "..", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (parent < 0) fail_errno("cannot traverse", "directory ancestry");
+    struct stat parent_metadata;
+    if (fstat(parent, &parent_metadata) < 0) fail_errno("cannot inspect", "directory ancestry");
+    if (same_inode(&current_metadata, &parent_metadata)) {
+      close(parent);
+      close(current);
+      return false;
+    }
+    close(current);
+    current = parent;
+  }
+}
+
+static void require_disjoint_directories(
+  int left_fd,
+  const char *left_label,
+  int right_fd,
+  const char *right_label
+) {
+  if (
+    directory_contains(left_fd, right_fd)
+    || directory_contains(right_fd, left_fd)
+  ) {
+    fail(
+      "HUSH_INSTALL_ROOT_OVERLAP: physical %s and %s directory ancestry overlaps",
+      left_label,
+      right_label
+    );
+  }
+}
+
+static void pause_for_test(const char *point, const char *entry_name) {
+  const char *requested = getenv("HUSH_INSTALL_TEST_PAUSE_AT");
+  if (!requested || strcmp(requested, point) != 0) return;
+  const char *requested_entry = getenv("HUSH_INSTALL_TEST_PAUSE_ENTRY");
+  if (requested_entry && (!entry_name || strcmp(requested_entry, entry_name) != 0)) return;
+  const char *marker = getenv("HUSH_INSTALL_TEST_PAUSE_MARKER");
+  const char *release = getenv("HUSH_INSTALL_TEST_PAUSE_RELEASE");
+  if (!marker || !release) fail("test pause requires marker and release paths");
+
+  int marker_fd = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+  if (marker_fd < 0) fail_errno("cannot create test pause marker", marker);
+  char contents[64];
+  int count = snprintf(contents, sizeof(contents), "%ld\n", (long)getpid());
+  if (count < 0 || (size_t)count >= sizeof(contents)) fail("cannot format test pause marker");
+  if (write(marker_fd, contents, (size_t)count) != count || close(marker_fd) < 0) {
+    fail_errno("cannot write test pause marker", marker);
+  }
+
+  const struct timespec delay = {
+    .tv_sec = 0,
+    .tv_nsec = 20 * 1000 * 1000,
+  };
+  while (access(release, F_OK) < 0) {
+    if (errno != ENOENT) fail_errno("cannot inspect test pause release", release);
+    nanosleep(&delay, NULL);
+  }
 }
 
 static void require_component(const char *name) {
@@ -556,6 +630,7 @@ static void remove_directory_contents(int directory_fd, const char *preserve_nam
         fail_errno("cannot remove managed directory", entry->d_name);
       }
     } else if (S_ISREG(metadata.st_mode) || S_ISLNK(metadata.st_mode)) {
+      pause_for_test("before-managed-entry-unlink", entry->d_name);
       struct stat current_metadata;
       if (fstatat(directory_fd, entry->d_name, &current_metadata, AT_SYMLINK_NOFOLLOW) < 0) {
         fail_errno("managed entry changed before removal:", entry->d_name);
@@ -616,6 +691,13 @@ static void remove_named_tree(
   if (!same_inode(&directory_metadata, &current_metadata)) {
     fail("managed directory changed before removal: %s", name);
   }
+  pause_for_test("before-managed-directory-unlink", name);
+  if (fstatat(parent_fd, name, &current_metadata, AT_SYMLINK_NOFOLLOW) < 0) {
+    fail_errno("managed directory changed before removal:", name);
+  }
+  if (!same_inode(&directory_metadata, &current_metadata)) {
+    fail("managed directory changed before removal: %s", name);
+  }
   close(directory);
   if (unlinkat(parent_fd, name, AT_REMOVEDIR) < 0) fail_errno("cannot remove managed directory", name);
   if (fsync(parent_fd) < 0) fail_errno("cannot sync managed directory after removing", name);
@@ -666,6 +748,9 @@ static void command_guard(int argc, char **argv) {
   int source = open_absolute_directory(argv[3], false, 0);
   int runtime_parent = open_absolute_directory(argv[4], create, 0700);
   int bin = open_absolute_directory(argv[5], create, 0755);
+  require_disjoint_directories(source, "source", runtime_parent, "runtime parent");
+  require_disjoint_directories(source, "source", bin, "bin");
+  require_disjoint_directories(runtime_parent, "runtime parent", bin, "bin");
   lock_directory(runtime_parent);
   struct stat runtime_metadata;
   struct stat bin_metadata;
@@ -693,6 +778,7 @@ static void command_stage(int argc, char **argv) {
   if (argc < 6) fail("usage: stage <source> <runtime-parent> <stage-name> <f:path|t:path>...");
   require_bound_directory(argv[2], SOURCE_FD, "Hush source root");
   require_bound_directory(argv[3], RUNTIME_PARENT_FD, "Hush runtime parent");
+  lock_directory(RUNTIME_PARENT_FD);
   const char *stage_name = argv[4];
   require_component(stage_name);
   if (!has_prefix(stage_name, ".hush-stage-")) fail("invalid Hush stage name: %s", stage_name);
@@ -791,6 +877,7 @@ static void command_publish_runtime(int argc, char **argv) {
     fail("usage: publish-runtime <runtime-parent> <stage-name> <runtime-name> <dev> <ino>");
   }
   require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
+  lock_directory(RUNTIME_PARENT_FD);
   require_component(argv[3]);
   require_component(argv[4]);
   struct object_identity expected = parse_identity(argv[5], argv[6]);
@@ -804,10 +891,22 @@ static void command_publish_runtime(int argc, char **argv) {
   if (fstat(stage, &stage_metadata) < 0) fail_errno("cannot inspect Hush stage", argv[3]);
   require_identity(&stage_metadata, &expected, "Hush stage");
   require_stage_marker(stage, &expected);
-  require_regular_marker(stage, manifest_name);
+  int manifest = openat(stage, manifest_name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (manifest < 0) fail_errno("managed directory marker is missing or symlinked:", manifest_name);
+  struct stat manifest_metadata;
+  if (fstat(manifest, &manifest_metadata) < 0) {
+    fail_errno("cannot inspect managed directory marker", manifest_name);
+  }
+  if (!S_ISREG(manifest_metadata.st_mode) || manifest_metadata.st_nlink != 1) {
+    fail("managed directory marker must be a single-link regular file: %s", manifest_name);
+  }
+  if (fsync(manifest) < 0 || close(manifest) < 0 || fsync(stage) < 0) {
+    fail_errno("cannot sync finalized Hush stage", argv[3]);
+  }
   if (rename_noreplace(RUNTIME_PARENT_FD, argv[3], RUNTIME_PARENT_FD, argv[4]) < 0) {
     fail_errno("cannot publish immutable Hush runtime", argv[4]);
   }
+  pause_for_test("after-runtime-rename", argv[4]);
   int published = openat(
     RUNTIME_PARENT_FD,
     argv[4],
@@ -875,6 +974,7 @@ static void command_list_runtimes(int argc, char **argv) {
 static void command_remove_stale(int argc, char **argv) {
   if (argc != 6) fail("usage: remove-stale <runtime-parent> <name> <dev> <ino>");
   require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
+  lock_directory(RUNTIME_PARENT_FD);
   bool stage = has_prefix(argv[3], ".hush-stage-");
   if (!stage && !has_prefix(argv[3], ".hush-prune-")) fail("invalid stale runtime name: %s", argv[3]);
   struct object_identity expected = parse_identity(argv[4], argv[5]);
@@ -891,6 +991,7 @@ static void command_remove_stale(int argc, char **argv) {
 static void command_prune_runtime(int argc, char **argv) {
   if (argc != 6) fail("usage: prune-runtime <runtime-parent> <name> <dev> <ino>");
   require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
+  lock_directory(RUNTIME_PARENT_FD);
   if (!is_hex_runtime(argv[3])) fail("invalid runtime name for pruning: %s", argv[3]);
   struct object_identity expected = parse_identity(argv[4], argv[5]);
   int runtime = openat(
@@ -949,6 +1050,7 @@ static void command_prune_runtime(int argc, char **argv) {
 static void command_cleanup_bin(int argc, char **argv) {
   if (argc != 3) fail("usage: cleanup-bin <bin>");
   require_bound_directory(argv[2], BIN_FD, "Hush bin root");
+  lock_directory(BIN_FD);
   DIR *directory = fdopendir(reopen_directory(BIN_FD));
   if (!directory) fail_errno("cannot enumerate", argv[2]);
   struct dirent *entry;
@@ -983,6 +1085,7 @@ static void command_cleanup_bin(int argc, char **argv) {
 static void command_write_launcher(int argc, char **argv) {
   if (argc != 6) fail("usage: write-launcher <bin> <temp-name> <target-name> <mode>");
   require_bound_directory(argv[2], BIN_FD, "Hush bin root");
+  lock_directory(BIN_FD);
   require_component(argv[3]);
   require_component(argv[4]);
   if (!has_prefix(argv[3], ".hush-launcher-")) fail("invalid launcher temporary name: %s", argv[3]);

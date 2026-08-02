@@ -22,6 +22,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertNode24 } from "../../scripts/install-local-helpers.mjs";
 import {
+  assertInstallerPrerequisites,
   createRuntimeManifest,
   sourceIdentity,
   validateRuntimeGraph,
@@ -53,6 +54,7 @@ const env = {
   HUSH_NO_UPDATE_CHECK: "1",
   NODE_PATH: "",
 };
+const pausedInstallers = new Set();
 
 function childEnv(base, overrides = {}) {
   const result = { ...base, ...overrides };
@@ -62,8 +64,8 @@ function childEnv(base, overrides = {}) {
   return result;
 }
 
-function runInstaller(args = [], overrides = {}, base = env) {
-  return spawnSync(process.execPath, [installer, ...args], {
+function runInstaller(args = [], overrides = {}, base = env, installerPath = installer) {
+  return spawnSync(process.execPath, [installerPath, ...args], {
     cwd: neutralCwd,
     env: childEnv(base, overrides),
     encoding: "utf8",
@@ -114,17 +116,56 @@ async function startPausedInstaller(point, overrides = {}, base = env, installer
     HUSH_INSTALL_TEST_PAUSE_MARKER: marker,
     HUSH_INSTALL_TEST_PAUSE_RELEASE: release,
   }, base, installerPath);
-  await waitForFile(marker);
-  return {
+  const paused = {
     ...running,
     marker,
     release,
-    internalPid: Number(readFileSync(marker, "utf8").trim()),
+    internalPid: undefined,
   };
+  pausedInstallers.add(paused);
+  paused.done.then(
+    () => pausedInstallers.delete(paused),
+    () => pausedInstallers.delete(paused),
+  );
+  await waitForFile(marker);
+  paused.internalPid = Number(readFileSync(marker, "utf8").trim());
+  return paused;
 }
 
 function releasePausedInstaller(paused) {
-  writeFileSync(paused.release, "continue\n", { flag: "wx" });
+  if (!existsSync(paused.release)) writeFileSync(paused.release, "continue\n", { flag: "wx" });
+}
+
+function killIfRunning(pid, signal) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    process.kill(pid, signal);
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+}
+
+async function reapPausedInstaller(paused) {
+  killIfRunning(paused.internalPid, "SIGTERM");
+  releasePausedInstaller(paused);
+  const wait = (milliseconds) => new Promise(
+    (resolveTimeout) => setTimeout(() => resolveTimeout(undefined), milliseconds),
+  );
+  let result = await Promise.race([paused.done, wait(1_000)]);
+  if (!result) {
+    killIfRunning(paused.child.pid, "SIGTERM");
+    result = await Promise.race([paused.done, wait(1_000)]);
+  }
+  if (!result) {
+    killIfRunning(paused.internalPid, "SIGKILL");
+    killIfRunning(paused.child.pid, "SIGKILL");
+    result = await paused.done;
+  }
+  return result;
+}
+
+async function cleanupPausedInstallers() {
+  await Promise.all([...pausedInstallers].map((paused) => reapPausedInstaller(paused)));
 }
 
 function writePackage(path, document, entrypoint = "export default true;\n") {
@@ -402,6 +443,24 @@ function assertOutsideEmpty(path) {
   assert.deepEqual(readdirSync(path), []);
 }
 
+function caseFoldAlias(path) {
+  const canonical = realpathSync(path);
+  for (let index = path.length - 1; index >= 0; index--) {
+    const character = path[index];
+    if (!/[A-Za-z]/.test(character)) continue;
+    const replacement = character === character.toLowerCase()
+      ? character.toUpperCase()
+      : character.toLowerCase();
+    const candidate = `${path.slice(0, index)}${replacement}${path.slice(index + 1)}`;
+    try {
+      if (candidate !== path && realpathSync(candidate) === canonical) return candidate;
+    } catch {
+      // Case-sensitive filesystems have no physical alias at this spelling.
+    }
+  }
+  return undefined;
+}
+
 async function main() {
   mkdirSync(neutralCwd);
   mkdirSync(fixtureBase);
@@ -413,6 +472,23 @@ async function main() {
   utimesSync(retainedRuntime, 2, 2);
   assert.throws(() => assertNode24("23.11.0"), /requires Node 24/);
   assert.doesNotThrow(() => assertNode24(process.version));
+  assert.throws(
+    () => assertInstallerPrerequisites({
+      platform: "win32",
+      nodeVersion: process.version,
+      pathExists: () => true,
+    }),
+    (error) => error.code === "HUSH_INSTALL_UNSUPPORTED_PLATFORM",
+  );
+  assert.throws(
+    () => assertInstallerPrerequisites({
+      platform: "darwin",
+      nodeVersion: process.version,
+      pathExists: (path) => path !== "/usr/bin/cc",
+    }),
+    (error) => error.code === "HUSH_INSTALL_MISSING_PREREQUISITE",
+  );
+  assert.doesNotThrow(() => assertInstallerPrerequisites());
   assertSourceProvenance();
   assertRuntimeFixtures();
 
@@ -592,6 +668,31 @@ async function main() {
   assert.notEqual(nestedSourceRuntimeInstall.status, 0);
   assert.match(nestedSourceRuntimeInstall.stderr, /must not overlap the mutable source checkout/);
   assert.equal(existsSync(join(root, ".hush-test-runtime")), false);
+
+  const caseAliasSource = writeInstallerSourceFixture("case-fold-source");
+  const sourceAlias = caseFoldAlias(caseAliasSource.root);
+  if (sourceAlias) {
+    const physicalOverlapRuntimeParent = join(sandbox, "case-fold-runtime-parent");
+    const physicalRuntimeOverlap = runInstaller([], {
+      HUSH_INSTALL_RUNTIME_ROOT: join(sourceAlias, caseAliasSource.commit),
+      HUSH_INSTALL_BIN_DIR: join(sandbox, "case-fold-runtime-bin"),
+      HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
+    }, process.env, caseAliasSource.installer);
+    assert.notEqual(physicalRuntimeOverlap.status, 0);
+    assert.match(physicalRuntimeOverlap.stderr, /HUSH_INSTALL_ROOT_OVERLAP/);
+    assert.equal(existsSync(join(caseAliasSource.root, caseAliasSource.commit)), false);
+
+    mkdirSync(physicalOverlapRuntimeParent);
+    const runtimeParentAlias = caseFoldAlias(physicalOverlapRuntimeParent);
+    assert.ok(runtimeParentAlias);
+    const physicalBinOverlap = runInstaller([], {
+      HUSH_INSTALL_RUNTIME_ROOT: join(physicalOverlapRuntimeParent, caseAliasSource.commit),
+      HUSH_INSTALL_BIN_DIR: runtimeParentAlias,
+      HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
+    }, process.env, caseAliasSource.installer);
+    assert.notEqual(physicalBinOverlap.status, 0);
+    assert.match(physicalBinOverlap.stderr, /HUSH_INSTALL_ROOT_OVERLAP/);
+  }
 
   const sourceBinInstall = runInstaller([], {
     HUSH_INSTALL_BIN_DIR: join(root, ".hush-test-bin"),
@@ -1035,6 +1136,27 @@ async function main() {
   assert.equal(recoveredPrune.status, 0, recoveredPrune.stderr);
   assert.equal(existsSync(pruneCandidateOne), false);
 
+  const unlinkRaceStage = join(runtimeBase, ".hush-stage-unlink-race");
+  mkdirSync(unlinkRaceStage);
+  writeStageMarker(unlinkRaceStage);
+  const unlinkVictim = join(unlinkRaceStage, "victim");
+  const unlinkPreserved = join(unlinkRaceStage, "victim-original");
+  writeFileSync(unlinkVictim, "original\n");
+  const unlinkRace = await startPausedInstaller("before-managed-entry-unlink", {
+    HUSH_INSTALL_TEST_PAUSE_ENTRY: "victim",
+  });
+  renameSync(unlinkVictim, unlinkPreserved);
+  writeFileSync(unlinkVictim, "replacement\n");
+  releasePausedInstaller(unlinkRace);
+  const unlinkRaceResult = await unlinkRace.done;
+  assert.notEqual(unlinkRaceResult.status, 0);
+  assert.match(unlinkRaceResult.stderr, /managed entry changed before removal/);
+  assert.equal(readFileSync(unlinkVictim, "utf8"), "replacement\n");
+  assert.equal(readFileSync(unlinkPreserved, "utf8"), "original\n");
+  rmSync(unlinkRaceStage, { recursive: true });
+  const unlinkRecovery = runInstaller();
+  assert.equal(unlinkRecovery.status, 0, unlinkRecovery.stderr);
+
   const crashParent = join(sandbox, "crash-runtimes");
   const crashRoot = join(crashParent, sourceCommit);
   const crashBin = join(sandbox, "crash-bin");
@@ -1054,11 +1176,45 @@ async function main() {
   assert.equal(recoveredCrash.status, 0, recoveredCrash.stderr);
   assert.equal(readdirSync(crashParent).some((name) => name.startsWith(".hush-stage-")), false);
   assert.equal(existsSync(join(crashBin, "hush")), true);
+
+  const renameCrashParent = join(sandbox, "rename-crash-runtimes");
+  const renameCrashRoot = join(renameCrashParent, sourceCommit);
+  const renameCrashBin = join(sandbox, "rename-crash-bin");
+  const renamedCrash = await startPausedInstaller("after-runtime-rename", {
+    HUSH_INSTALL_RUNTIME_ROOT: renameCrashRoot,
+    HUSH_INSTALL_BIN_DIR: renameCrashBin,
+  });
+  assert.equal(existsSync(renameCrashRoot), true);
+  process.kill(renamedCrash.internalPid, "SIGKILL");
+  const renamedCrashResult = await renamedCrash.done;
+  assert.notEqual(renamedCrashResult.status, 0);
+  assert.equal(existsSync(renameCrashRoot), true);
+  assert.equal(existsSync(join(renameCrashBin, "hush")), false);
+  const recoveredRenameCrash = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: renameCrashRoot,
+    HUSH_INSTALL_BIN_DIR: renameCrashBin,
+  });
+  assert.equal(recoveredRenameCrash.status, 0, recoveredRenameCrash.stderr);
+  assert.equal(readdirSync(renameCrashParent).some((name) => name.startsWith(".hush-stage-")), false);
+  assert.equal(existsSync(join(renameCrashBin, "hush")), true);
+
+  const cleanupPauseParent = join(sandbox, "cleanup-pause-runtimes");
+  const cleanupPause = await startPausedInstaller("after-lock", {
+    HUSH_INSTALL_RUNTIME_ROOT: join(cleanupPauseParent, sourceCommit),
+    HUSH_INSTALL_BIN_DIR: join(sandbox, "cleanup-pause-bin"),
+  });
+  const cleanupPauseResult = await reapPausedInstaller(cleanupPause);
+  assert.notEqual(cleanupPauseResult.status, 0);
+  assert.throws(
+    () => process.kill(cleanupPause.internalPid, 0),
+    (error) => error.code === "ESRCH",
+  );
 }
 
 try {
   await main();
   console.log("local install verified");
 } finally {
+  await cleanupPausedInstallers();
   rmSync(sandbox, { recursive: true, force: true });
 }

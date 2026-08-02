@@ -20,6 +20,11 @@ end in the exact source commit and stay disjoint from the source checkout and
 launcher directory. `--source-checkout` validates the mutable build explicitly
 and never writes or replaces the managed launcher.
 
+Managed local install supports macOS and Linux only. It requires Node 24, the
+repository-pinned Bun, `/usr/bin/git`, and `/usr/bin/cc`; unsupported platforms
+and missing prerequisites fail with `HUSH_INSTALL_*` typed errors before guarded
+installation starts.
+
 The generated `~/.local/bin/hush` launcher pins the actual Node executable and
 immutable staged entrypoint. It must not invoke Bun or a mutable
 `~/src/ch5/hush` checkout. `node scripts/install-local.mjs --check` fails on
@@ -37,10 +42,20 @@ staging, no-replace runtime publication, atomic launcher replacement, and
 quarantined prune. Every reopened stage/runtime/prune object must retain its
 captured device/inode identity; stage markers bind that identity, and prune
 quarantine names encode it for crash recovery. Symlinked/non-directory
-ancestors and path swaps fail closed; crashed staging/prune artifacts are
-removed by the next locked install. Source hardlinks are copied into fresh
-single-link files. Runtime, manifest, and launcher files reject external
-hardlink aliases.
+ancestors, physical directory ancestry overlap, case-folded filesystem aliases,
+and path swaps fail closed; lexical path comparison is not the trust boundary.
+The finalized manifest and stage directory are synced before rename, then the
+runtime parent is synced after rename. A crash at either boundary leaves a
+complete immutable runtime or a recoverable owned stage. Crashed staging/prune
+artifacts are removed by the next locked install. Source hardlinks are copied
+into fresh single-link files. Runtime, manifest, and launcher files reject
+external hardlink aliases.
+
+Removal uses the same inherited exclusive directory locks as install and binds
+every selected object to device/inode identity. This is an explicit cooperative
+writer boundary: another Hush installer cannot mutate the directory while
+cleanup runs. Each entry is rechecked immediately before unlink; an observed
+non-cooperative replacement fails closed and the replacement is never deleted.
 
 Git uses the fixed system executable with `GIT_*` removed. Bun resolves once to
 the repository-pinned absolute executable before locking; guarded work receives

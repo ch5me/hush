@@ -45,6 +45,44 @@ const guardedFds = {
 const pinnedBunEnv = "HUSH_INSTALL_PINNED_BUN_PATH";
 const pinnedGitEnv = "HUSH_INSTALL_PINNED_GIT_PATH";
 
+export class HushInstallError extends Error {
+  constructor(code, message) {
+    super(`${code}: ${message}`);
+    this.name = "HushInstallError";
+    this.code = code;
+  }
+}
+
+export function assertSupportedInstallerPlatform(platform = process.platform) {
+  if (platform !== "darwin" && platform !== "linux") {
+    throw new HushInstallError(
+      "HUSH_INSTALL_UNSUPPORTED_PLATFORM",
+      `managed local install supports macOS and Linux; found ${platform}`,
+    );
+  }
+}
+
+export function assertInstallerPrerequisites({
+  platform = process.platform,
+  nodeVersion = process.version,
+  pathExists = existsSync,
+} = {}) {
+  assertSupportedInstallerPlatform(platform);
+  try {
+    assertNode24(nodeVersion);
+  } catch (error) {
+    throw new HushInstallError("HUSH_INSTALL_MISSING_PREREQUISITE", error.message);
+  }
+  for (const path of ["/usr/bin/cc", "/usr/bin/git"]) {
+    if (!pathExists(path)) {
+      throw new HushInstallError(
+        "HUSH_INSTALL_MISSING_PREREQUISITE",
+        `managed local install requires ${path}`,
+      );
+    }
+  }
+}
+
 function isInside(parent, child) {
   const path = relative(parent, child);
   return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
@@ -593,7 +631,12 @@ function validateManagedRuntime(candidate, source) {
 
 function compileNativeHelper() {
   const compiler = "/usr/bin/cc";
-  if (!existsSync(compiler)) throw new Error(`Hush installer requires a C compiler at ${compiler}.`);
+  if (!existsSync(compiler)) {
+    throw new HushInstallError(
+      "HUSH_INSTALL_MISSING_PREREQUISITE",
+      `managed local install requires a C compiler at ${compiler}`,
+    );
+  }
   const buildDirectory = realpathSync(mkdtempSync(join(tmpdir(), "hush-install-native-")));
   const helperPath = join(buildDirectory, "hush-install-native");
   const source = readFileSync(join(root, "scripts", "install-local-native.c"));
@@ -609,11 +652,17 @@ function compileNativeHelper() {
   );
   if (result.error) {
     rmSync(buildDirectory, { recursive: true, force: true });
-    throw new Error(`Hush install helper compilation failed: ${result.error.message}`);
+    throw new HushInstallError(
+      "HUSH_INSTALL_NATIVE_COMPILE_FAILED",
+      `native helper compilation failed: ${result.error.message}`,
+    );
   }
   if (result.status !== 0) {
     rmSync(buildDirectory, { recursive: true, force: true });
-    throw new Error(`Hush install helper compilation failed:\n${result.stderr || result.stdout}`);
+    throw new HushInstallError(
+      "HUSH_INSTALL_NATIVE_COMPILE_FAILED",
+      `native helper compilation failed:\n${result.stderr || result.stdout}`,
+    );
   }
   chmodSync(helperPath, 0o700);
   const metadata = lstatSync(helperPath);
@@ -1183,6 +1232,7 @@ function internalValidateRuntime(encodedSource) {
 
 function main() {
   const args = process.argv.slice(2);
+  assertInstallerPrerequisites();
   if (args[0] === "--internal-source-identity") return internalSourceIdentity();
   if (args[0] === "--internal-staged-identity") return internalStagedIdentity(args[1]);
   if (args[0] === "--internal-finalize-stage") return internalFinalizeStage(args[1]);
