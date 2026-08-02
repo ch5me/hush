@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  readdirSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -21,34 +24,107 @@ import { assertNode24 } from "../../scripts/install-local-helpers.mjs";
 import {
   createRuntimeManifest,
   sourceIdentity,
-  stageRuntime,
   validateRuntimeGraph,
 } from "../../scripts/install-local.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const binDir = realpathSync(mkdtempSync(join(tmpdir(), "hush-local-install-")));
+const sandbox = realpathSync(mkdtempSync(join(tmpdir(), "hush-local-install-")));
 const installer = join(root, "scripts", "install-local.mjs");
-const runtimeBase = join(binDir, "runtimes");
-const runtimeRoot = join(runtimeBase, "c".repeat(40));
+const sourceCommit = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
+  cwd: root,
+  encoding: "utf8",
+  env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
+}).trim();
+const stageMarkerName = ".hush-stage-owner";
+const swappedAncestorError = /(?:path changed during install|directory is missing, symlinked, or not a directory)/i;
+const installBin = join(sandbox, "bin");
+const runtimeBase = join(sandbox, "runtimes");
+const runtimeRoot = join(runtimeBase, sourceCommit);
 const oldRuntime = join(runtimeBase, "a".repeat(40));
 const retainedRuntime = join(runtimeBase, "b".repeat(40));
-const neutralCwd = join(binDir, "neutral-cwd");
-const fixtureBase = join(binDir, "fixtures");
+const emptyStaleStage = join(runtimeBase, ".hush-stage-crashed-empty");
+const neutralCwd = join(sandbox, "neutral-cwd");
+const fixtureBase = join(sandbox, "fixtures");
 const env = {
   ...process.env,
-  HUSH_INSTALL_BIN_DIR: binDir,
+  HUSH_INSTALL_BIN_DIR: installBin,
   HUSH_INSTALL_RUNTIME_ROOT: runtimeRoot,
   HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
   HUSH_NO_UPDATE_CHECK: "1",
   NODE_PATH: "",
 };
 
-function runInstaller(args = [], overrides = {}) {
+function childEnv(base, overrides = {}) {
+  const result = { ...base, ...overrides };
+  for (const [key, value] of Object.entries(result)) {
+    if (value === undefined || value === null) delete result[key];
+  }
+  return result;
+}
+
+function runInstaller(args = [], overrides = {}, base = env) {
   return spawnSync(process.execPath, [installer, ...args], {
     cwd: neutralCwd,
-    env: { ...env, ...overrides },
+    env: childEnv(base, overrides),
     encoding: "utf8",
   });
+}
+
+function spawnInstaller(args = [], overrides = {}, base = env, installerPath = installer) {
+  const child = spawn(process.execPath, [installerPath, ...args], {
+    cwd: neutralCwd,
+    env: childEnv(base, overrides),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  return {
+    child,
+    done: new Promise((resolveResult, reject) => {
+      child.once("error", reject);
+      child.once("close", (status, signal) => resolveResult({ status, signal, stdout, stderr }));
+    }),
+  };
+}
+
+async function waitForFile(path, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${path}`);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+}
+
+async function startPausedInstaller(point, overrides = {}, base = env, installerPath = installer) {
+  const pauseRoot = join(fixtureBase, `pause-${point}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  mkdirSync(pauseRoot, { recursive: true });
+  const marker = join(pauseRoot, "marker");
+  const release = join(pauseRoot, "release");
+  const running = spawnInstaller([], {
+    ...overrides,
+    HUSH_INSTALL_TEST_PAUSE_AT: point,
+    HUSH_INSTALL_TEST_PAUSE_MARKER: marker,
+    HUSH_INSTALL_TEST_PAUSE_RELEASE: release,
+  }, base, installerPath);
+  await waitForFile(marker);
+  return {
+    ...running,
+    marker,
+    release,
+    internalPid: Number(readFileSync(marker, "utf8").trim()),
+  };
+}
+
+function releasePausedInstaller(paused) {
+  writeFileSync(paused.release, "continue\n", { flag: "wx" });
 }
 
 function writePackage(path, document, entrypoint = "export default true;\n") {
@@ -70,6 +146,75 @@ function writeRuntimeFixture(name, packageDocument = {}) {
     `${JSON.stringify({ name: "@fixture/hush", ...packageDocument }, null, 2)}\n`,
   );
   return fixtureRoot;
+}
+
+function writePrunableRuntime(path) {
+  mkdirSync(path, { recursive: true });
+  writeFileSync(join(path, ".hush-runtime-manifest.json"), "{}\n", { mode: 0o444 });
+  chmodSync(join(path, ".hush-runtime-manifest.json"), 0o444);
+}
+
+function writeStageMarker(path) {
+  const metadata = lstatSync(path, { bigint: true });
+  writeFileSync(
+    join(path, stageMarkerName),
+    `hush-stage-v2\t${metadata.dev}\t${metadata.ino}\n`,
+    { mode: 0o400 },
+  );
+}
+
+function writeEmptyPruneArtifact(parent) {
+  const temporary = join(parent, ".empty-prune-source");
+  mkdirSync(temporary);
+  const metadata = lstatSync(temporary, { bigint: true });
+  const target = join(
+    parent,
+    `.hush-prune-${metadata.dev.toString(16)}-${metadata.ino.toString(16)}-crashed-empty`,
+  );
+  renameSync(temporary, target);
+  return target;
+}
+
+function writeInstallerSourceFixture(name) {
+  const fixtureRoot = join(fixtureBase, name);
+  const copiedFiles = [
+    ".npmrc",
+    "bun.lock",
+    "docs/package.json",
+    "hush-cli/bin/hush.js",
+    "hush-cli/package.json",
+    "hush-cli/schema.json",
+    "package.json",
+    "scripts/install-local-helpers.mjs",
+    "scripts/install-local-native.c",
+    "scripts/install-local.mjs",
+  ];
+  for (const path of copiedFiles) {
+    const destination = join(fixtureRoot, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, readFileSync(join(root, path)));
+  }
+  mkdirSync(join(fixtureRoot, "hush-cli", "dist"), { recursive: true });
+  writeFileSync(join(fixtureRoot, "hush-cli", "dist", "cli.js"), "export default true;\n");
+
+  const git = (...args) => {
+    const result = spawnSync("/usr/bin/git", args, { cwd: fixtureRoot, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git("init", "-q");
+  git("config", "user.name", "Hush Installer Test");
+  git("config", "user.email", "hush-installer-test@example.invalid");
+  git("config", "commit.gpgsign", "false");
+  git("add", ".");
+  git("commit", "-qm", "test fixture");
+  return {
+    root: fixtureRoot,
+    installer: join(fixtureRoot, "scripts", "install-local.mjs"),
+    commit: execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+    }).trim(),
+  };
 }
 
 function assertSourceProvenance() {
@@ -104,27 +249,49 @@ function assertSourceProvenance() {
   git("checkout", "-q", "--", "hush-cli/package.json");
 
   writeFileSync(join(sourceRoot, "hush-cli", "dist", "cli.js"), "changed build\n");
-  mkdirSync(join(sourceRoot, "hush-cli", "node_modules", "ambient"), { recursive: true });
-  writeFileSync(join(sourceRoot, "hush-cli", "node_modules", "ambient", "index.js"), "ambient\n");
   const rebuilt = sourceIdentity(sourceRoot);
   assert.deepEqual(rebuilt.tracked, original.tracked);
   assert.notEqual(rebuilt.build.sha256, original.build.sha256);
   assert.deepEqual(rebuilt.dependencies, original.dependencies);
 
-  const stagedRoot = join(fixtureBase, "source-staged");
-  mkdirSync(stagedRoot);
-  stageRuntime(sourceRoot, stagedRoot);
-  assert.equal(existsSync(join(stagedRoot, "hush-cli", "dist", "cli.js")), true);
-  assert.equal(existsSync(join(stagedRoot, "hush-cli", "node_modules")), false);
+  const hardlinkAlias = join(fixtureBase, "source-input-hardlink");
+  linkSync(join(sourceRoot, ".npmrc"), hardlinkAlias);
+  assert.doesNotThrow(() => sourceIdentity(sourceRoot));
+  rmSync(hardlinkAlias);
 
   const outsideInput = join(fixtureBase, "outside-input");
   writeFileSync(outsideInput, "outside\n");
   rmSync(join(sourceRoot, ".npmrc"));
   symlinkSync(outsideInput, join(sourceRoot, ".npmrc"));
   assert.throws(
-    () => stageRuntime(sourceRoot, join(fixtureBase, "symlinked-source-staged")),
-    /Hush runtime input must be a regular file/,
+    () => sourceIdentity(sourceRoot),
+    /Hush runtime input symlink is forbidden/,
   );
+  rmSync(join(sourceRoot, ".npmrc"));
+  writeFileSync(join(sourceRoot, ".npmrc"), "registry=https://example.invalid/\n");
+
+  const binPath = join(sourceRoot, "hush-cli", "bin");
+  const originalBinPath = join(sourceRoot, "hush-cli", "bin-original");
+  const outsideBinPath = join(fixtureBase, "outside-bin-ancestor");
+  renameSync(binPath, originalBinPath);
+  mkdirSync(outsideBinPath);
+  writeFileSync(join(outsideBinPath, "hush.js"), "");
+  symlinkSync(outsideBinPath, binPath, "dir");
+  assert.throws(
+    () => sourceIdentity(sourceRoot),
+    /Hush runtime input symlink is forbidden/,
+  );
+  rmSync(binPath);
+  renameSync(originalBinPath, binPath);
+
+  renameSync(binPath, originalBinPath);
+  writeFileSync(binPath, "not a directory\n");
+  assert.throws(
+    () => sourceIdentity(sourceRoot),
+    /Hush runtime input ancestor must be a directory/,
+  );
+  rmSync(binPath);
+  renameSync(originalBinPath, binPath);
 }
 
 function escapingMain(packageRoot, outsideFile) {
@@ -140,6 +307,14 @@ function assertRuntimeFixtures() {
   const internalPackage = join(internalRoot, "hush-cli", "node_modules", "@fixture", "internal");
   writePackage(internalPackage, { name: "@fixture/internal", version: "1.0.0", main: "index.js" });
   assert.doesNotThrow(() => validateRuntimeGraph(internalRoot));
+
+  const hardlinkAlias = join(internalRoot, "hardlink-alias.js");
+  linkSync(join(internalPackage, "index.js"), hardlinkAlias);
+  assert.throws(
+    () => validateRuntimeGraph(internalRoot),
+    /Hush runtime hardlink is forbidden/,
+  );
+  rmSync(hardlinkAlias);
 
   const nestedRoot = writeRuntimeFixture("nested", { dependencies: { "fixture-parent": "1.0.0" } });
   const parentPackage = join(nestedRoot, "hush-cli", "node_modules", "fixture-parent");
@@ -212,16 +387,55 @@ function assertRuntimeFixtures() {
   );
 }
 
-try {
+function swapDirectory(path, outsidePath) {
+  const movedPath = `${path}-original`;
+  renameSync(path, movedPath);
+  mkdirSync(outsidePath, { recursive: true });
+  symlinkSync(outsidePath, path, "dir");
+  return () => {
+    rmSync(path);
+    renameSync(movedPath, path);
+  };
+}
+
+function assertOutsideEmpty(path) {
+  assert.deepEqual(readdirSync(path), []);
+}
+
+async function main() {
   mkdirSync(neutralCwd);
-  mkdirSync(oldRuntime, { recursive: true });
-  mkdirSync(retainedRuntime, { recursive: true });
+  mkdirSync(fixtureBase);
+  writePrunableRuntime(oldRuntime);
+  writePrunableRuntime(retainedRuntime);
+  mkdirSync(emptyStaleStage);
+  const emptyStalePrune = writeEmptyPruneArtifact(runtimeBase);
   utimesSync(oldRuntime, 1, 1);
   utimesSync(retainedRuntime, 2, 2);
   assert.throws(() => assertNode24("23.11.0"), /requires Node 24/);
   assert.doesNotThrow(() => assertNode24(process.version));
   assertSourceProvenance();
   assertRuntimeFixtures();
+
+  const checkOnlyRuntimeParent = join(sandbox, "check-only-runtime-parent");
+  const checkOnlyBin = join(sandbox, "check-only-bin");
+  const missingCheck = runInstaller(["--check"], {
+    HUSH_INSTALL_RUNTIME_ROOT: join(checkOnlyRuntimeParent, sourceCommit),
+    HUSH_INSTALL_BIN_DIR: checkOnlyBin,
+  });
+  assert.notEqual(missingCheck.status, 0);
+  assert.equal(existsSync(checkOnlyRuntimeParent), false);
+  assert.equal(existsSync(checkOnlyBin), false);
+
+  const unguardedInternal = runInstaller(
+    ["--internal-finalize-stage", "e30"],
+    {
+      HUSH_INSTALL_NATIVE_GUARDED: undefined,
+      HUSH_INSTALL_NATIVE_HELPER: undefined,
+    },
+  );
+  assert.notEqual(unguardedInternal.status, 0);
+  assert.match(unguardedInternal.stderr, /requires the native install guard/);
+  assert.equal(existsSync(join(neutralCwd, ".hush-runtime-manifest.json")), false);
 
   mkdirSync(join(runtimeRoot, "hush-cli", "bin"), { recursive: true });
   writeFileSync(join(runtimeRoot, "hush-cli", "bin", "hush.js"), "");
@@ -230,16 +444,71 @@ try {
   assert.match(incomplete.stderr, /Hush runtime incomplete/);
   rmSync(runtimeRoot, { recursive: true, force: true });
 
-  const install = runInstaller();
+  const sourceHardlink = join(sandbox, "source-npmrc-hardlink");
+  linkSync(join(root, ".npmrc"), sourceHardlink);
+  const poisonedTools = join(fixtureBase, "poisoned-tools");
+  const poisonedToolMarker = join(fixtureBase, "poisoned-tool-ran");
+  mkdirSync(poisonedTools);
+  for (const tool of ["bun", "git"]) {
+    writeFileSync(
+      join(poisonedTools, tool),
+      `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(tool)} >> ${JSON.stringify(poisonedToolMarker)}\nexit 99\n`,
+      { mode: 0o755 },
+    );
+  }
+  const install = runInstaller([], {
+    PATH: `${poisonedTools}:${env.PATH}`,
+    GIT_DIR: join(fixtureBase, "poisoned-git-dir"),
+    GIT_WORK_TREE: join(fixtureBase, "poisoned-git-work-tree"),
+  });
   assert.equal(install.status, 0, install.stderr);
+  assert.equal(existsSync(poisonedToolMarker), false);
+  assert.equal(lstatSync(join(root, ".npmrc")).nlink >= 2, true);
+  assert.equal(lstatSync(join(runtimeRoot, ".npmrc")).nlink, 1);
+  assert.notEqual(statSync(join(root, ".npmrc")).ino, statSync(join(runtimeRoot, ".npmrc")).ino);
+  rmSync(sourceHardlink);
 
-  const launcherPath = join(binDir, "hush");
+  const racedSource = writeInstallerSourceFixture("source-ancestor-race");
+  const racedSourceRuntimeParent = join(sandbox, "source-ancestor-race-runtimes");
+  const racedSourceBin = join(sandbox, "source-ancestor-race-bin");
+  const racedSourceOutside = join(sandbox, "source-ancestor-race-outside");
+  const racedSourceOriginal = join(racedSource.root, "hush-cli", "bin-original");
+  const racedSourceInstaller = await startPausedInstaller(
+    "before-stage",
+    {
+      HUSH_INSTALL_RUNTIME_ROOT: join(racedSourceRuntimeParent, racedSource.commit),
+      HUSH_INSTALL_BIN_DIR: racedSourceBin,
+      HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
+      HUSH_NO_UPDATE_CHECK: "1",
+      NODE_PATH: "",
+    },
+    process.env,
+    racedSource.installer,
+  );
+  renameSync(join(racedSource.root, "hush-cli", "bin"), racedSourceOriginal);
+  mkdirSync(racedSourceOutside);
+  symlinkSync(racedSourceOutside, join(racedSource.root, "hush-cli", "bin"), "dir");
+  releasePausedInstaller(racedSourceInstaller);
+  const racedSourceResult = await racedSourceInstaller.done;
+  assert.notEqual(racedSourceResult.status, 0);
+  assert.match(
+    racedSourceResult.stderr,
+    /source input ancestor is symlinked or not a directory|directory is missing, symlinked, or not a directory/,
+  );
+  assertOutsideEmpty(racedSourceOutside);
+  assert.equal(
+    readdirSync(racedSourceRuntimeParent).some((name) => name.startsWith(".hush-stage-")),
+    false,
+  );
+
+  const launcherPath = join(installBin, "hush");
   const launcher = readFileSync(launcherPath, "utf8");
   const manifestPath = join(runtimeRoot, ".hush-runtime-manifest.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   assert.equal(Number(process.versions.node.split(".", 1)[0]), 24);
-  assert.equal(realpathSync(launcherPath), join(realpathSync(binDir), "hush"));
+  assert.equal(realpathSync(launcherPath), join(realpathSync(installBin), "hush"));
   assert.equal(lstatSync(launcherPath).isSymbolicLink(), false);
+  assert.equal(lstatSync(launcherPath).nlink, 1);
   assert.ok((lstatSync(launcherPath).mode & 0o111) !== 0);
   assert.match(launcher, new RegExp(`exec '${realpathSync(process.execPath).replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
   assert.match(launcher, new RegExp(`${join(runtimeRoot, "hush-cli", "bin", "hush.js").replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
@@ -251,17 +520,41 @@ try {
   assert.match(manifest.source.tracked.tree, /^[0-9a-f]{40}$/);
   assert.match(manifest.source.build.sha256, /^[0-9a-f]{64}$/);
   assert.match(manifest.source.dependencies.sha256, /^[0-9a-f]{64}$/);
+  assert.ok(manifest.files.some((entry) => entry.path === stageMarkerName && entry.type === "file"));
   assert.ok(manifest.files.some((entry) => entry.path === "hush-cli/dist" && entry.type === "directory"));
   assert.ok(manifest.files.some((entry) => entry.path === "hush-cli/dist/cli.js" && entry.sha256));
   assert.equal(lstatSync(manifestPath).mode & 0o777, 0o444);
+  assert.equal(lstatSync(manifestPath).nlink, 1);
   assert.equal(existsSync(oldRuntime), false);
   assert.equal(existsSync(retainedRuntime), true);
+  assert.equal(existsSync(emptyStaleStage), false);
+  assert.equal(existsSync(emptyStalePrune), false);
+
+  const unownedStaleStage = join(runtimeBase, ".hush-stage-missing-marker");
+  mkdirSync(unownedStaleStage);
+  writeFileSync(join(unownedStaleStage, "unowned"), "must not be removed\n");
+  const unownedStale = runInstaller();
+  assert.notEqual(unownedStale.status, 0);
+  assert.match(unownedStale.stderr, /managed directory marker is missing/);
+  assert.equal(readFileSync(join(unownedStaleStage, "unowned"), "utf8"), "must not be removed\n");
+  rmSync(unownedStaleStage, { recursive: true });
+
+  const checkPreservedStage = join(runtimeBase, ".hush-stage-check-preserved");
+  mkdirSync(checkPreservedStage);
+  writeStageMarker(checkPreservedStage);
+  const staleCheck = runInstaller(["--check"]);
+  assert.notEqual(staleCheck.status, 0);
+  assert.match(staleCheck.stderr, /stale unpublished artifacts/);
+  assert.equal(existsSync(checkPreservedStage), true);
+  const staleRecovery = runInstaller();
+  assert.equal(staleRecovery.status, 0, staleRecovery.stderr);
+  assert.equal(existsSync(checkPreservedStage), false);
 
   const version = spawnSync(launcherPath, ["--version"], { cwd: neutralCwd, env, encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);
   assert.match(version.stdout, /^\d+\.\d+\.\d+\s*$/);
-  const preloadMarker = join(binDir, "preload-ran");
-  const preload = join(binDir, "ambient-preload.cjs");
+  const preloadMarker = join(sandbox, "preload-ran");
+  const preload = join(sandbox, "ambient-preload.cjs");
   writeFileSync(preload, `require("node:fs").writeFileSync(${JSON.stringify(preloadMarker)}, "ran");\n`);
   const isolatedVersion = spawnSync(launcherPath, ["--version"], {
     cwd: neutralCwd,
@@ -280,20 +573,60 @@ try {
   const reuse = runInstaller();
   assert.equal(reuse.status, 0, reuse.stderr);
 
+  const sourceRootInstall = runInstaller([], { HUSH_INSTALL_RUNTIME_ROOT: root });
+  assert.notEqual(sourceRootInstall.status, 0);
+  assert.match(sourceRootInstall.stderr, /must not overlap the mutable source checkout/);
+  assert.equal(readFileSync(launcherPath, "utf8"), launcher);
+
+  const nonCommitRuntimeInstall = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: join(fixtureBase, "managed-runtime", "c".repeat(40)),
+  });
+  assert.notEqual(nonCommitRuntimeInstall.status, 0);
+  assert.match(nonCommitRuntimeInstall.stderr, /must end with the source commit/);
+  assert.equal(readFileSync(launcherPath, "utf8"), launcher);
+
+  const nestedSourceRuntime = join(root, ".hush-test-runtime", sourceCommit);
+  const nestedSourceRuntimeInstall = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: nestedSourceRuntime,
+  });
+  assert.notEqual(nestedSourceRuntimeInstall.status, 0);
+  assert.match(nestedSourceRuntimeInstall.stderr, /must not overlap the mutable source checkout/);
+  assert.equal(existsSync(join(root, ".hush-test-runtime")), false);
+
+  const sourceBinInstall = runInstaller([], {
+    HUSH_INSTALL_BIN_DIR: join(root, ".hush-test-bin"),
+  });
+  assert.notEqual(sourceBinInstall.status, 0);
+  assert.match(sourceBinInstall.stderr, /bin root must not overlap the mutable source checkout/);
+  assert.equal(existsSync(join(root, ".hush-test-bin")), false);
+
+  const runtimeBinInstall = runInstaller([], {
+    HUSH_INSTALL_BIN_DIR: runtimeBase,
+  });
+  assert.notEqual(runtimeBinInstall.status, 0);
+  assert.match(runtimeBinInstall.stderr, /bin root must not overlap the managed runtime/);
+  assert.equal(readFileSync(launcherPath, "utf8"), launcher);
+
+  const reservedRuntimeInstall = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: join(runtimeBase, ".hush-stage-explicit"),
+  });
+  assert.notEqual(reservedRuntimeInstall.status, 0);
+  assert.match(reservedRuntimeInstall.stderr, /reserved managed name/);
+  assert.equal(readFileSync(launcherPath, "utf8"), launcher);
+
   const outsideRuntimeRoot = join(fixtureBase, "outside-runtime-root");
   const runtimeRootLink = join(fixtureBase, "runtime-root-link");
   const safeBinRoot = join(fixtureBase, "safe-bin-root");
   mkdirSync(outsideRuntimeRoot);
   mkdirSync(safeBinRoot);
   symlinkSync(outsideRuntimeRoot, runtimeRootLink, "dir");
-  const escapedRuntimeName = "d".repeat(40);
   const linkedRuntimeInstall = runInstaller([], {
-    HUSH_INSTALL_RUNTIME_ROOT: join(runtimeRootLink, escapedRuntimeName),
+    HUSH_INSTALL_RUNTIME_ROOT: join(runtimeRootLink, sourceCommit),
     HUSH_INSTALL_BIN_DIR: safeBinRoot,
   });
   assert.notEqual(linkedRuntimeInstall.status, 0);
-  assert.match(linkedRuntimeInstall.stderr, /Hush runtime parent must (?:not traverse symlinked ancestors|be a real directory)/);
-  assert.equal(existsSync(join(outsideRuntimeRoot, escapedRuntimeName)), false);
+  assert.match(linkedRuntimeInstall.stderr, /missing, symlinked, or not a directory/);
+  assert.equal(existsSync(join(outsideRuntimeRoot, sourceCommit)), false);
 
   const outsideBinRoot = join(fixtureBase, "outside-bin-root");
   const binRootLink = join(fixtureBase, "bin-root-link");
@@ -304,16 +637,18 @@ try {
     HUSH_INSTALL_BIN_DIR: binRootLink,
   });
   assert.notEqual(linkedBinInstall.status, 0);
-  assert.match(linkedBinInstall.stderr, /Hush bin root must (?:not traverse symlinks|be a real directory)/);
+  assert.match(linkedBinInstall.stderr, /missing, symlinked, or not a directory/);
   assert.equal(existsSync(join(outsideBinRoot, "hush")), false);
 
-  const installedRuntimeLink = join(fixtureBase, "installed-runtime-link");
+  const installedRuntimeLinkParent = join(fixtureBase, "installed-runtime-link-parent");
+  const installedRuntimeLink = join(installedRuntimeLinkParent, sourceCommit);
+  mkdirSync(installedRuntimeLinkParent);
   symlinkSync(runtimeRoot, installedRuntimeLink, "dir");
   const linkedRuntimeCheck = runInstaller(["--check"], {
     HUSH_INSTALL_RUNTIME_ROOT: installedRuntimeLink,
   });
   assert.notEqual(linkedRuntimeCheck.status, 0);
-  assert.match(linkedRuntimeCheck.stderr, /Hush runtime root must (?:not traverse symlinks|be a real directory)/);
+  assert.match(linkedRuntimeCheck.stderr, /managed runtime entry is symlinked or not a directory/);
 
   const runtimeCliPath = join(runtimeRoot, "hush-cli", "dist", "cli.js");
   const runtimeCli = readFileSync(runtimeCliPath);
@@ -368,30 +703,62 @@ try {
   symlinkSync(manifestCopy, manifestPath);
   const linkedManifest = runInstaller(["--check"]);
   assert.notEqual(linkedManifest.status, 0);
-  assert.match(linkedManifest.stderr, /Hush runtime manifest must be a regular file/);
+  assert.match(linkedManifest.stderr, /manifest must be a single-link regular file/);
   rmSync(manifestPath);
   renameSync(manifestCopy, manifestPath);
+
+  const manifestHardlink = join(sandbox, "manifest-hardlink");
+  linkSync(manifestPath, manifestHardlink);
+  const linkedManifestCheck = runInstaller(["--check"]);
+  assert.notEqual(linkedManifestCheck.status, 0);
+  assert.match(linkedManifestCheck.stderr, /manifest must be a single-link regular file/);
+  rmSync(manifestHardlink);
 
   chmodSync(launcherPath, 0o644);
   const launcherModeDrift = runInstaller(["--check"]);
   assert.notEqual(launcherModeDrift.status, 0);
-  assert.match(launcherModeDrift.stderr, /Hush launcher is not executable/);
+  assert.match(launcherModeDrift.stderr, /launcher is not executable/);
   chmodSync(launcherPath, 0o755);
 
-  const launcherCopy = join(binDir, "hush-real");
+  const launcherCopy = join(installBin, "hush-real");
   renameSync(launcherPath, launcherCopy);
   symlinkSync(launcherCopy, launcherPath);
   const linkedLauncher = runInstaller(["--check"]);
   assert.notEqual(linkedLauncher.status, 0);
-  assert.match(linkedLauncher.stderr, /Hush launcher must be a regular non-symlink file/);
+  assert.match(linkedLauncher.stderr, /launcher is missing or symlinked/);
   rmSync(launcherPath);
   renameSync(launcherCopy, launcherPath);
+
+  const launcherHardlink = join(sandbox, "launcher-hardlink");
+  linkSync(launcherPath, launcherHardlink);
+  const hardlinkedLauncherCheck = runInstaller(["--check"]);
+  assert.notEqual(hardlinkedLauncherCheck.status, 0);
+  assert.match(hardlinkedLauncherCheck.stderr, /launcher must be a single-link regular file/);
+  rmSync(launcherHardlink);
+
+  const victimLauncher = join(sandbox, "launcher-victim");
+  writeFileSync(victimLauncher, "victim remains unchanged\n");
+  rmSync(launcherPath);
+  linkSync(victimLauncher, launcherPath);
+  const replaceHardlinkedLauncher = runInstaller();
+  assert.equal(replaceHardlinkedLauncher.status, 0, replaceHardlinkedLauncher.stderr);
+  assert.equal(readFileSync(victimLauncher, "utf8"), "victim remains unchanged\n");
+  assert.equal(readFileSync(launcherPath, "utf8"), launcher);
+  assert.notEqual(statSync(victimLauncher).ino, statSync(launcherPath).ino);
+  assert.equal(lstatSync(launcherPath).nlink, 1);
 
   writeFileSync(launcherPath, `${launcher}\n`);
   const launcherDrift = runInstaller(["--check"]);
   assert.notEqual(launcherDrift.status, 0);
   assert.match(launcherDrift.stderr, /Hush launcher drift/);
   writeFileSync(launcherPath, launcher, { mode: 0o755 });
+
+  const runtimeHardlink = join(sandbox, "runtime-hardlink");
+  linkSync(runtimeCliPath, runtimeHardlink);
+  const hardlinkedRuntimeCheck = runInstaller(["--check"]);
+  assert.notEqual(hardlinkedRuntimeCheck.status, 0);
+  assert.match(hardlinkedRuntimeCheck.stderr, /Hush runtime hardlink is forbidden/);
+  rmSync(runtimeHardlink);
 
   const runtimeDependencyPackage = join(runtimeRoot, "hush-cli", "node_modules", "picocolors", "package.json");
   const runtimeDependencyPackageText = readFileSync(runtimeDependencyPackage);
@@ -418,7 +785,7 @@ try {
   rmSync(runtimeDependency);
   renameSync(runtimeDependencyCopy, runtimeDependency);
 
-  const shellFailure = join(binDir, "shell-failure");
+  const shellFailure = join(sandbox, "shell-failure");
   writeFileSync(shellFailure, "#!/bin/sh\nexit 2\n", { mode: 0o755 });
   chmodSync(shellFailure, 0o755);
   const failedResolution = runInstaller(["--check"], {
@@ -428,7 +795,7 @@ try {
   assert.notEqual(failedResolution.status, 0);
   assert.match(failedResolution.stderr, /login shell resolution failed/);
 
-  const shellNoResolution = join(binDir, "shell-no-resolution");
+  const shellNoResolution = join(sandbox, "shell-no-resolution");
   writeFileSync(shellNoResolution, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   chmodSync(shellNoResolution, 0o755);
   const noResolution = runInstaller(["--check"], {
@@ -437,8 +804,261 @@ try {
   });
   assert.notEqual(noResolution.status, 0);
   assert.match(noResolution.stderr, /resolves no hush at all/);
-} finally {
-  rmSync(binDir, { recursive: true, force: true });
+
+  const noEnvHome = join(sandbox, "no-env-home");
+  const noEnvBin = join(noEnvHome, ".local", "bin");
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const noEnvRuntime = join(noEnvHome, ".local", "state", "hush", "runtimes", commit);
+  mkdirSync(noEnvHome);
+  const bunPath = execFileSync("bun", ["-e", "console.log(process.execPath)"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  const loginPath = [
+    noEnvBin,
+    dirname(bunPath),
+    dirname(process.execPath),
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ].join(":");
+  writeFileSync(join(noEnvHome, ".zprofile"), `export PATH=${JSON.stringify(loginPath)}\n`);
+  const noEnvOverrides = {
+    HOME: noEnvHome,
+    PATH: loginPath,
+    SHELL: "/bin/zsh",
+    HUSH_INSTALL_BIN_DIR: undefined,
+    HUSH_INSTALL_RUNTIME_ROOT: undefined,
+    HUSH_INSTALL_SKIP_SHADOW_CHECK: undefined,
+    NODE_OPTIONS: undefined,
+    NODE_PATH: undefined,
+  };
+  const noEnvInstall = runInstaller([], noEnvOverrides, process.env);
+  assert.equal(noEnvInstall.status, 0, noEnvInstall.stderr);
+  assert.doesNotMatch(noEnvInstall.stderr, /SHADOWED INSTALL|not delivered/);
+  const noEnvLauncher = join(noEnvBin, "hush");
+  const noEnvLauncherText = readFileSync(noEnvLauncher, "utf8");
+  const noEnvManifest = JSON.parse(readFileSync(join(noEnvRuntime, ".hush-runtime-manifest.json"), "utf8"));
+  assert.match(noEnvLauncherText, new RegExp(noEnvRuntime.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(noEnvLauncherText.includes(root), false);
+  assert.doesNotMatch(noEnvLauncherText, /\/src\/ch5\/hush(?:\/|$)/);
+  assert.equal(noEnvManifest.source.tracked.commit, commit);
+  const noEnvCheck = runInstaller(["--check"], noEnvOverrides, process.env);
+  assert.equal(noEnvCheck.status, 0, noEnvCheck.stderr);
+  assert.doesNotMatch(noEnvCheck.stderr, /SHADOWED INSTALL|not delivered/);
+  const detachedConsumer = spawnSync("hush", ["--version"], {
+    cwd: neutralCwd,
+    env: {
+      HOME: noEnvHome,
+      PATH: `${noEnvBin}:/usr/bin:/bin`,
+      HUSH_NO_UPDATE_CHECK: "1",
+    },
+    encoding: "utf8",
+  });
+  assert.equal(detachedConsumer.status, 0, detachedConsumer.stderr);
+  assert.match(detachedConsumer.stdout, /^\d+\.\d+\.\d+\s*$/);
+  const sourceCheckout = runInstaller(
+    ["--source-checkout"],
+    noEnvOverrides,
+    process.env,
+  );
+  assert.equal(sourceCheckout.status, 0, sourceCheckout.stderr);
+  assert.match(sourceCheckout.stdout, /hush-cli\/bin\/hush\.js/);
+  assert.match(sourceCheckout.stderr, /managed launcher unchanged/);
+  assert.equal(readFileSync(noEnvLauncher, "utf8"), noEnvLauncherText);
+
+  const lockPause = await startPausedInstaller("after-lock");
+  const lockedOut = runInstaller();
+  assert.notEqual(lockedOut.status, 0);
+  assert.match(lockedOut.stderr, /another Hush install is already in progress/);
+  releasePausedInstaller(lockPause);
+  const lockFinished = await lockPause.done;
+  assert.equal(lockFinished.status, 0, lockFinished.stderr);
+
+  const stageRaceParent = join(sandbox, "stage-race-runtimes");
+  const stageRaceRoot = join(stageRaceParent, sourceCommit);
+  const stageRaceBin = join(sandbox, "stage-race-bin");
+  const stageRaceOutside = join(sandbox, "stage-race-outside");
+  const stageRace = await startPausedInstaller("before-stage", {
+    HUSH_INSTALL_RUNTIME_ROOT: stageRaceRoot,
+    HUSH_INSTALL_BIN_DIR: stageRaceBin,
+  });
+  const restoreStageParent = swapDirectory(stageRaceParent, stageRaceOutside);
+  releasePausedInstaller(stageRace);
+  const stageRaceResult = await stageRace.done;
+  assert.notEqual(stageRaceResult.status, 0);
+  assert.match(stageRaceResult.stderr, swappedAncestorError);
+  assertOutsideEmpty(stageRaceOutside);
+  restoreStageParent();
+
+  const publishRaceParent = join(sandbox, "publish-race-runtimes");
+  const publishRaceRoot = join(publishRaceParent, sourceCommit);
+  const publishRaceBin = join(sandbox, "publish-race-bin");
+  const publishRaceOutside = join(sandbox, "publish-race-outside");
+  const publishRace = await startPausedInstaller("before-runtime-publish", {
+    HUSH_INSTALL_RUNTIME_ROOT: publishRaceRoot,
+    HUSH_INSTALL_BIN_DIR: publishRaceBin,
+  });
+  const restorePublishParent = swapDirectory(publishRaceParent, publishRaceOutside);
+  releasePausedInstaller(publishRace);
+  const publishRaceResult = await publishRace.done;
+  assert.notEqual(publishRaceResult.status, 0);
+  assert.match(publishRaceResult.stderr, swappedAncestorError);
+  assertOutsideEmpty(publishRaceOutside);
+  restorePublishParent();
+  assert.equal(existsSync(publishRaceRoot), false);
+  const recoveredPublish = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: publishRaceRoot,
+    HUSH_INSTALL_BIN_DIR: publishRaceBin,
+  });
+  assert.equal(recoveredPublish.status, 0, recoveredPublish.stderr);
+  assert.equal(readdirSync(publishRaceParent).some((name) => name.startsWith(".hush-stage-")), false);
+
+  const stageEntryRaceParent = join(sandbox, "stage-entry-race-runtimes");
+  const stageEntryRaceRoot = join(stageEntryRaceParent, sourceCommit);
+  const stageEntryRaceBin = join(sandbox, "stage-entry-race-bin");
+  const stageEntryRace = await startPausedInstaller("before-runtime-publish", {
+    HUSH_INSTALL_RUNTIME_ROOT: stageEntryRaceRoot,
+    HUSH_INSTALL_BIN_DIR: stageEntryRaceBin,
+  });
+  const stageEntryName = readdirSync(stageEntryRaceParent).find((name) => name.startsWith(".hush-stage-"));
+  assert.ok(stageEntryName);
+  const stageEntryPath = join(stageEntryRaceParent, stageEntryName);
+  const movedStageEntry = join(stageEntryRaceParent, ".moved-stage-entry");
+  renameSync(stageEntryPath, movedStageEntry);
+  mkdirSync(stageEntryPath);
+  writeStageMarker(stageEntryPath);
+  releasePausedInstaller(stageEntryRace);
+  const stageEntryRaceResult = await stageEntryRace.done;
+  assert.notEqual(stageEntryRaceResult.status, 0);
+  assert.match(stageEntryRaceResult.stderr, /Hush stage changed during install/);
+  assert.equal(existsSync(stageEntryRaceRoot), false);
+  assert.equal(existsSync(movedStageEntry), true);
+  rmSync(stageEntryPath, { recursive: true });
+  renameSync(movedStageEntry, stageEntryPath);
+  const recoveredStageEntry = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: stageEntryRaceRoot,
+    HUSH_INSTALL_BIN_DIR: stageEntryRaceBin,
+  });
+  assert.equal(recoveredStageEntry.status, 0, recoveredStageEntry.stderr);
+
+  const launcherSwapOutside = join(sandbox, "launcher-swap-outside");
+  writeFileSync(launcherSwapOutside, "outside launcher target\n");
+  const launcherSwap = await startPausedInstaller("before-launcher-publish");
+  rmSync(launcherPath);
+  symlinkSync(launcherSwapOutside, launcherPath);
+  releasePausedInstaller(launcherSwap);
+  const launcherSwapResult = await launcherSwap.done;
+  assert.equal(launcherSwapResult.status, 0, launcherSwapResult.stderr);
+  assert.equal(readFileSync(launcherSwapOutside, "utf8"), "outside launcher target\n");
+  assert.equal(lstatSync(launcherPath).isSymbolicLink(), false);
+  assert.equal(readFileSync(launcherPath, "utf8"), launcher);
+
+  const launcherRuntimeRaceOutside = join(sandbox, "launcher-runtime-race-outside");
+  const launcherSentinel = "#!/bin/sh\nexit 99\n";
+  writeFileSync(launcherPath, launcherSentinel, { mode: 0o755 });
+  const launcherRuntimeRace = await startPausedInstaller("before-launcher-publish");
+  const restoreLauncherRuntime = swapDirectory(runtimeBase, launcherRuntimeRaceOutside);
+  releasePausedInstaller(launcherRuntimeRace);
+  const launcherRuntimeRaceResult = await launcherRuntimeRace.done;
+  assert.notEqual(launcherRuntimeRaceResult.status, 0);
+  assert.match(launcherRuntimeRaceResult.stderr, swappedAncestorError);
+  assertOutsideEmpty(launcherRuntimeRaceOutside);
+  assert.equal(readFileSync(launcherPath, "utf8"), launcherSentinel);
+  restoreLauncherRuntime();
+  const repairedLauncher = runInstaller();
+  assert.equal(repairedLauncher.status, 0, repairedLauncher.stderr);
+  assert.equal(readFileSync(launcherPath, "utf8"), launcher);
+
+  const launcherRaceOutside = join(sandbox, "launcher-race-outside");
+  const launcherBeforeRace = readFileSync(launcherPath, "utf8");
+  const launcherRace = await startPausedInstaller("before-launcher-publish");
+  const restoreBin = swapDirectory(installBin, launcherRaceOutside);
+  releasePausedInstaller(launcherRace);
+  const launcherRaceResult = await launcherRace.done;
+  assert.notEqual(launcherRaceResult.status, 0);
+  assert.match(launcherRaceResult.stderr, swappedAncestorError);
+  assertOutsideEmpty(launcherRaceOutside);
+  restoreBin();
+  assert.equal(readFileSync(launcherPath, "utf8"), launcherBeforeRace);
+
+  const pruneEntryParent = join(sandbox, "prune-entry-runtimes");
+  const pruneEntryRoot = join(pruneEntryParent, sourceCommit);
+  const pruneEntryBin = join(sandbox, "prune-entry-bin");
+  const pruneEntryOld = join(pruneEntryParent, "a".repeat(40));
+  const pruneEntryRetained = join(pruneEntryParent, "b".repeat(40));
+  mkdirSync(pruneEntryParent);
+  writePrunableRuntime(pruneEntryOld);
+  writePrunableRuntime(pruneEntryRetained);
+  utimesSync(pruneEntryOld, 1, 1);
+  utimesSync(pruneEntryRetained, 2, 2);
+  const pruneEntryRace = await startPausedInstaller("before-prune", {
+    HUSH_INSTALL_RUNTIME_ROOT: pruneEntryRoot,
+    HUSH_INSTALL_BIN_DIR: pruneEntryBin,
+  });
+  const movedPruneEntry = join(pruneEntryParent, ".moved-prune-entry");
+  renameSync(pruneEntryOld, movedPruneEntry);
+  writePrunableRuntime(pruneEntryOld);
+  releasePausedInstaller(pruneEntryRace);
+  const pruneEntryRaceResult = await pruneEntryRace.done;
+  assert.notEqual(pruneEntryRaceResult.status, 0);
+  assert.match(pruneEntryRaceResult.stderr, /runtime selected for pruning changed during install/);
+  assert.equal(existsSync(pruneEntryOld), true);
+  assert.equal(existsSync(movedPruneEntry), true);
+  rmSync(pruneEntryOld, { recursive: true });
+  renameSync(movedPruneEntry, pruneEntryOld);
+  const recoveredPruneEntry = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: pruneEntryRoot,
+    HUSH_INSTALL_BIN_DIR: pruneEntryBin,
+  });
+  assert.equal(recoveredPruneEntry.status, 0, recoveredPruneEntry.stderr);
+  assert.equal(existsSync(pruneEntryOld), false);
+
+  const pruneCandidateOne = join(runtimeBase, "d".repeat(40));
+  const pruneCandidateTwo = join(runtimeBase, "e".repeat(40));
+  writePrunableRuntime(pruneCandidateOne);
+  writePrunableRuntime(pruneCandidateTwo);
+  utimesSync(pruneCandidateOne, 3, 3);
+  utimesSync(pruneCandidateTwo, 4, 4);
+  const pruneRaceOutside = join(sandbox, "prune-race-outside");
+  const pruneRace = await startPausedInstaller("before-prune");
+  const restoreRuntimeParent = swapDirectory(runtimeBase, pruneRaceOutside);
+  releasePausedInstaller(pruneRace);
+  const pruneRaceResult = await pruneRace.done;
+  assert.notEqual(pruneRaceResult.status, 0);
+  assert.match(pruneRaceResult.stderr, swappedAncestorError);
+  assertOutsideEmpty(pruneRaceOutside);
+  restoreRuntimeParent();
+  assert.equal(existsSync(pruneCandidateOne), true);
+  const recoveredPrune = runInstaller();
+  assert.equal(recoveredPrune.status, 0, recoveredPrune.stderr);
+  assert.equal(existsSync(pruneCandidateOne), false);
+
+  const crashParent = join(sandbox, "crash-runtimes");
+  const crashRoot = join(crashParent, sourceCommit);
+  const crashBin = join(sandbox, "crash-bin");
+  const crashed = await startPausedInstaller("before-runtime-publish", {
+    HUSH_INSTALL_RUNTIME_ROOT: crashRoot,
+    HUSH_INSTALL_BIN_DIR: crashBin,
+  });
+  process.kill(crashed.internalPid, "SIGTERM");
+  const crashResult = await crashed.done;
+  assert.notEqual(crashResult.status, 0);
+  assert.equal(existsSync(crashRoot), false);
+  assert.equal(readdirSync(crashParent).some((name) => name.startsWith(".hush-stage-")), true);
+  const recoveredCrash = runInstaller([], {
+    HUSH_INSTALL_RUNTIME_ROOT: crashRoot,
+    HUSH_INSTALL_BIN_DIR: crashBin,
+  });
+  assert.equal(recoveredCrash.status, 0, recoveredCrash.stderr);
+  assert.equal(readdirSync(crashParent).some((name) => name.startsWith(".hush-stage-")), false);
+  assert.equal(existsSync(join(crashBin, "hush")), true);
 }
 
-console.log("local install verified");
+try {
+  await main();
+  console.log("local install verified");
+} finally {
+  rmSync(sandbox, { recursive: true, force: true });
+}

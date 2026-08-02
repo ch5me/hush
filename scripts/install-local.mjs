@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 import {
   chmodSync,
-  cpSync,
   existsSync,
+  fstatSync,
   lstatSync,
-  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertNode24 } from "./install-local-helpers.mjs";
@@ -25,6 +24,7 @@ import { assertNode24 } from "./install-local-helpers.mjs";
 const scriptPath = realpathSync(fileURLToPath(import.meta.url));
 const root = realpathSync(resolve(dirname(scriptPath), ".."));
 const manifestName = ".hush-runtime-manifest.json";
+const stageMarkerName = ".hush-stage-owner";
 const trackedSourcePaths = [
   ".npmrc",
   "bun.lock",
@@ -34,7 +34,16 @@ const trackedSourcePaths = [
   "hush-cli/schema.json",
   "package.json",
 ];
-const stagedSourcePaths = [...trackedSourcePaths, "hush-cli/dist"];
+const stagedSourcePaths = trackedSourcePaths.map((path) => `f:${path}`);
+stagedSourcePaths.push("t:hush-cli/dist");
+
+const guardedFds = {
+  source: 10,
+  runtimeParent: 11,
+  bin: 12,
+};
+const pinnedBunEnv = "HUSH_INSTALL_PINNED_BUN_PATH";
+const pinnedGitEnv = "HUSH_INSTALL_PINNED_GIT_PATH";
 
 function isInside(parent, child) {
   const path = relative(parent, child);
@@ -43,9 +52,7 @@ function isInside(parent, child) {
 
 function configuredDirectory(label, configured, fallback) {
   const value = configured || fallback;
-  if (!isAbsolute(value)) {
-    throw new Error(`${label} must be absolute: ${value}`);
-  }
+  if (!isAbsolute(value)) throw new Error(`${label} must be absolute: ${value}`);
   const candidate = resolve(value);
   if (candidate === parse(candidate).root) {
     throw new Error(`${label} must not be a filesystem root: ${candidate}`);
@@ -53,41 +60,110 @@ function configuredDirectory(label, configured, fallback) {
   return candidate;
 }
 
-function assertCanonicalDirectory(label, candidate, create = false) {
-  let ancestor = dirname(candidate);
-  while (!existsSync(ancestor)) {
-    const parent = dirname(ancestor);
-    if (parent === ancestor) {
-      throw new Error(`${label} has no existing directory ancestor: ${candidate}`);
-    }
-    ancestor = parent;
+function pathsOverlap(left, right) {
+  return isInside(left, right) || isInside(right, left);
+}
+
+function requireExecutablePath(label, candidate, allowRootOwnedHardlinks = false) {
+  if (!candidate || !isAbsolute(candidate)) {
+    throw new Error(`${label} path must be absolute: ${candidate || "(missing)"}`);
+  }
+  const canonical = realpathSync(candidate);
+  const metadata = lstatSync(canonical);
+  const linksAreSafe = metadata.nlink === 1 || (allowRootOwnedHardlinks && metadata.uid === 0);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || !linksAreSafe || !(metadata.mode & 0o111)) {
+    throw new Error(`${label} must be a trusted executable regular file: ${canonical}`);
+  }
+  return canonical;
+}
+
+function gitEnvironment(base = process.env) {
+  const env = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (!key.startsWith("GIT_") && value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+function resolveBunExecutable(expectedVersion) {
+  const candidates = [];
+  if (process.env.HUSH_INSTALL_BUN_PATH) candidates.push(process.env.HUSH_INSTALL_BUN_PATH);
+
+  const marker = `${sep}installs${sep}node${sep}`;
+  const markerIndex = process.execPath.indexOf(marker);
+  if (markerIndex >= 0) {
+    candidates.push(join(process.execPath.slice(0, markerIndex), "installs", "bun", expectedVersion, "bin", "bun"));
   }
 
-  const ancestorMetadata = lstatSync(ancestor);
-  if (ancestorMetadata.isSymbolicLink() || !ancestorMetadata.isDirectory()) {
-    throw new Error(`${label} ancestor must be a real directory: ${ancestor}`);
-  }
-  const canonicalAncestor = realpathSync(ancestor);
-  if (canonicalAncestor !== ancestor) {
-    throw new Error(`${label} must not traverse symlinked ancestors: ${ancestor} -> ${canonicalAncestor}`);
-  }
+  const accountHome = userInfo().homedir;
+  candidates.push(
+    join(accountHome, ".local", "share", "mise", "installs", "bun", expectedVersion, "bin", "bun"),
+    join(accountHome, ".bun", "bin", "bun"),
+    "/opt/homebrew/bin/bun",
+    "/usr/local/bin/bun",
+    "/usr/bin/bun",
+  );
 
-  if (create) mkdirSync(candidate, { recursive: true });
+  for (const candidate of candidates) {
+    if (!candidate || !existsSync(candidate)) continue;
+    const executable = requireExecutablePath("Hush installer Bun", candidate);
+    const version = execFileSync(executable, ["--version"], {
+      encoding: "utf8",
+      env: gitEnvironment(),
+      timeout: 30_000,
+    }).trim();
+    if (version === expectedVersion) return executable;
+  }
+  throw new Error(
+    `Hush installer requires bun@${expectedVersion} at a managed absolute path. ` +
+      "Set HUSH_INSTALL_BUN_PATH to the Bun executable.",
+  );
+}
 
-  let metadata;
-  try {
-    metadata = lstatSync(candidate);
-  } catch {
-    throw new Error(`${label} directory is missing: ${candidate}`);
+function resolveToolPaths(guarded) {
+  if (guarded) {
+    return {
+      bunPath: requireExecutablePath("Pinned Hush installer Bun", process.env[pinnedBunEnv]),
+      gitPath: requireExecutablePath("Pinned Hush installer Git", process.env[pinnedGitEnv], true),
+    };
   }
-  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
-    throw new Error(`${label} must be a real directory: ${candidate}`);
-  }
-  const canonicalCandidate = realpathSync(candidate);
-  if (canonicalCandidate !== candidate || !isInside(canonicalAncestor, canonicalCandidate)) {
-    throw new Error(`${label} must not traverse symlinks: ${candidate} -> ${canonicalCandidate}`);
-  }
-  return canonicalCandidate;
+  const packageManager = readJson(join(root, "package.json")).packageManager;
+  const expectedBunVersion = /^bun@(.+)$/.exec(packageManager)?.[1];
+  if (!expectedBunVersion) throw new Error(`Hush installer requires a pinned Bun packageManager: ${packageManager}`);
+  return {
+    bunPath: resolveBunExecutable(expectedBunVersion),
+    gitPath: requireExecutablePath("Hush installer Git", "/usr/bin/git", true),
+  };
+}
+
+function currentGitPath() {
+  const guarded = process.env.HUSH_INSTALL_NATIVE_GUARDED === "1";
+  return requireExecutablePath(
+    guarded ? "Pinned Hush installer Git" : "Hush installer Git",
+    guarded ? process.env[pinnedGitEnv] : "/usr/bin/git",
+    true,
+  );
+}
+
+function guardedEnvironment(config) {
+  const env = gitEnvironment();
+  delete env.HUSH_INSTALL_BUN_PATH;
+  delete env[pinnedBunEnv];
+  delete env[pinnedGitEnv];
+  env[pinnedBunEnv] = config.bunPath;
+  env[pinnedGitEnv] = config.gitPath;
+  env.NODE_OPTIONS = "";
+  env.NODE_PATH = "";
+  env.PATH = [...new Set([
+    dirname(config.bunPath),
+    dirname(process.execPath),
+    dirname(config.gitPath),
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ])].join(":");
+  return env;
 }
 
 function sha256(value) {
@@ -102,7 +178,7 @@ function relativeManifestPath(runtimePath, path) {
   return relative(runtimePath, path).split(sep).join("/");
 }
 
-function requireRealDirectory(path) {
+function requireRealDirectory(path, label = "Hush runtime root") {
   let metadata;
   try {
     metadata = lstatSync(path);
@@ -110,7 +186,7 @@ function requireRealDirectory(path) {
     throw new Error(`Hush runtime incomplete: ${path}. Remove it and reinstall.`);
   }
   if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
-    throw new Error(`Hush runtime root must be a real directory: ${path}`);
+    throw new Error(`${label} must be a real directory: ${path}`);
   }
   return realpathSync(path);
 }
@@ -123,6 +199,54 @@ function readJson(path) {
   }
 }
 
+function assertInputPath(inputRoot, relativePath, expectedType) {
+  const components = relativePath.split("/");
+  let current = inputRoot;
+  for (let index = 0; index < components.length; index++) {
+    current = join(current, components[index]);
+    let metadata;
+    try {
+      metadata = lstatSync(current);
+    } catch {
+      throw new Error(`Hush runtime input is missing: ${current}`);
+    }
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`Hush runtime input symlink is forbidden: ${current}`);
+    }
+    const leaf = index === components.length - 1;
+    if (!leaf && !metadata.isDirectory()) {
+      throw new Error(`Hush runtime input ancestor must be a directory: ${current}`);
+    }
+    if (leaf && expectedType === "file" && !metadata.isFile()) {
+      throw new Error(`Hush runtime input must be a regular file: ${current}`);
+    }
+    if (leaf && expectedType === "directory" && !metadata.isDirectory()) {
+      throw new Error(`Hush runtime input must be a real directory: ${current}`);
+    }
+  }
+}
+
+function assertRuntimeInputs(inputRoot) {
+  const canonicalInputRoot = requireRealDirectory(inputRoot, "Hush runtime input root");
+  for (const path of trackedSourcePaths) assertInputPath(canonicalInputRoot, path, "file");
+
+  const buildRelativePath = join("hush-cli", "dist");
+  assertInputPath(canonicalInputRoot, buildRelativePath, "directory");
+  const buildRoot = join(canonicalInputRoot, buildRelativePath);
+  const pending = [buildRoot];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      const metadata = lstatSync(path);
+      if (metadata.isSymbolicLink()) throw new Error(`Hush runtime input symlink is forbidden: ${path}`);
+      if (metadata.isDirectory()) pending.push(path);
+      else if (!metadata.isFile()) throw new Error(`Hush runtime input type is unsupported: ${path}`);
+    }
+  }
+  return canonicalInputRoot;
+}
+
 function collectRuntimeEntries(candidate, hashContents = true) {
   const runtimePath = requireRealDirectory(candidate);
   const entries = [{
@@ -132,7 +256,8 @@ function collectRuntimeEntries(candidate, hashContents = true) {
   }];
 
   function walk(directory) {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name))) {
       const path = join(directory, entry.name);
       const relativePath = relativeManifestPath(runtimePath, path);
       if (relativePath === manifestName) continue;
@@ -157,13 +282,10 @@ function collectRuntimeEntries(candidate, hashContents = true) {
           resolved: relativeManifestPath(runtimePath, resolvedPath),
         });
       } else if (metadata.isDirectory()) {
-        entries.push({
-          path: relativePath,
-          type: "directory",
-          mode,
-        });
+        entries.push({ path: relativePath, type: "directory", mode });
         walk(path);
       } else if (metadata.isFile()) {
+        if (metadata.nlink !== 1) throw new Error(`Hush runtime hardlink is forbidden: ${relativePath}`);
         entries.push({
           path: relativePath,
           type: "file",
@@ -182,6 +304,9 @@ function collectRuntimeEntries(candidate, hashContents = true) {
     if (entry.type !== "symlink") continue;
     const resolvedMetadata = statSync(join(runtimePath, entry.resolved));
     if (resolvedMetadata.isFile()) {
+      if (resolvedMetadata.nlink !== 1) {
+        throw new Error(`Hush runtime hardlink is forbidden: ${entry.resolved}`);
+      }
       entry.sha256 = fileSha256(join(runtimePath, entry.resolved));
       continue;
     }
@@ -194,7 +319,7 @@ function collectRuntimeEntries(candidate, hashContents = true) {
 }
 
 function directorySha256(path) {
-  const rootPath = requireRealDirectory(path);
+  const rootPath = requireRealDirectory(path, "Hush build root");
   const entries = [{
     path: ".",
     type: "directory",
@@ -202,14 +327,16 @@ function directorySha256(path) {
   }];
 
   function walk(directory) {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name))) {
       const entryPath = join(directory, entry.name);
       const relativePath = relativeManifestPath(rootPath, entryPath);
       const metadata = lstatSync(entryPath);
       const mode = metadata.mode & 0o7777;
       if (metadata.isSymbolicLink()) {
-        entries.push({ path: relativePath, type: "symlink", mode, target: readlinkSync(entryPath) });
-      } else if (metadata.isDirectory()) {
+        throw new Error(`Hush build input symlink is forbidden: ${relativePath}`);
+      }
+      if (metadata.isDirectory()) {
         entries.push({ path: relativePath, type: "directory", mode });
         walk(entryPath);
       } else if (metadata.isFile()) {
@@ -268,25 +395,16 @@ function findInstalledDependency(packagePath, dependencyName, runtimePath) {
 }
 
 export function validateRuntimeGraph(candidate, hashContents = false) {
-  const packagePath = join(candidate, "hush-cli", "package.json");
-  const requiredPaths = [
-    join(candidate, "hush-cli", "bin", "hush.js"),
-    join(candidate, "hush-cli", "dist", "cli.js"),
-    packagePath,
-  ];
-  if (requiredPaths.some((path) => !existsSync(path))) {
-    throw new Error(`Hush runtime incomplete: ${candidate}. Remove it and reinstall.`);
-  }
-
   const collected = collectRuntimeEntries(candidate, hashContents);
   const { runtimePath } = collected;
-  for (const path of requiredPaths) {
-    const resolvedPath = realpathSync(path);
-    if (!isInside(runtimePath, resolvedPath)) {
-      throw new Error(`Hush runtime file escapes runtime: ${resolvedPath}`);
+  const requiredEntries = new Map(collected.entries.map((entry) => [entry.path, entry.type]));
+  for (const path of ["hush-cli/bin/hush.js", "hush-cli/dist/cli.js", "hush-cli/package.json"]) {
+    if (requiredEntries.get(path) !== "file") {
+      throw new Error(`Hush runtime incomplete: ${candidate}. Remove it and reinstall.`);
     }
   }
 
+  const packagePath = join(runtimePath, "hush-cli", "package.json");
   const visited = new Set();
   function validatePackage(currentPackagePath) {
     const canonicalPackagePath = realpathSync(currentPackagePath);
@@ -300,7 +418,9 @@ export function validateRuntimeGraph(candidate, hashContents = false) {
       try {
         resolvedPath = realpathSync(runtimeRequire.resolve(dependency.name));
       } catch {
-        if (dependency.optional && !findInstalledDependency(canonicalPackagePath, dependency.name, runtimePath)) continue;
+        if (dependency.optional && !findInstalledDependency(canonicalPackagePath, dependency.name, runtimePath)) {
+          continue;
+        }
         throw new Error(
           `Hush runtime ${dependency.kind} missing: ${dependency.name} required by ${canonicalPackagePath}`,
         );
@@ -322,57 +442,15 @@ export function validateRuntimeGraph(candidate, hashContents = false) {
   return collected;
 }
 
-function assertRuntimeInputs(inputRoot) {
-  for (const path of trackedSourcePaths) {
-    const inputPath = join(inputRoot, path);
-    const metadata = lstatSync(inputPath);
-    if (metadata.isSymbolicLink() || !metadata.isFile()) {
-      throw new Error(`Hush runtime input must be a regular file: ${inputPath}`);
-    }
-  }
-
-  const buildRoot = join(inputRoot, "hush-cli", "dist");
-  requireRealDirectory(buildRoot);
-  const pending = [buildRoot];
-  while (pending.length > 0) {
-    const directory = pending.pop();
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      const metadata = lstatSync(path);
-      if (metadata.isSymbolicLink()) {
-        throw new Error(`Hush runtime input symlink is forbidden: ${path}`);
-      }
-      if (metadata.isDirectory()) pending.push(path);
-      else if (!metadata.isFile()) throw new Error(`Hush runtime input type is unsupported: ${path}`);
-    }
-  }
-}
-
-function sourceIdentityFromInputs(sourceRoot, inputRoot) {
-  const canonicalSourceRoot = realpathSync(sourceRoot);
-  const canonicalInputRoot = realpathSync(inputRoot);
-  assertRuntimeInputs(canonicalInputRoot);
-  const trackedInputs = [];
-  for (const path of trackedSourcePaths) {
-    const stagedBytes = readFileSync(join(canonicalInputRoot, path));
-    const committedBytes = execFileSync("git", ["show", `HEAD:${path}`], {
-      cwd: canonicalSourceRoot,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    if (!stagedBytes.equals(committedBytes)) {
-      throw new Error(
-        `Hush tracked shipped input differs from HEAD: ${path}\n` +
-          "Commit or restore that input before installing a commit-attributed runtime.",
-      );
-    }
-    trackedInputs.push({ path, sha256: sha256(stagedBytes) });
-  }
+function inputIdentity(inputRoot) {
+  const canonicalInputRoot = assertRuntimeInputs(inputRoot);
+  const trackedInputs = trackedSourcePaths.map((path) => ({
+    path,
+    sha256: fileSha256(join(canonicalInputRoot, path)),
+  }));
   return {
-    tracked: {
-      commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: canonicalSourceRoot, encoding: "utf8" }).trim(),
-      tree: execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd: canonicalSourceRoot, encoding: "utf8" }).trim(),
-      inputsSha256: sha256(JSON.stringify(trackedInputs)),
-    },
+    trackedInputs,
+    inputsSha256: sha256(JSON.stringify(trackedInputs)),
     build: {
       path: "hush-cli/dist",
       sha256: directorySha256(join(canonicalInputRoot, "hush-cli", "dist")),
@@ -382,6 +460,67 @@ function sourceIdentityFromInputs(sourceRoot, inputRoot) {
       sha256: fileSha256(join(canonicalInputRoot, "bun.lock")),
     },
   };
+}
+
+function sourceIdentityFromInputs(sourceRoot, inputRoot) {
+  const sourceWorkingDirectory = sourceRoot === "." ? "." : realpathSync(sourceRoot);
+  const input = inputIdentity(inputRoot);
+  const gitPath = currentGitPath();
+  const env = gitEnvironment();
+  const commit = execFileSync(gitPath, ["rev-parse", "HEAD"], {
+    cwd: sourceWorkingDirectory,
+    encoding: "utf8",
+    env,
+  }).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`Hush source commit is invalid: ${commit}`);
+  for (const trackedInput of input.trackedInputs) {
+    const committedBytes = execFileSync(gitPath, ["show", `${commit}:${trackedInput.path}`], {
+      cwd: sourceWorkingDirectory,
+      env,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    if (trackedInput.sha256 !== sha256(committedBytes)) {
+      throw new Error(
+        `Hush tracked shipped input differs from HEAD: ${trackedInput.path}\n` +
+          "Commit or restore that input before installing a commit-attributed runtime.",
+      );
+    }
+  }
+  const currentCommit = execFileSync(gitPath, ["rev-parse", "HEAD"], {
+    cwd: sourceWorkingDirectory,
+    encoding: "utf8",
+    env,
+  }).trim();
+  if (currentCommit !== commit) throw new Error("Hush source commit changed while reading runtime inputs.");
+  return {
+    tracked: {
+      commit,
+      tree: execFileSync(gitPath, ["rev-parse", `${commit}^{tree}`], {
+        cwd: sourceWorkingDirectory,
+        encoding: "utf8",
+        env,
+      }).trim(),
+      inputsSha256: input.inputsSha256,
+    },
+    build: input.build,
+    dependencies: input.dependencies,
+  };
+}
+
+function stagedSourceIdentity(inputRoot, expectedSource) {
+  const input = inputIdentity(inputRoot);
+  const actual = {
+    tracked: {
+      ...expectedSource.tracked,
+      inputsSha256: input.inputsSha256,
+    },
+    build: input.build,
+    dependencies: input.dependencies,
+  };
+  if (JSON.stringify(actual) !== JSON.stringify(expectedSource)) {
+    throw new Error("Hush staged runtime inputs differ from the guarded source checkout.");
+  }
+  return actual;
 }
 
 export function sourceIdentity(sourceRoot = root) {
@@ -398,7 +537,11 @@ export function createRuntimeManifest(candidate, source, entries = collectRuntim
 
 function writeRuntimeManifest(candidate, source, entries) {
   const manifestPath = join(candidate, manifestName);
-  writeFileSync(manifestPath, `${JSON.stringify(createRuntimeManifest(candidate, source, entries), null, 2)}\n`, { mode: 0o444 });
+  writeFileSync(
+    manifestPath,
+    `${JSON.stringify(createRuntimeManifest(candidate, source, entries), null, 2)}\n`,
+    { mode: 0o444, flag: "wx" },
+  );
   chmodSync(manifestPath, 0o444);
 }
 
@@ -410,8 +553,8 @@ function validateRuntimeManifest(candidate, source, currentEntries) {
   } catch {
     throw new Error(`Hush runtime manifest missing: ${manifestPath}. Remove it and reinstall.`);
   }
-  if (metadata.isSymbolicLink() || !metadata.isFile()) {
-    throw new Error(`Hush runtime manifest must be a regular file: ${manifestPath}`);
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.nlink !== 1) {
+    throw new Error(`Hush runtime manifest must be a single-link regular file: ${manifestPath}`);
   }
   if ((metadata.mode & 0o777) !== 0o444) {
     throw new Error(`Hush runtime manifest mode drift: ${manifestPath}`);
@@ -443,43 +586,226 @@ function validateRuntimeManifest(candidate, source, currentEntries) {
   }
 }
 
-export function stageRuntime(sourceRoot, destination) {
-  const canonicalSourceRoot = realpathSync(sourceRoot);
-  assertRuntimeInputs(canonicalSourceRoot);
-  for (const path of stagedSourcePaths) {
-    const sourcePath = join(canonicalSourceRoot, path);
-    if (!existsSync(sourcePath)) continue;
-    const destinationPath = join(destination, path);
-    mkdirSync(dirname(destinationPath), { recursive: true });
-    cpSync(sourcePath, destinationPath, { recursive: true, verbatimSymlinks: true });
-  }
-  assertRuntimeInputs(destination);
+function validateManagedRuntime(candidate, source) {
+  const collected = validateRuntimeGraph(candidate, true);
+  validateRuntimeManifest(candidate, source, collected.entries);
 }
 
-function validateLauncher(target, launcher) {
-  let metadata;
-  try {
-    metadata = lstatSync(target);
-  } catch {
-    throw new Error(`Hush launcher missing: ${target}. Re-run \`node scripts/install-local.mjs\`.`);
+function compileNativeHelper() {
+  const compiler = "/usr/bin/cc";
+  if (!existsSync(compiler)) throw new Error(`Hush installer requires a C compiler at ${compiler}.`);
+  const buildDirectory = realpathSync(mkdtempSync(join(tmpdir(), "hush-install-native-")));
+  const helperPath = join(buildDirectory, "hush-install-native");
+  const source = readFileSync(join(root, "scripts", "install-local-native.c"));
+  const result = spawnSync(
+    compiler,
+    ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-x", "c", "-", "-o", helperPath],
+    {
+      input: source,
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 60_000,
+    },
+  );
+  if (result.error) {
+    rmSync(buildDirectory, { recursive: true, force: true });
+    throw new Error(`Hush install helper compilation failed: ${result.error.message}`);
   }
-  if (metadata.isSymbolicLink() || !metadata.isFile()) {
-    throw new Error(`Hush launcher must be a regular non-symlink file: ${target}`);
+  if (result.status !== 0) {
+    rmSync(buildDirectory, { recursive: true, force: true });
+    throw new Error(`Hush install helper compilation failed:\n${result.stderr || result.stdout}`);
   }
-  if ((metadata.mode & 0o111) === 0) {
-    throw new Error(`Hush launcher is not executable: ${target}`);
+  chmodSync(helperPath, 0o700);
+  const metadata = lstatSync(helperPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+    rmSync(buildDirectory, { recursive: true, force: true });
+    throw new Error("Hush install helper must be a single-link regular file.");
   }
-  const launcherRealpath = realpathSync(target);
-  if (!statSync(launcherRealpath).isFile()) {
-    throw new Error(`Hush launcher realpath is not a regular file: ${launcherRealpath}`);
-  }
-  if (readFileSync(launcherRealpath, "utf8") !== launcher) {
-    throw new Error(`Hush launcher drift: ${target}. Re-run \`node scripts/install-local.mjs\`.`);
-  }
-  return launcherRealpath;
+  return {
+    path: helperPath,
+    cleanup() {
+      rmSync(buildDirectory, { recursive: true, force: true });
+    },
+  };
 }
 
-function reportShadowedInstall(target, binDir) {
+function assertGuardedDescriptors() {
+  if (process.env.HUSH_INSTALL_NATIVE_GUARDED !== "1") {
+    throw new Error("Hush installer internal mode requires the native install guard.");
+  }
+  for (const [label, fd] of Object.entries(guardedFds)) {
+    let metadata;
+    try {
+      metadata = fstatSync(fd);
+    } catch {
+      throw new Error(`Hush installer native guard descriptor is missing: ${label}`);
+    }
+    if (!metadata.isDirectory()) {
+      throw new Error(`Hush installer native guard descriptor has the wrong type: ${label}`);
+    }
+  }
+  const helperPath = process.env.HUSH_INSTALL_NATIVE_HELPER;
+  if (!helperPath || !isAbsolute(helperPath)) {
+    throw new Error("Hush installer native helper path is missing.");
+  }
+  const metadata = lstatSync(helperPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || !(metadata.mode & 0o111)) {
+    throw new Error("Hush installer native helper is not an executable single-link regular file.");
+  }
+  return helperPath;
+}
+
+function nativeStdio(stdin, stdout, stderr) {
+  return [stdin, stdout, stderr, guardedFds.source, guardedFds.runtimeParent, guardedFds.bin];
+}
+
+function runNative(args, options = {}) {
+  const helperPath = assertGuardedDescriptors();
+  const result = spawnSync(helperPath, args, {
+    input: options.input,
+    encoding: options.encoding ?? "utf8",
+    env: process.env,
+    maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
+    stdio: nativeStdio(options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"),
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const message = String(result.stderr || result.stdout || `native helper exited ${result.status}`).trim();
+    const error = new Error(message);
+    error.status = result.status;
+    throw error;
+  }
+  return result.stdout;
+}
+
+function runNativeInherited(args) {
+  const helperPath = assertGuardedDescriptors();
+  const result = spawnSync(helperPath, args, {
+    env: process.env,
+    stdio: nativeStdio("inherit", "inherit", "inherit"),
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`Hush guarded command failed with exit ${result.status}.`);
+}
+
+function identityArgs(identity) {
+  return identity ? [identity.device, identity.inode] : ["-", "-"];
+}
+
+function parseNativeIdentity(output, label) {
+  const [device, inode, ...extra] = output.trim().split("\t");
+  if (!device || !inode || extra.length > 0 || !/^\d+$/.test(device) || !/^\d+$/.test(inode)) {
+    throw new Error(`Invalid native ${label} identity: ${output.trim()}`);
+  }
+  return { device, inode };
+}
+
+function runAtSource(command, args = [], capture = true) {
+  const nativeArgs = ["run-at", "source", root, "-", "-", "-", command, ...args];
+  return capture ? runNative(nativeArgs) : runNativeInherited(nativeArgs);
+}
+
+function runAtRuntime(runtimeParent, name, identity, command, args = [], capture = true) {
+  const nativeArgs = ["run-at", "runtime", runtimeParent, name, ...identityArgs(identity), command, ...args];
+  return capture ? runNative(nativeArgs) : runNativeInherited(nativeArgs);
+}
+
+function encodeJson(value) {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function decodeJson(value) {
+  return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+}
+
+function readSourceIdentity() {
+  const output = runAtSource(process.execPath, [scriptPath, "--internal-source-identity"]);
+  return JSON.parse(output);
+}
+
+function assertSourceCommit(config, expectedCommit) {
+  const actualCommit = runAtSource(config.gitPath, ["rev-parse", "HEAD"]).trim();
+  if (actualCommit !== expectedCommit) {
+    throw new Error(`Hush source commit changed during install: expected ${expectedCommit}, found ${actualCommit}.`);
+  }
+}
+
+function validateRuntimeThroughGuard(runtimeParent, runtimeName, runtimeIdentity, source) {
+  runAtRuntime(runtimeParent, runtimeName, runtimeIdentity, process.execPath, [
+    scriptPath,
+    "--internal-validate-runtime",
+    encodeJson(source),
+  ]);
+}
+
+function runtimeEntryInfo(runtimeParent, runtimeName) {
+  const output = runNative(["entry-kind", runtimeParent, runtimeName]).trim();
+  if (output === "missing") return { kind: "missing", identity: undefined };
+  const [kind, device, inode, ...extra] = output.split("\t");
+  if (
+    extra.length > 0
+    || !["directory", "symlink", "file", "other"].includes(kind)
+    || !/^\d+$/.test(device)
+    || !/^\d+$/.test(inode)
+  ) {
+    throw new Error(`Invalid native runtime entry: ${output}`);
+  }
+  return { kind, identity: { device, inode } };
+}
+
+function listRuntimeEntries(runtimeParent) {
+  const output = runNative(["list-runtimes", runtimeParent]).trim();
+  if (!output) return [];
+  return output.split("\n").map((line) => {
+    const fields = line.split("\t");
+    if (fields.length !== 6) throw new Error(`Invalid native runtime listing: ${line}`);
+    const [kind, secondsText, nanosecondsText, device, inode, name] = fields;
+    const seconds = Number(secondsText);
+    const nanoseconds = Number(nanosecondsText);
+    if (!["R", "S", "P", "X"].includes(kind)
+      || !name
+      || !Number.isFinite(seconds)
+      || !Number.isFinite(nanoseconds)
+      || !/^\d+$/.test(device)
+      || !/^\d+$/.test(inode)) {
+      throw new Error(`Invalid native runtime listing: ${line}`);
+    }
+    return {
+      kind,
+      name,
+      identity: { device, inode },
+      modified: seconds * 1000 + nanoseconds / 1_000_000,
+    };
+  });
+}
+
+function checkRoots(config) {
+  runNative(["check-roots", root, config.runtimeParent, config.binDir]);
+}
+
+function cleanupStaleArtifacts(config, checkOnly) {
+  const entries = listRuntimeEntries(config.runtimeParent);
+  const unsafe = entries.find((entry) => entry.kind === "X");
+  if (unsafe) throw new Error(`Hush managed runtime entry is symlinked or not a directory: ${unsafe.name}`);
+  const stale = entries.filter((entry) => entry.kind === "S" || entry.kind === "P");
+  if (checkOnly && stale.length > 0) {
+    throw new Error(`Hush install has stale unpublished artifacts: ${stale.map((entry) => entry.name).join(", ")}`);
+  }
+  for (const entry of stale) {
+    runNative(["remove-stale", config.runtimeParent, entry.name, ...identityArgs(entry.identity)]);
+  }
+  if (!checkOnly) runNative(["cleanup-bin", config.binDir]);
+}
+
+function validateLauncher(config, launcher) {
+  const actual = runNative(["read-launcher", config.binDir, "hush"]);
+  if (actual !== launcher) {
+    throw new Error(`Hush launcher drift: ${config.target}. Re-run \`node scripts/install-local.mjs\`.`);
+  }
+}
+
+function reportShadowedInstall(config) {
+  checkRoots(config);
   if (process.env.HUSH_INSTALL_SKIP_SHADOW_CHECK === "1") return false;
 
   const loginShell = process.env.SHELL && existsSync(process.env.SHELL) ? process.env.SHELL : "/bin/sh";
@@ -492,7 +818,7 @@ function reportShadowedInstall(target, binDir) {
     }).trim();
   } catch (error) {
     console.error(
-      `hush: installed ${target}, but login shell resolution failed (${loginShell} -lc): ` +
+      `hush: installed ${config.target}, but login shell resolution failed (${loginShell} -lc): ` +
         `${error.message}. This install is not delivered.`,
     );
     return true;
@@ -500,65 +826,239 @@ function reportShadowedInstall(target, binDir) {
 
   if (!resolved) {
     console.error(
-      `hush: installed ${target}, but a login shell (${loginShell} -lc) resolves no hush at all -- ` +
-        `${binDir} is missing from the login PATH, so this install is not delivered.`,
+      `hush: installed ${config.target}, but a login shell (${loginShell} -lc) resolves no hush at all -- ` +
+        `${config.binDir} is missing from the login PATH, so this install is not delivered.`,
+    );
+    return true;
+  }
+  if (!isAbsolute(resolved)) {
+    console.error(`hush: login shell resolved a non-absolute hush path: ${resolved}`);
+    return true;
+  }
+
+  const helperPath = assertGuardedDescriptors();
+  const comparison = spawnSync(
+    helperPath,
+    ["same-launcher", config.binDir, "hush", resolved],
+    {
+      encoding: "utf8",
+      env: process.env,
+      stdio: nativeStdio("ignore", "pipe", "pipe"),
+    },
+  );
+  if (comparison.status === 0) {
+    checkRoots(config);
+    return false;
+  }
+  if (comparison.status !== 3) {
+    console.error(
+      `hush: login shell resolved unusable hush path: ${resolved}` +
+        `${comparison.stderr ? ` (${comparison.stderr.trim()})` : ""}`,
     );
     return true;
   }
 
-  let resolvedRealpath;
-  try {
-    resolvedRealpath = realpathSync(resolved);
-  } catch {
-    console.error(`hush: login shell resolved unusable hush path: ${resolved}`);
-    return true;
-  }
-  if (resolvedRealpath === realpathSync(target)) return false;
-
   console.error(
-    `hush: SHADOWED INSTALL. Installed ${target}, but a login shell resolves ${resolved} first.\n` +
+    `hush: SHADOWED INSTALL. Installed ${config.target}, but a login shell resolves ${resolved} first.\n` +
       `hush is the secrets front door: every interactive shell would keep using that other copy, ` +
       `and this installer does not upgrade it.\n` +
-      `Fix the shadow (for a global npm copy: npm uninstall -g @chriscode/hush), or put ${binDir} ` +
+      `Fix the shadow (for a global npm copy: npm uninstall -g @chriscode/hush), or put ${config.binDir} ` +
       `ahead of it on the login PATH, then re-run.\n` +
       `Set HUSH_INSTALL_SKIP_SHADOW_CHECK=1 to bypass deliberately.`,
   );
   return true;
 }
 
-function main() {
+function validateToolchain(config) {
   const builtCli = join(root, "hush-cli", "dist", "cli.js");
-  const runtimeRoot = configuredDirectory("Hush runtime root", process.env.HUSH_INSTALL_RUNTIME_ROOT, root);
-  const binDir = configuredDirectory("Hush bin root", process.env.HUSH_INSTALL_BIN_DIR, join(homedir(), ".local", "bin"));
-  const target = join(binDir, "hush");
-  const temporary = `${target}.tmp-${process.pid}`;
-  const nodePath = realpathSync(process.execPath);
-  const runtimeEntrypoint = join(runtimeRoot, "hush-cli", "bin", "hush.js");
-  const checkOnly = process.argv.includes("--check");
-
   if (!existsSync(builtCli)) {
     throw new Error(`Hush build missing: ${builtCli}. Run \`bun run cli:build\` first.`);
   }
   assertNode24(process.version);
   const packageManager = readJson(join(root, "package.json")).packageManager;
   const expectedBunVersion = /^bun@(.+)$/.exec(packageManager)?.[1];
-  const actualBunVersion = execFileSync("bun", ["--version"], { encoding: "utf8" }).trim();
+  const actualBunVersion = execFileSync(config.bunPath, ["--version"], {
+    encoding: "utf8",
+    env: gitEnvironment(),
+    timeout: 30_000,
+  }).trim();
   if (!expectedBunVersion || actualBunVersion !== expectedBunVersion) {
     throw new Error(`Hush installer requires ${packageManager}; found bun@${actualBunVersion}.`);
   }
+}
 
-  const runtimeParent = dirname(runtimeRoot);
-  assertCanonicalDirectory("Hush runtime parent", runtimeParent, !checkOnly);
-  assertCanonicalDirectory("Hush bin root", binDir, !checkOnly);
+function pauseForRaceTest(point) {
+  if (process.env.HUSH_INSTALL_TEST_PAUSE_AT !== point) return;
+  const marker = process.env.HUSH_INSTALL_TEST_PAUSE_MARKER;
+  const release = process.env.HUSH_INSTALL_TEST_PAUSE_RELEASE;
+  if (!marker || !release) throw new Error("Hush installer test pause requires marker and release paths.");
+  writeFileSync(marker, `${process.pid}\n`, { flag: "wx" });
+  const wait = new Int32Array(new SharedArrayBuffer(4));
+  while (!existsSync(release)) Atomics.wait(wait, 0, 0, 20);
+}
 
-  if (runtimeRoot !== root && !existsSync(runtimeRoot) && !checkOnly) {
-    const runtimeTemporary = `${runtimeRoot}.tmp-${process.pid}`;
-    try {
-      mkdirSync(runtimeTemporary);
-      assertCanonicalDirectory("Hush staged runtime", runtimeTemporary);
-      stageRuntime(root, runtimeTemporary);
-      const source = sourceIdentityFromInputs(root, runtimeTemporary);
-      execFileSync("bun", [
+function resolveManagedConfig(guarded = false) {
+  const tools = resolveToolPaths(guarded);
+  const commit = execFileSync(tools.gitPath, ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+    env: gitEnvironment(),
+  }).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`Hush source commit is invalid: ${commit}`);
+  const defaultRuntimeRoot = join(homedir(), ".local", "state", "hush", "runtimes", commit);
+  const configuredRuntimeRoot = process.env.HUSH_INSTALL_RUNTIME_ROOT;
+  const runtimeRoot = configuredDirectory(
+    "Hush runtime root",
+    configuredRuntimeRoot,
+    defaultRuntimeRoot,
+  );
+  if (pathsOverlap(runtimeRoot, root)) {
+    throw new Error(
+      "Hush managed runtime must not overlap the mutable source checkout. " +
+        "Omit HUSH_INSTALL_RUNTIME_ROOT for the immutable default, or use --source-checkout for validation only.",
+    );
+  }
+  const binDir = configuredDirectory(
+    "Hush bin root",
+    process.env.HUSH_INSTALL_BIN_DIR,
+    join(homedir(), ".local", "bin"),
+  );
+  const runtimeName = basename(runtimeRoot);
+  if (
+    runtimeName.startsWith(".hush-stage-")
+    || runtimeName.startsWith(".hush-prune-")
+  ) {
+    throw new Error(`Hush runtime root uses a reserved managed name: ${runtimeRoot}`);
+  }
+  if (runtimeName !== commit) {
+    throw new Error(`Hush managed runtime root must end with the source commit ${commit}: ${runtimeRoot}`);
+  }
+  if (pathsOverlap(binDir, root)) {
+    throw new Error(`Hush bin root must not overlap the mutable source checkout: ${binDir}`);
+  }
+  if (pathsOverlap(binDir, runtimeRoot)) {
+    throw new Error(`Hush bin root must not overlap the managed runtime: ${binDir}`);
+  }
+  return {
+    runtimeRoot,
+    runtimeParent: dirname(runtimeRoot),
+    runtimeName,
+    expectedCommit: commit,
+    runtimeEntrypoint: join(runtimeRoot, "hush-cli", "bin", "hush.js"),
+    binDir,
+    target: join(binDir, "hush"),
+    ...tools,
+  };
+}
+
+function parsePublicOptions(args) {
+  const allowed = new Set(["--check", "--source-checkout"]);
+  const unknown = args.filter((arg) => !allowed.has(arg));
+  if (unknown.length > 0) throw new Error(`Unknown Hush installer option: ${unknown[0]}`);
+  return {
+    checkOnly: args.includes("--check"),
+    sourceCheckout: args.includes("--source-checkout"),
+  };
+}
+
+function runSourceCheckoutMode(options) {
+  if (process.env.HUSH_INSTALL_RUNTIME_ROOT) {
+    throw new Error("--source-checkout cannot be combined with HUSH_INSTALL_RUNTIME_ROOT.");
+  }
+  validateToolchain(resolveToolPaths(false));
+  sourceIdentity();
+  const execution = spawnSync(
+    process.execPath,
+    [join(root, "hush-cli", "bin", "hush.js"), "--version"],
+    {
+      cwd: root,
+      env: {
+        ...gitEnvironment(),
+        NODE_OPTIONS: "",
+        NODE_PATH: "",
+      },
+      encoding: "utf8",
+    },
+  );
+  if (execution.status !== 0) {
+    throw new Error(`Hush source checkout launcher failed:\n${execution.stderr || execution.stdout}`);
+  }
+  console.log(join(root, "hush-cli", "bin", "hush.js"));
+  if (!options.checkOnly) {
+    console.error("hush: source-checkout validation complete; managed launcher unchanged.");
+  }
+}
+
+function runGuardedInstaller(config, publicArgs) {
+  const compiled = compileNativeHelper();
+  try {
+    const result = spawnSync(
+      compiled.path,
+      [
+        "guard",
+        publicArgs.includes("--check") ? "check" : "install",
+        root,
+        config.runtimeParent,
+        config.binDir,
+        process.execPath,
+        scriptPath,
+        "--internal-guarded",
+        ...publicArgs,
+      ],
+      {
+        env: {
+          ...guardedEnvironment(config),
+          HUSH_INSTALL_NATIVE_HELPER: compiled.path,
+        },
+        stdio: "inherit",
+      },
+    );
+    if (result.error) throw result.error;
+    if (result.signal) throw new Error(`Hush guarded installer terminated by ${result.signal}.`);
+    process.exitCode = result.status ?? 1;
+  } finally {
+    compiled.cleanup();
+  }
+}
+
+function installManagedRuntime(config, checkOnly) {
+  validateToolchain(config);
+  assertGuardedDescriptors();
+  checkRoots(config);
+  pauseForRaceTest("after-lock");
+  cleanupStaleArtifacts(config, checkOnly);
+  const source = readSourceIdentity();
+  if (config.expectedCommit && source.tracked.commit !== config.expectedCommit) {
+    throw new Error(
+      `Hush source commit changed before staging: expected ${config.expectedCommit}, found ${source.tracked.commit}.`,
+    );
+  }
+  const runtimeEntry = runtimeEntryInfo(config.runtimeParent, config.runtimeName);
+  let stageName;
+  let stageIdentity;
+  let runtimeIdentity = runtimeEntry.identity;
+  let primaryError;
+
+  try {
+    if (runtimeEntry.kind === "missing") {
+      if (checkOnly) {
+        throw new Error(`Hush runtime missing: ${config.runtimeRoot}. Re-run \`node scripts/install-local.mjs\`.`);
+      }
+      stageName = `.hush-stage-${process.pid}-${randomBytes(8).toString("hex")}`;
+      pauseForRaceTest("before-stage");
+      stageIdentity = parseNativeIdentity(runNative([
+        "stage",
+        root,
+        config.runtimeParent,
+        stageName,
+        ...stagedSourcePaths,
+      ]), "stage");
+      runAtRuntime(config.runtimeParent, stageName, stageIdentity, process.execPath, [
+        scriptPath,
+        "--internal-staged-identity",
+        encodeJson(source),
+      ]);
+      runAtRuntime(config.runtimeParent, stageName, stageIdentity, config.bunPath, [
         "install",
         "--production",
         "--frozen-lockfile",
@@ -567,25 +1067,45 @@ function main() {
         "copyfile",
         "--filter",
         "@chriscode/hush",
-      ], { cwd: runtimeTemporary, stdio: "inherit" });
-      const installedSource = sourceIdentityFromInputs(root, runtimeTemporary);
-      if (JSON.stringify(installedSource) !== JSON.stringify(source)) {
-        throw new Error("Hush runtime inputs changed during dependency installation.");
-      }
-      const collected = validateRuntimeGraph(runtimeTemporary, true);
-      writeRuntimeManifest(runtimeTemporary, source, collected.entries);
-      validateRuntimeManifest(runtimeTemporary, source, collected.entries);
-      assertCanonicalDirectory("Hush runtime parent", runtimeParent);
-      renameSync(runtimeTemporary, runtimeRoot);
-      assertCanonicalDirectory("Hush runtime root", runtimeRoot);
-    } finally {
-      rmSync(runtimeTemporary, { recursive: true, force: true });
+      ], false);
+      runAtRuntime(config.runtimeParent, stageName, stageIdentity, process.execPath, [
+        scriptPath,
+        "--internal-finalize-stage",
+        encodeJson(source),
+      ]);
+      pauseForRaceTest("before-runtime-publish");
+      assertSourceCommit(config, source.tracked.commit);
+      runNative([
+        "publish-runtime",
+        config.runtimeParent,
+        stageName,
+        config.runtimeName,
+        ...identityArgs(stageIdentity),
+      ]);
+      runtimeIdentity = stageIdentity;
+      stageName = undefined;
+    } else if (runtimeEntry.kind !== "directory") {
+      throw new Error(`Hush runtime root must be a real directory: ${config.runtimeRoot}`);
     }
-  } else {
-    assertCanonicalDirectory("Hush runtime root", runtimeRoot);
-    const source = sourceIdentity();
-    const collected = validateRuntimeGraph(runtimeRoot, runtimeRoot !== root);
-    if (runtimeRoot !== root) validateRuntimeManifest(runtimeRoot, source, collected.entries);
+    validateRuntimeThroughGuard(config.runtimeParent, config.runtimeName, runtimeIdentity, source);
+    checkRoots(config);
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    if (stageName) {
+      try {
+        const currentStage = runtimeEntryInfo(config.runtimeParent, stageName);
+        if (currentStage.kind === "directory") {
+          const expected = stageIdentity ?? currentStage.identity;
+          runNative(["remove-stale", config.runtimeParent, stageName, ...identityArgs(expected)]);
+        } else if (currentStage.kind !== "missing") {
+          throw new Error(`Hush stage changed before cleanup: ${stageName}`);
+        }
+      } catch (cleanupError) {
+        if (!primaryError) throw cleanupError;
+      }
+    }
   }
 
   const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -593,53 +1113,99 @@ function main() {
 set -eu
 
 unset NODE_PATH NODE_OPTIONS
-exec ${quote(nodePath)} ${quote(runtimeEntrypoint)} "$@"
+exec ${quote(realpathSync(process.execPath))} ${quote(config.runtimeEntrypoint)} "$@"
 `;
 
   if (checkOnly) {
-    validateLauncher(target, launcher);
-    const shadowed = reportShadowedInstall(target, binDir);
-    console.log(target);
-    process.exit(shadowed ? 1 : 0);
+    validateLauncher(config, launcher);
+    const shadowed = reportShadowedInstall(config);
+    console.log(config.target);
+    if (shadowed) process.exitCode = 1;
+    return;
   }
 
-  try {
-    assertCanonicalDirectory("Hush bin root", binDir);
-    writeFileSync(temporary, launcher, { mode: 0o755, flag: "wx" });
-    chmodSync(temporary, 0o755);
-    assertCanonicalDirectory("Hush bin root", binDir);
-    renameSync(temporary, target);
-  } finally {
-    rmSync(temporary, { force: true });
-  }
-  validateLauncher(target, launcher);
+  pauseForRaceTest("before-launcher-publish");
+  assertSourceCommit(config, source.tracked.commit);
+  checkRoots(config);
+  const launcherTemporary = `.hush-launcher-${process.pid}-${randomBytes(8).toString("hex")}`;
+  runNative(
+    ["write-launcher", config.binDir, launcherTemporary, "hush", "755"],
+    { input: launcher },
+  );
+  validateLauncher(config, launcher);
+  checkRoots(config);
 
-  if (runtimeRoot !== root) {
-    const activeName = basename(runtimeRoot);
-    if (/^[0-9a-f]{40}$/.test(activeName)) {
-      const candidates = readdirSync(runtimeParent, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory()
-          && entry.name !== activeName
-          && /^[0-9a-f]{40}$/.test(entry.name))
-        .map((entry) => ({
-          path: join(runtimeParent, entry.name),
-          name: entry.name,
-          modified: statSync(join(runtimeParent, entry.name)).mtimeMs,
-        }))
-        .sort((left, right) => right.modified - left.modified || right.name.localeCompare(left.name));
-      const keep = new Set([activeName, ...candidates.slice(0, 1).map((entry) => entry.name)]);
-      for (const candidate of candidates) {
-        if (!keep.has(candidate.name)) {
-          assertCanonicalDirectory("Hush retained runtime", candidate.path);
-          assertCanonicalDirectory("Hush runtime parent", runtimeParent);
-          rmSync(candidate.path, { recursive: true, force: true });
-        }
-      }
+  const activeName = config.runtimeName;
+  if (/^[0-9a-f]{40}$/.test(activeName)) {
+    const entries = listRuntimeEntries(config.runtimeParent);
+    const unsafe = entries.find((entry) => entry.kind === "X");
+    if (unsafe) throw new Error(`Hush managed runtime entry is symlinked or not a directory: ${unsafe.name}`);
+    const candidates = entries
+      .filter((entry) => entry.kind === "R" && entry.name !== activeName)
+      .sort((left, right) => right.modified - left.modified || right.name.localeCompare(left.name));
+    for (const candidate of candidates.slice(1)) {
+      pauseForRaceTest("before-prune");
+      runNative([
+        "prune-runtime",
+        config.runtimeParent,
+        candidate.name,
+        ...identityArgs(candidate.identity),
+      ]);
     }
   }
 
-  if (reportShadowedInstall(target, binDir)) process.exitCode = 1;
-  console.log(target);
+  if (reportShadowedInstall(config)) process.exitCode = 1;
+  console.log(config.target);
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === scriptPath) main();
+function internalSourceIdentity() {
+  assertGuardedDescriptors();
+  console.log(JSON.stringify(sourceIdentityFromInputs(".", ".")));
+}
+
+function internalStagedIdentity(encodedSource) {
+  assertGuardedDescriptors();
+  console.log(JSON.stringify(stagedSourceIdentity(".", decodeJson(encodedSource))));
+}
+
+function internalFinalizeStage(encodedSource) {
+  assertGuardedDescriptors();
+  const source = stagedSourceIdentity(".", decodeJson(encodedSource));
+  const collected = validateRuntimeGraph(".", true);
+  writeRuntimeManifest(".", source, collected.entries);
+  validateRuntimeManifest(".", source, collected.entries);
+}
+
+function internalValidateRuntime(encodedSource) {
+  assertGuardedDescriptors();
+  validateManagedRuntime(".", decodeJson(encodedSource));
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  if (args[0] === "--internal-source-identity") return internalSourceIdentity();
+  if (args[0] === "--internal-staged-identity") return internalStagedIdentity(args[1]);
+  if (args[0] === "--internal-finalize-stage") return internalFinalizeStage(args[1]);
+  if (args[0] === "--internal-validate-runtime") return internalValidateRuntime(args[1]);
+
+  const guarded = args[0] === "--internal-guarded";
+  const publicArgs = guarded ? args.slice(1) : args;
+  const options = parsePublicOptions(publicArgs);
+  if (options.sourceCheckout) {
+    if (guarded) throw new Error("--source-checkout never runs under the managed install guard.");
+    return runSourceCheckoutMode(options);
+  }
+
+  const config = resolveManagedConfig(guarded);
+  if (!guarded) return runGuardedInstaller(config, publicArgs);
+  return installManagedRuntime(config, options.checkOnly);
+}
+
+if (process.argv[1] && realpathSync(process.argv[1]) === scriptPath) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`hush: ${error.message}`);
+    process.exitCode = 1;
+  }
+}

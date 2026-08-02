@@ -13,14 +13,38 @@ cli:build`, then copy an explicit runtime input list into a temporary revision
 and install frozen production dependencies for only the CLI workspace there.
 The installer does not copy ambient `node_modules` or recursively scan the
 source checkout.
+With no runtime override, the immutable revision is
+`~/.local/state/hush/runtimes/<commit>`. An explicit
+`HUSH_INSTALL_RUNTIME_ROOT` remains supported for managed callers, but it must
+end in the exact source commit and stay disjoint from the source checkout and
+launcher directory. `--source-checkout` validates the mutable build explicitly
+and never writes or replaces the managed launcher.
+
 The generated `~/.local/bin/hush` launcher pins the actual Node executable and
-staged entrypoint. It must not invoke Bun or a mutable `~/src/ch5/hush`
-checkout. `node scripts/install-local.mjs --check` fails on launcher drift.
+immutable staged entrypoint. It must not invoke Bun or a mutable
+`~/src/ch5/hush` checkout. `node scripts/install-local.mjs --check` fails on
+launcher drift; check mode acquires the same directory locks but never creates
+managed directories or removes crash leftovers.
 Installer accepts only complete staged entrypoint/build pairs and retains active
 plus one previous revision. Installation rejects tracked drift in copied
 manifests and launcher inputs. Managed runtime and bin roots must be absolute,
-non-root, canonical directories; any symlinked root or ancestor fails before
-staging, launcher replacement, or old-runtime cleanup.
+non-root directories.
+
+Install mutation runs under exclusive runtime-parent and bin locks. A small
+native helper opens source, runtime-parent, and bin paths component by component
+with no-follow directory descriptors, then keeps those descriptors bound for
+staging, no-replace runtime publication, atomic launcher replacement, and
+quarantined prune. Every reopened stage/runtime/prune object must retain its
+captured device/inode identity; stage markers bind that identity, and prune
+quarantine names encode it for crash recovery. Symlinked/non-directory
+ancestors and path swaps fail closed; crashed staging/prune artifacts are
+removed by the next locked install. Source hardlinks are copied into fresh
+single-link files. Runtime, manifest, and launcher files reject external
+hardlink aliases.
+
+Git uses the fixed system executable with `GIT_*` removed. Bun resolves once to
+the repository-pinned absolute executable before locking; guarded work receives
+only pinned tool paths and a minimal runtime `PATH`.
 
 The read-only runtime manifest keeps provenance boundaries explicit: Git
 commit/tree identify tracked inputs, a separate digest identifies ignored
