@@ -47,3 +47,48 @@ project:
       role: agent-guide
   aliases:
     - hush
+  branding:
+    visual_summary: >-
+      A single glowing key on near-black — the age/SOPS encryption key at the
+      center of Hush's model, not a padlock or shield.
+    icon_prompt: >-
+      A single old-fashioned skeleton key drawn as a bold flat pictogram, laid
+      diagonally and centered, sized to fill about 65% of the square. The key's
+      head is a closed circular bow with a small round threading hole, the
+      shaft is straight, the bit has three simple rectangular notches cut into
+      it. Solid deep violet (#7C3AED) key body with a thin cyan (#06B6D4)
+      rim-light glow along its top edge. The background is solid near-black
+      (#0F172A) and fills the whole square edge to edge; it IS the icon
+      background, no page or card floating in empty space, no white margin.
+      Flat vector illustration, bold clean geometry, high contrast, one soft
+      outer glow only, no drop shadow, no gradient mesh. This is a drawing of
+      a physical object (a key), NOT a written character, NOT a letter, NOT a
+      symbol, NOT calligraphy — no writing of any script anywhere in the
+      image. No text, no letters, no logotype, no padlock, no shield.
+    cover_prompt: >-
+      Wide 16:9 cinematic scene, solid near-black (#0F172A) filling the
+      entire frame edge to edge with faint drifting dust/spark particles. A
+      single skeleton key rendered in thin luminous deep-violet (#7C3AED)
+      neon outline, positioned left-of-center, its teeth trailing off into a
+      soft cyan (#06B6D4) waveform of light that curls toward the right edge.
+      Generous negative space on both left and right thirds for a header
+      crop. No text, no logotype, no UI chrome, no padlock, no shield, no
+      generic purple-SaaS gradient backdrop.
+    colors:
+      primary: '#7C3AED'
+      accent: '#06B6D4'
+      neutral: '#0F172A'
+    assets:
+      icon_source: .ch5/assets/master/icon.png
+      icon_variant_profile: ch5-master-icon-v2
+    anti_goals:
+      - not a padlock or shield — generic security-vendor clipart, says
+        nothing about the key-based architecture
+      - not a literal human hand or eye — surveillance-adjacent, contradicts
+        "nothing is watched"
+      - >-
+        not the generic purple-AI-SaaS gradient look, and not "#A855F7" as a
+        reflexive default accent
+      - not bright, cheerful, or pastel — this is a quiet terminal-native
+        tool, not a consumer app
+      - no onscreen text, letters, or logotype baked into the artwork

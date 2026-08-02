@@ -1,4 +1,44 @@
-# Design
+# Hush — Design
+
+## Identity
+Hush is the AI-native secrets manager: an encrypted-at-rest secrets CLI (SOPS/age)
+built so an AI coding agent can run, inspect, and set configuration without ever
+seeing plaintext values. The name is literal and the shipped hero art already says
+it: a key (the age/SOPS encryption key, the thing that grants access) next to a
+hand making the "finger to lips" hush gesture (the thing that withholds it). The
+feeling its visuals carry is calm, exact, and quietly confident — a locksmith's
+tool, not a startup dashboard. Dark, precise, a little bit secretive; never loud,
+never playful, never soft-SaaS.
+
+## Icon
+The mark is a single key — the object Hush's own encryption model revolves
+around (age keys, SOPS keys, per-project local key files). A key reads instantly
+at any size, ties directly to what the tool does, and needs no wordmark. It must
+never become: a padlock (generic security-vendor cliché), a shield (generic
+security-vendor cliché), an eye (surveillance connotation, wrong message for a
+tool whose whole point is that nothing is watched), or a literal human hand/finger
+(reads as clipart at icon size, only works in the wide hero composition).
+
+## Palette
+- Primary `#7C3AED` (deep violet) — the neon-violet glow of the key in the
+  shipped hero art; already the project's visual signature, reads as precise and
+  a little mysterious rather than corporate.
+- Accent `#06B6D4` (cyan) — the second glow color in the hero (the hush-hand /
+  waveform), used for a single rim-light or highlight, never as a fill on its own.
+- Neutral `#0F172A` (near-black ink) — the hero's background; secrets living in
+  the dark is the whole point, so the mark sits on near-black, not white.
+
+## Anti-goals
+- Not the generic purple-AI-SaaS gradient blob look, and not `#A855F7` as a
+  reflexive default accent — the violet here comes from the shipped hero art,
+  not a template.
+- Not a padlock or shield icon — those are undifferentiated security-vendor
+  clipart and say nothing about the key-based architecture.
+- Not a literal human hand or eye — creepy/surveillance-adjacent, and it is the
+  opposite of what "nothing is watched" is supposed to communicate.
+- Not bright/cheerful/pastel — Hush is a quiet, exact, terminal-native tool, not
+  a consumer app.
+- No onscreen text, letters, or logotype baked into the icon or cover art.
 
 ## Source of truth
 - Status: Active
