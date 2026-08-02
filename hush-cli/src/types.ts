@@ -1,8 +1,13 @@
-import { V3_SCHEMA_VERSION } from './v3/schema.js';
-import type { HushFileDocument, HushFileIndexEntry, HushFilePath, HushManifestDocument } from './v3/domain.js';
-export type { HushProjectStatePaths } from './v3/state.js';
-export type { HushAuditCommandContext, HushAuditEvent, HushAuditEventType } from './v3/audit.js';
-export type { ActiveIdentityStateDocument } from './v3/identity.js';
+import type {
+  HushFileDocument,
+  HushFileIndexEntry,
+  HushFilePath,
+  HushManifestDocument,
+} from "./v3/domain.js";
+import { V3_SCHEMA_VERSION } from "./v3/schema.js";
+export type { HushProjectStatePaths } from "./v3/state.js";
+export type { HushAuditCommandContext, HushAuditEvent, HushAuditEventType } from "./v3/audit.js";
+export type { ActiveIdentityStateDocument } from "./v3/identity.js";
 export type {
   HushBundleConflictDetail,
   HushBundleResolution,
@@ -10,7 +15,7 @@ export type {
   HushTargetResolution,
   HushInterpolationDependency,
   HushSelectedEntryCandidate,
-} from './v3/provenance.js';
+} from "./v3/provenance.js";
 
 export interface HushCompactRecord {
   key: string;
@@ -18,30 +23,27 @@ export interface HushCompactRecord {
   target: string;
   precedence: number;
 }
-export type { HushImportRepositoryMap } from './v3/imports.js';
+export type { HushImportRepositoryMap } from "./v3/imports.js";
 export type {
   ResolveV3BundleOptions,
   ResolveV3Options,
   ResolveV3TargetOptions,
-} from './v3/resolver.js';
+} from "./v3/resolver.js";
 export type {
   HushArtifactDescriptor,
   HushArtifactFileDescriptor,
   HushArtifactBinaryDescriptor,
   HushArtifactShapeResult,
   HushTargetArtifactDescriptor,
-} from './v3/artifacts.js';
+} from "./v3/artifacts.js";
 export type {
   HushMaterialization,
   HushMaterializationFailure,
   HushMaterializationMode,
   HushMaterializeBundleOptions,
   HushMaterializeTargetOptions,
-} from './v3/materialize.js';
-export type {
-  HushNamespace,
-  HushRole,
-} from './v3/schema.js';
+} from "./v3/materialize.js";
+export type { HushNamespace, HushRole } from "./v3/schema.js";
 export {
   ACTIVE_IDENTITY_STATE_BASENAME,
   AUDIT_LOG_BASENAME,
@@ -54,34 +56,34 @@ export {
   getStoreStateSeed,
   readStateJsonFile,
   writeStateJsonFile,
-} from './v3/state.js';
+} from "./v3/state.js";
 export {
   HUSH_AUDIT_EVENT_VERSION,
   appendAuditEvent,
   createAuditEvent,
   serializeAuditEvent,
-} from './v3/audit.js';
+} from "./v3/audit.js";
 export {
   ACTIVE_IDENTITY_STATE_VERSION,
   getActiveIdentity,
   readActiveIdentityState,
   requireActiveIdentity,
   setActiveIdentity,
-} from './v3/identity.js';
-export { HushResolutionConflictError, resolveV3Bundle, resolveV3Target } from './v3/resolver.js';
+} from "./v3/identity.js";
+export { HushResolutionConflictError, resolveV3Bundle, resolveV3Target } from "./v3/resolver.js";
 export {
   shapeBundleArtifacts,
   shapeResolvedArtifacts,
   shapeTargetArtifacts,
   targetFormatToArtifactFormat,
-} from './v3/artifacts.js';
+} from "./v3/artifacts.js";
 export {
   HushMaterializationInterruptedError,
   materializeV3Bundle,
   materializeV3Target,
   withMaterializedBundle,
   withMaterializedTarget,
-} from './v3/materialize.js';
+} from "./v3/materialize.js";
 export {
   HUSH_V3_ROOT_DIR,
   HUSH_V3_MANIFEST_BASENAME,
@@ -97,7 +99,7 @@ export {
   isHushNamespace,
   isHushRole,
   normalizeHushPath,
-} from './v3/schema.js';
+} from "./v3/schema.js";
 export type {
   HushArtifactEntry,
   HushArtifactBinaryEntry,
@@ -128,7 +130,7 @@ export type {
   HushTargetDefinition,
   HushTargetName,
   HushValueEntry,
-} from './v3/domain.js';
+} from "./v3/domain.js";
 export {
   createBundleDefinition,
   createFileDocument,
@@ -141,7 +143,7 @@ export {
   createTargetDefinition,
   isIdentityAllowed,
   upsertManifestFileIndexEntry,
-} from './v3/domain.js';
+} from "./v3/domain.js";
 export {
   getV3EncryptedFilePath,
   getV3FilesRoot,
@@ -150,24 +152,24 @@ export {
   isV3EncryptedFilePath,
   isV3ManifestPath,
   stripEncryptedFileExtension,
-} from './v3/paths.js';
+} from "./v3/paths.js";
 
-export type OutputFormat = 'dotenv' | 'wrangler' | 'vercel' | 'json' | 'shell' | 'yaml';
-export type Environment = 'development' | 'production';
-export type VercelEnvironment = 'production' | 'preview' | 'development';
-export type PushDestinationType = 'cloudflare-workers' | 'cloudflare-pages' | 'vercel';
+export type OutputFormat = "dotenv" | "wrangler" | "vercel" | "json" | "shell" | "yaml";
+export type Environment = "development" | "production";
+export type VercelEnvironment = "production" | "preview" | "development";
+export type PushDestinationType = "cloudflare-workers" | "cloudflare-pages" | "vercel";
 
 export interface CloudflareWorkersPushConfig {
-  type: 'cloudflare-workers';
+  type: "cloudflare-workers";
 }
 
 export interface CloudflarePagesPushConfig {
-  type: 'cloudflare-pages';
+  type: "cloudflare-pages";
   project: string;
 }
 
 export interface VercelPushConfig {
-  type: 'vercel';
+  type: "vercel";
   token?: string;
   teamId?: string;
   projectId: string;
@@ -200,7 +202,7 @@ export interface LegacyHushConfig {
 }
 
 export interface LegacyV2Inventory {
-  kind: 'legacy-v2';
+  kind: "legacy-v2";
   projectRoot: string;
   configPath: string;
   config: LegacyHushConfig;
@@ -209,7 +211,7 @@ export interface LegacyV2Inventory {
 }
 
 export interface HushV3Repository {
-  kind: 'v3';
+  kind: "v3";
   projectRoot: string;
   manifestPath: string;
   filesRoot: string;
@@ -222,7 +224,7 @@ export interface HushV3Repository {
 }
 
 export interface HushProjectDiscoveryResult {
-  repositoryKind: 'legacy-v2' | 'v3';
+  repositoryKind: "legacy-v2" | "v3";
   configPath: string | null;
   projectRoot: string;
 }
@@ -248,13 +250,13 @@ export interface DecryptOptions {
 
 export interface EditOptions {
   store: StoreContext;
-  file?: 'shared' | 'development' | 'production' | 'local' | string;
+  file?: "shared" | "development" | "production" | "local" | string;
   editor?: string;
 }
 
 export interface SetOptions {
   store: StoreContext;
-  file?: 'shared' | 'development' | 'production' | 'local' | string;
+  file?: "shared" | "development" | "production" | "local" | string;
   key?: string;
   value?: string;
   gui?: boolean;
@@ -329,7 +331,11 @@ export interface CheckOptions {
   allowPlaintext?: boolean;
 }
 
-export type CheckErrorType = 'SOURCE_MISSING' | 'ENCRYPTED_MISSING' | 'DECRYPT_FAILED' | 'SOPS_NOT_INSTALLED';
+export type CheckErrorType =
+  | "SOURCE_MISSING"
+  | "ENCRYPTED_MISSING"
+  | "DECRYPT_FAILED"
+  | "SOPS_NOT_INSTALLED";
 
 export interface CheckFileResult {
   source: string;
@@ -347,7 +353,7 @@ export interface PlaintextFileResult {
 }
 
 export interface CheckResult {
-  status: 'ok' | 'drift' | 'error' | 'plaintext';
+  status: "ok" | "drift" | "error" | "plaintext";
   files: CheckFileResult[];
   plaintextFiles?: PlaintextFileResult[];
 }
@@ -401,7 +407,11 @@ export interface FileReadersOptions {
   json?: boolean;
 }
 
-export type FileCommandOptions = FileAddOptions | FileRemoveOptions | FileListOptions | FileReadersOptions;
+export type FileCommandOptions =
+  | FileAddOptions
+  | FileRemoveOptions
+  | FileListOptions
+  | FileReadersOptions;
 
 // Bundle command options
 export interface BundleAddOptions {
@@ -503,7 +513,7 @@ export interface VerifyTargetOptions {
 
 export interface ProjectOptions {
   store: StoreContext;
-  subcommand: 'plan' | 'validate' | 'sync';
+  subcommand: "plan" | "validate" | "sync";
   stage: string;
   dryRun: boolean;
   json: boolean;
@@ -572,7 +582,7 @@ export interface MaterializeOptions {
   target?: string;
   bundle?: string;
   json: boolean;
-  format?: 'dotenv' | 'shell-export';
+  format?: "dotenv" | "shell-export";
   compactJson?: boolean;
   includeProvenance?: boolean;
   outputRoot?: string;
@@ -580,7 +590,7 @@ export interface MaterializeOptions {
   command?: string[];
 }
 
-export type StoreMode = 'project' | 'global';
+export type StoreMode = "project" | "global";
 
 export interface StoreContext {
   mode: StoreMode;
@@ -596,46 +606,56 @@ export interface StoreContext {
 }
 
 export const DEFAULT_SOURCES: LegacySourceFiles = {
-  shared: '.hush',
-  development: '.hush.development',
-  production: '.hush.production',
-  local: '.hush.local',
+  shared: ".hush",
+  development: ".hush.development",
+  production: ".hush.production",
+  local: ".hush.local",
 };
 
 export const FORMAT_OUTPUT_FILES: Record<OutputFormat, Record<Environment, string>> = {
   dotenv: {
-    development: '.env.development',
-    production: '.env.production',
+    development: ".env.development",
+    production: ".env.production",
   },
   wrangler: {
-    development: '.dev.vars',
-    production: '.dev.vars',
+    development: ".dev.vars",
+    production: ".dev.vars",
   },
   vercel: {
-    development: '.env.vercel',
-    production: '.env.vercel',
+    development: ".env.vercel",
+    production: ".env.vercel",
   },
   json: {
-    development: '.env.development.json',
-    production: '.env.production.json',
+    development: ".env.development.json",
+    production: ".env.production.json",
   },
   shell: {
-    development: '.env.development.sh',
-    production: '.env.production.sh',
+    development: ".env.development.sh",
+    production: ".env.production.sh",
   },
   yaml: {
-    development: '.env.development.yaml',
-    production: '.env.production.yaml',
+    development: ".env.development.yaml",
+    production: ".env.production.yaml",
   },
 };
 
 export interface HushContext {
   fs: {
     existsSync(path: string): boolean;
-    readFileSync(path: string, options?: { encoding?: BufferEncoding; flag?: string } | BufferEncoding): string | Buffer;
-    writeFileSync(path: string, data: string | Uint8Array, options?: { encoding?: BufferEncoding; mode?: number; flag?: string } | BufferEncoding | null): void;
+    readFileSync(
+      path: string,
+      options?: { encoding?: BufferEncoding; flag?: string } | BufferEncoding,
+    ): string | Buffer;
+    writeFileSync(
+      path: string,
+      data: string | Uint8Array,
+      options?: { encoding?: BufferEncoding; mode?: number; flag?: string } | BufferEncoding | null,
+    ): void;
     mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): string | undefined;
-    readdirSync(path: string, options?: { recursive?: boolean; withFileTypes?: boolean }): (string | { name: string; isDirectory(): boolean })[];
+    readdirSync(
+      path: string,
+      options?: { recursive?: boolean; withFileTypes?: boolean },
+    ): (string | { name: string; isDirectory(): boolean })[];
     unlinkSync(path: string): void;
     rmSync?(path: string, options?: { recursive?: boolean; force?: boolean }): void;
     statSync(path: string): { isDirectory(): boolean; mtime: Date };
@@ -646,7 +666,11 @@ export interface HushContext {
     join(...paths: string[]): string;
   };
   exec: {
-    spawnSync(command: string, args: string[], options?: any): { status: number | null; stdout: string | Buffer; stderr: string | Buffer; error?: Error };
+    spawnSync(
+      command: string,
+      args: string[],
+      options?: any,
+    ): { status: number | null; stdout: string | Buffer; stderr: string | Buffer; error?: Error };
     execSync(command: string, options?: any): string | Buffer;
   };
   logger: {
@@ -661,8 +685,8 @@ export interface HushContext {
     env: NodeJS.ProcessEnv;
     stdin: NodeJS.ReadStream;
     stdout: NodeJS.WriteStream;
-    on?(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
-    removeListener?(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
+    on?(event: "SIGINT" | "SIGTERM", listener: () => void): void;
+    removeListener?(event: "SIGINT" | "SIGTERM", listener: () => void): void;
   };
   network?: {
     fetch: typeof fetch;
@@ -686,9 +710,21 @@ export interface HushContext {
   sops: {
     decrypt(path: string, options?: { root?: string; keyIdentity?: string }): string;
     decryptYaml(path: string, options?: { root?: string; keyIdentity?: string }): string;
-    encrypt(inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }): void;
-    encryptYaml(inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }): void;
-    encryptYamlContent(content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }): void;
+    encrypt(
+      inputPath: string,
+      outputPath: string,
+      options?: { root?: string; keyIdentity?: string },
+    ): void;
+    encryptYaml(
+      inputPath: string,
+      outputPath: string,
+      options?: { root?: string; keyIdentity?: string },
+    ): void;
+    encryptYamlContent(
+      content: string,
+      outputPath: string,
+      options?: { root?: string; keyIdentity?: string },
+    ): void;
     edit(path: string, options?: { root?: string; keyIdentity?: string }): void;
     isSopsInstalled(): boolean;
   };

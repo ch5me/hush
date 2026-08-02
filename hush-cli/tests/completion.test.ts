@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
-import { join } from 'node:path';
-import * as nodeFs from 'node:fs';
-import { completionCommand, HUSH_COMMANDS, HUSH_FLAGS } from '../src/commands/completion.js';
-import type { HushContext, LegacyHushConfig } from '../src/types.js';
+import * as nodeFs from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { completionCommand, HUSH_COMMANDS, HUSH_FLAGS } from "../src/commands/completion.js";
+import type { HushContext, LegacyHushConfig } from "../src/types.js";
 
 function createContext() {
   const logger = {
@@ -14,12 +16,12 @@ function createContext() {
 
   const defaultConfig: LegacyHushConfig = {
     sources: {
-      shared: '.hush',
-      development: '.hush.development',
-      production: '.hush.production',
-      local: '.hush.local',
+      shared: ".hush",
+      development: ".hush.development",
+      production: ".hush.production",
+      local: ".hush.local",
     },
-    targets: [{ name: 'root', path: '.', format: 'dotenv' }],
+    targets: [{ name: "root", path: ".", format: "dotenv" }],
   };
 
   const ctx: HushContext = {
@@ -28,7 +30,7 @@ function createContext() {
       readFileSync: nodeFs.readFileSync,
       writeFileSync: nodeFs.writeFileSync,
       mkdirSync: nodeFs.mkdirSync,
-      readdirSync: nodeFs.readdirSync as HushContext['fs']['readdirSync'],
+      readdirSync: nodeFs.readdirSync as HushContext["fs"]["readdirSync"],
       unlinkSync: nodeFs.unlinkSync,
       rmSync: nodeFs.rmSync,
       statSync: nodeFs.statSync,
@@ -36,12 +38,12 @@ function createContext() {
     },
     path: { join },
     exec: {
-      spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
-      execSync: vi.fn(() => ''),
+      spawnSync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })),
+      execSync: vi.fn(() => ""),
     },
     logger,
     process: {
-      cwd: () => '/tmp/test',
+      cwd: () => "/tmp/test",
       exit: (code: number) => {
         throw new Error(`Process exit: ${code}`);
       },
@@ -57,12 +59,12 @@ function createContext() {
     },
     age: {
       ageAvailable: vi.fn(() => true),
-      ageGenerate: vi.fn(() => ({ private: 'private', public: 'public' })),
+      ageGenerate: vi.fn(() => ({ private: "private", public: "public" })),
       keyExists: vi.fn(() => false),
       keySave: vi.fn(),
-      keyPath: vi.fn(() => ''),
+      keyPath: vi.fn(() => ""),
       keyLoad: vi.fn(() => null),
-      agePublicFromPrivate: vi.fn(() => 'public'),
+      agePublicFromPrivate: vi.fn(() => "public"),
     },
     sops: {
       decrypt: vi.fn(),
@@ -79,19 +81,29 @@ function createContext() {
 }
 
 function getLogOutput(logger: { log: ReturnType<typeof vi.fn> }): string {
-  return logger.log.mock.calls.map(([message]) => String(message)).join('\n');
+  return logger.log.mock.calls.map(([message]) => String(message)).join("\n");
 }
 
-describe('completion command', () => {
-  it('keeps commands and recognized parser flags in the completion contract', () => {
-    expect(HUSH_COMMANDS).toContain('import');
-    for (const flag of ['--cwd', '--filename', '--identities', '--import-name', '--roles', '--source-root', '--token', '--wrangler-env', '--write']) {
+describe("completion command", () => {
+  it("keeps commands and recognized parser flags in the completion contract", () => {
+    expect(HUSH_COMMANDS).toContain("import");
+    for (const flag of [
+      "--cwd",
+      "--filename",
+      "--identities",
+      "--import-name",
+      "--roles",
+      "--source-root",
+      "--token",
+      "--wrangler-env",
+      "--write",
+    ]) {
       expect(HUSH_FLAGS).toContain(flag);
     }
   });
-  it('bash completion output contains all command names', async () => {
+  it("bash completion output contains all command names", async () => {
     const { ctx, logger } = createContext();
-    await completionCommand(ctx, { shell: 'bash' });
+    await completionCommand(ctx, { shell: "bash" });
     const output = getLogOutput(logger);
 
     for (const cmd of HUSH_COMMANDS) {
@@ -99,9 +111,9 @@ describe('completion command', () => {
     }
   });
 
-  it('zsh completion output contains all command names', async () => {
+  it("zsh completion output contains all command names", async () => {
     const { ctx, logger } = createContext();
-    await completionCommand(ctx, { shell: 'zsh' });
+    await completionCommand(ctx, { shell: "zsh" });
     const output = getLogOutput(logger);
 
     for (const cmd of HUSH_COMMANDS) {
@@ -109,9 +121,9 @@ describe('completion command', () => {
     }
   });
 
-  it('fish completion output contains all command names', async () => {
+  it("fish completion output contains all command names", async () => {
     const { ctx, logger } = createContext();
-    await completionCommand(ctx, { shell: 'fish' });
+    await completionCommand(ctx, { shell: "fish" });
     const output = getLogOutput(logger);
 
     for (const cmd of HUSH_COMMANDS) {
@@ -119,52 +131,54 @@ describe('completion command', () => {
     }
   });
 
-  it('bash completion output is a valid script', async () => {
+  it("bash completion output is a valid script", async () => {
     const { ctx, logger } = createContext();
-    await completionCommand(ctx, { shell: 'bash' });
+    await completionCommand(ctx, { shell: "bash" });
     const output = getLogOutput(logger);
 
-    expect(output).toContain('_hush_completion');
-    expect(output).toContain('complete -F _hush_completion hush');
+    expect(output).toContain("_hush_completion");
+    expect(output).toContain("complete -F _hush_completion hush");
   });
 
-  it('zsh completion output is a valid zsh compdef script', async () => {
+  it("zsh completion output is a valid zsh compdef script", async () => {
     const { ctx, logger } = createContext();
-    await completionCommand(ctx, { shell: 'zsh' });
+    await completionCommand(ctx, { shell: "zsh" });
     const output = getLogOutput(logger);
 
-    expect(output).toContain('#compdef hush');
-    expect(output).toContain('_hush');
+    expect(output).toContain("#compdef hush");
+    expect(output).toContain("_hush");
   });
 
-  it('fish completion output contains complete commands', async () => {
+  it("fish completion output contains complete commands", async () => {
     const { ctx, logger } = createContext();
-    await completionCommand(ctx, { shell: 'fish' });
+    await completionCommand(ctx, { shell: "fish" });
     const output = getLogOutput(logger);
 
-    expect(output).toContain('complete -c hush');
+    expect(output).toContain("complete -c hush");
   });
 
-  it('unknown shell exits with error listing supported shells', async () => {
+  it("unknown shell exits with error listing supported shells", async () => {
     const { ctx, logger } = createContext();
 
-    await expect(completionCommand(ctx, { shell: 'powershell' })).rejects.toThrow('Process exit: 1');
+    await expect(completionCommand(ctx, { shell: "powershell" })).rejects.toThrow(
+      "Process exit: 1",
+    );
 
-    const errorOutput = logger.error.mock.calls.map(([message]) => String(message)).join('\n');
-    expect(errorOutput).toContain('powershell');
-    expect(errorOutput).toContain('bash');
-    expect(errorOutput).toContain('zsh');
-    expect(errorOutput).toContain('fish');
+    const errorOutput = logger.error.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(errorOutput).toContain("powershell");
+    expect(errorOutput).toContain("bash");
+    expect(errorOutput).toContain("zsh");
+    expect(errorOutput).toContain("fish");
   });
 
-  it('empty shell exits with error listing supported shells', async () => {
+  it("empty shell exits with error listing supported shells", async () => {
     const { ctx, logger } = createContext();
 
-    await expect(completionCommand(ctx, { shell: '' })).rejects.toThrow('Process exit: 1');
+    await expect(completionCommand(ctx, { shell: "" })).rejects.toThrow("Process exit: 1");
 
-    const errorOutput = logger.error.mock.calls.map(([message]) => String(message)).join('\n');
-    expect(errorOutput).toContain('bash');
-    expect(errorOutput).toContain('zsh');
-    expect(errorOutput).toContain('fish');
+    const errorOutput = logger.error.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(errorOutput).toContain("bash");
+    expect(errorOutput).toContain("zsh");
+    expect(errorOutput).toContain("fish");
   });
 });

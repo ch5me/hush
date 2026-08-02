@@ -1,15 +1,36 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { join } from 'node:path';
-import * as nodeFs from 'node:fs';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { diffCommand } from '../src/commands/diff.js';
-import { exportExampleCommand } from '../src/commands/export-example.js';
-import { createFileDocument, createFileIndexEntry, createManifestDocument, createProjectSlug, loadV3Repository, setActiveIdentity } from '../src/index.js';
-import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
-import type { HushContext, HushManifestDocument, LegacyHushConfig, StoreContext } from '../src/types.js';
-import { ensureTestSopsEnv, writeEncryptedYamlFile } from './helpers/sops-test.js';
+import * as nodeFs from "node:fs";
+import { join } from "node:path";
 
-const TEST_DIR = join('/tmp', 'hush-test-diff-export-example');
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+
+import { diffCommand } from "../src/commands/diff.js";
+import { exportExampleCommand } from "../src/commands/export-example.js";
+import {
+  decrypt,
+  decryptYaml,
+  encrypt,
+  encryptYaml,
+  encryptYamlContent,
+  isSopsInstalled,
+} from "../src/core/sops.js";
+import {
+  createFileDocument,
+  createFileIndexEntry,
+  createManifestDocument,
+  createProjectSlug,
+  loadV3Repository,
+  setActiveIdentity,
+} from "../src/index.js";
+import type {
+  HushContext,
+  HushManifestDocument,
+  LegacyHushConfig,
+  StoreContext,
+} from "../src/types.js";
+import { ensureTestSopsEnv, writeEncryptedYamlFile } from "./helpers/sops-test.js";
+
+const TEST_DIR = join("/tmp", "hush-test-diff-export-example");
 
 interface GitHistoryState {
   manifest: string;
@@ -17,17 +38,17 @@ interface GitHistoryState {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(new RegExp(String.raw`\u001B\[[0-9;]*m`, 'g'), '');
+  return value.replace(new RegExp(String.raw`\u001B\[[0-9;]*m`, "g"), "");
 }
 
 function normalizeYaml(content: string): string {
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
 
-  while (lines[0] !== undefined && lines[0].trim() === '') {
+  while (lines[0] !== undefined && lines[0].trim() === "") {
     lines.shift();
   }
 
-  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === '') {
+  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === "") {
     lines.pop();
   }
 
@@ -38,16 +59,16 @@ function normalizeYaml(content: string): string {
       return Math.min(smallest, match?.[0].length ?? 0);
     }, Number.POSITIVE_INFINITY);
 
-  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join('\n');
+  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join("\n");
 }
 
 function createStore(root: string): StoreContext {
   const projectSlug = createProjectSlug(root);
-  const stateRoot = join(TEST_DIR, '.machine-state');
-  const projectStateRoot = join(stateRoot, 'projects', projectSlug);
+  const stateRoot = join(TEST_DIR, ".machine-state");
+  const projectStateRoot = join(stateRoot, "projects", projectSlug);
 
   return {
-    mode: 'project',
+    mode: "project",
     root,
     configPath: null,
     keyIdentity: root,
@@ -55,8 +76,8 @@ function createStore(root: string): StoreContext {
     projectSlug,
     stateRoot,
     projectStateRoot,
-    activeIdentityPath: join(projectStateRoot, 'active-identity.json'),
-    auditLogPath: join(projectStateRoot, 'audit.jsonl'),
+    activeIdentityPath: join(projectStateRoot, "active-identity.json"),
+    auditLogPath: join(projectStateRoot, "audit.jsonl"),
   };
 }
 
@@ -96,24 +117,24 @@ function createContext(root: string, history: Record<string, GitHistoryState>) {
 
   const defaultConfig: LegacyHushConfig = {
     sources: {
-      shared: '.hush',
-      development: '.hush.development',
-      production: '.hush.production',
-      local: '.hush.local',
+      shared: ".hush",
+      development: ".hush.development",
+      production: ".hush.production",
+      local: ".hush.local",
     },
-    targets: [{ name: 'root', path: '.', format: 'dotenv' }],
+    targets: [{ name: "root", path: ".", format: "dotenv" }],
   };
 
   const execSync = vi.fn((command: string) => {
-    if (command.includes('rev-parse --show-prefix')) {
-      return '\n';
+    if (command.includes("rev-parse --show-prefix")) {
+      return "\n";
     }
 
-    if (command.includes('rev-parse --show-toplevel')) {
+    if (command.includes("rev-parse --show-toplevel")) {
       return `${root}\n`;
     }
 
-    if (command.includes('ls-tree -r --name-only')) {
+    if (command.includes("ls-tree -r --name-only")) {
       const { ref, prefix } = parseGitLsTree(command);
       const state = history[ref];
       if (!state) {
@@ -124,21 +145,21 @@ function createContext(root: string, history: Record<string, GitHistoryState>) {
         .map((filePath) => `${prefix}/${filePath}.encrypted`)
         .sort();
 
-      return files.join('\n');
+      return files.join("\n");
     }
 
-    if (command.includes(' show ')) {
+    if (command.includes(" show ")) {
       const { ref, path } = parseGitShow(command);
       const state = history[ref];
       if (!state) {
         throw new Error(`Unknown git ref: ${ref}`);
       }
 
-      if (path === '.hush/manifest.encrypted') {
+      if (path === ".hush/manifest.encrypted") {
         return state.manifest;
       }
 
-      const relativeFile = path.replace(/^\.hush\/files\//, '').replace(/\.encrypted$/, '');
+      const relativeFile = path.replace(/^\.hush\/files\//, "").replace(/\.encrypted$/, "");
       const content = state.files[relativeFile];
       if (!content) {
         throw new Error(`Missing git file ${relativeFile} at ${ref}`);
@@ -156,7 +177,7 @@ function createContext(root: string, history: Record<string, GitHistoryState>) {
       readFileSync: nodeFs.readFileSync,
       writeFileSync: nodeFs.writeFileSync,
       mkdirSync: nodeFs.mkdirSync,
-      readdirSync: nodeFs.readdirSync as HushContext['fs']['readdirSync'],
+      readdirSync: nodeFs.readdirSync as HushContext["fs"]["readdirSync"],
       unlinkSync: nodeFs.unlinkSync,
       rmSync: nodeFs.rmSync,
       statSync: nodeFs.statSync,
@@ -166,7 +187,7 @@ function createContext(root: string, history: Record<string, GitHistoryState>) {
       join,
     },
     exec: {
-      spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
+      spawnSync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })),
       execSync,
     },
     logger,
@@ -187,19 +208,38 @@ function createContext(root: string, history: Record<string, GitHistoryState>) {
     },
     age: {
       ageAvailable: vi.fn(() => true),
-      ageGenerate: vi.fn(() => ({ private: 'private', public: 'public' })),
+      ageGenerate: vi.fn(() => ({ private: "private", public: "public" })),
       keyExists: vi.fn(() => false),
       keySave: vi.fn(),
-      keyPath: vi.fn(() => ''),
+      keyPath: vi.fn(() => ""),
       keyLoad: vi.fn(() => null),
-      agePublicFromPrivate: vi.fn(() => 'public'),
+      agePublicFromPrivate: vi.fn(() => "public"),
     },
     sops: {
-      decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
-      decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),
-      encrypt: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encrypt(inputPath, outputPath, options)),
-      encryptYaml: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYaml(inputPath, outputPath, options)),
-      encryptYamlContent: vi.fn((content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYamlContent(content, outputPath, options)),
+      decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) =>
+        decrypt(filePath, options),
+      ),
+      decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) =>
+        decryptYaml(filePath, options),
+      ),
+      encrypt: vi.fn(
+        (
+          inputPath: string,
+          outputPath: string,
+          options?: { root?: string; keyIdentity?: string },
+        ) => encrypt(inputPath, outputPath, options),
+      ),
+      encryptYaml: vi.fn(
+        (
+          inputPath: string,
+          outputPath: string,
+          options?: { root?: string; keyIdentity?: string },
+        ) => encryptYaml(inputPath, outputPath, options),
+      ),
+      encryptYamlContent: vi.fn(
+        (content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) =>
+          encryptYamlContent(content, outputPath, options),
+      ),
       edit: vi.fn(),
       isSopsInstalled: vi.fn(() => isSopsInstalled()),
     },
@@ -209,61 +249,82 @@ function createContext(root: string, history: Record<string, GitHistoryState>) {
 }
 
 function writeRepo(root: string, manifest: string, files: Record<string, string>) {
-  nodeFs.mkdirSync(join(root, '.hush', 'files'), { recursive: true });
-  const parsedFiles = Object.values(files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
+  nodeFs.mkdirSync(join(root, ".hush", "files"), { recursive: true });
+  const parsedFiles = Object.values(files).map((content) =>
+    createFileDocument(parseYaml(normalizeYaml(content))),
+  );
   const manifestDocument = createManifestDocument({
     ...(parseYaml(normalizeYaml(manifest)) as Record<string, unknown>),
-    fileIndex: Object.fromEntries(parsedFiles.map((file) => [file.path, createFileIndexEntry(file)])),
+    fileIndex: Object.fromEntries(
+      parsedFiles.map((file) => [file.path, createFileIndexEntry(file)]),
+    ),
   } as HushManifestDocument);
-  writeEncryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'), stringifyYaml(manifestDocument, { indent: 2 }));
+  writeEncryptedYamlFile(
+    root,
+    join(root, ".hush", "manifest.encrypted"),
+    stringifyYaml(manifestDocument, { indent: 2 }),
+  );
 
   for (const [relativePath, content] of Object.entries(files)) {
-    const filePath = join(root, '.hush', 'files', `${relativePath}.encrypted`);
+    const filePath = join(root, ".hush", "files", `${relativePath}.encrypted`);
     writeEncryptedYamlFile(root, filePath, normalizeYaml(content));
   }
 
   return loadV3Repository(root, { keyIdentity: root });
 }
 
-function createEncryptedGitHistoryState(root: string, state: { manifest: string; files: Record<string, string> }, ref: string): GitHistoryState {
-  const historyRoot = join(TEST_DIR, '.git-history', ref.replace(/[^a-zA-Z0-9._-]/g, '_'));
-  nodeFs.mkdirSync(join(historyRoot, '.hush', 'files'), { recursive: true });
+function createEncryptedGitHistoryState(
+  root: string,
+  state: { manifest: string; files: Record<string, string> },
+  ref: string,
+): GitHistoryState {
+  const historyRoot = join(TEST_DIR, ".git-history", ref.replace(/[^a-zA-Z0-9._-]/g, "_"));
+  nodeFs.mkdirSync(join(historyRoot, ".hush", "files"), { recursive: true });
 
-  const manifestPath = join(historyRoot, '.hush', 'manifest.encrypted');
-  const parsedFiles = Object.values(state.files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
+  const manifestPath = join(historyRoot, ".hush", "manifest.encrypted");
+  const parsedFiles = Object.values(state.files).map((content) =>
+    createFileDocument(parseYaml(normalizeYaml(content))),
+  );
   const manifestDocument = createManifestDocument({
     ...(parseYaml(normalizeYaml(state.manifest)) as Record<string, unknown>),
-    fileIndex: Object.fromEntries(parsedFiles.map((file) => [file.path, createFileIndexEntry(file)])),
+    fileIndex: Object.fromEntries(
+      parsedFiles.map((file) => [file.path, createFileIndexEntry(file)]),
+    ),
   } as HushManifestDocument);
   writeEncryptedYamlFile(root, manifestPath, stringifyYaml(manifestDocument, { indent: 2 }));
 
   const files: Record<string, string> = {};
   for (const [relativePath, content] of Object.entries(state.files)) {
-    const encryptedPath = join(historyRoot, '.hush', 'files', `${relativePath}.encrypted`);
+    const encryptedPath = join(historyRoot, ".hush", "files", `${relativePath}.encrypted`);
     writeEncryptedYamlFile(root, encryptedPath, normalizeYaml(content));
-    files[relativePath] = nodeFs.readFileSync(encryptedPath, 'utf-8');
+    files[relativePath] = nodeFs.readFileSync(encryptedPath, "utf-8");
   }
 
   return {
-    manifest: nodeFs.readFileSync(manifestPath, 'utf-8'),
+    manifest: nodeFs.readFileSync(manifestPath, "utf-8"),
     files,
   };
 }
 
-function setIdentity(ctx: HushContext, store: StoreContext, repository: ReturnType<typeof loadV3Repository>, identity: string): void {
+function setIdentity(
+  ctx: HushContext,
+  store: StoreContext,
+  repository: ReturnType<typeof loadV3Repository>,
+  identity: string,
+): void {
   setActiveIdentity(ctx, {
     store,
     identity,
     identities: repository.manifest.identities,
-    command: { name: 'config', args: ['active-identity', identity] },
+    command: { name: "config", args: ["active-identity", identity] },
   });
 }
 
 function getLogOutput(logger: { log: ReturnType<typeof vi.fn> }): string {
-  return stripAnsi(logger.log.mock.calls.map(([message]) => String(message)).join('\n'));
+  return stripAnsi(logger.log.mock.calls.map(([message]) => String(message)).join("\n"));
 }
 
-describe('task 9 diff and export-example commands', () => {
+describe("task 9 diff and export-example commands", () => {
   beforeEach(() => {
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
     nodeFs.mkdirSync(TEST_DIR, { recursive: true });
@@ -274,8 +335,8 @@ describe('task 9 diff and export-example commands', () => {
     vi.clearAllMocks();
   });
 
-  it('diff defaults to HEAD and reports no changes for matching resolved state', async () => {
-    const root = join(TEST_DIR, 'diff-clean');
+  it("diff defaults to HEAD and reports no changes for matching resolved state", async () => {
+    const root = join(TEST_DIR, "diff-clean");
     const manifest = `
       version: 3
       identities:
@@ -291,7 +352,7 @@ describe('task 9 diff and export-example commands', () => {
           format: dotenv
     `;
     const files = {
-      'env/project/shared': `
+      "env/project/shared": `
         path: env/project/shared
         readers:
           roles: [owner]
@@ -305,21 +366,26 @@ describe('task 9 diff and export-example commands', () => {
     };
     const repository = writeRepo(root, manifest, files);
     const { ctx, logger, store, execSync } = createContext(root, {
-      HEAD: createEncryptedGitHistoryState(root, { manifest, files }, 'HEAD'),
+      HEAD: createEncryptedGitHistoryState(root, { manifest, files }, "HEAD"),
     });
-    setIdentity(ctx, store, repository, 'owner-local');
+    setIdentity(ctx, store, repository, "owner-local");
 
-    await diffCommand(ctx, { store, env: 'development' });
+    await diffCommand(ctx, { store, env: "development" });
 
     const output = getLogOutput(logger);
-    expect(output).toContain('Reference: HEAD');
-    expect(output).toContain('Selection: target runtime');
-    expect(output).toContain('No redacted changes between current state and HEAD for target runtime.');
-    expect(execSync).toHaveBeenCalledWith(expect.stringContaining("show 'HEAD:.hush/manifest.encrypted'"), expect.any(Object));
+    expect(output).toContain("Reference: HEAD");
+    expect(output).toContain("Selection: target runtime");
+    expect(output).toContain(
+      "No redacted changes between current state and HEAD for target runtime.",
+    );
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining("show 'HEAD:.hush/manifest.encrypted'"),
+      expect.any(Object),
+    );
   });
 
-  it('diff supports --ref and shows reader, provenance, and redacted sensitive changes', async () => {
-    const root = join(TEST_DIR, 'diff-changed');
+  it("diff supports --ref and shows reader, provenance, and redacted sensitive changes", async () => {
+    const root = join(TEST_DIR, "diff-changed");
     const currentManifest = `
       version: 3
       identities:
@@ -335,7 +401,7 @@ describe('task 9 diff and export-example commands', () => {
           format: dotenv
     `;
     const currentFiles = {
-      'env/project/runtime': `
+      "env/project/runtime": `
         path: env/project/runtime
         readers:
           roles: [owner]
@@ -365,7 +431,7 @@ describe('task 9 diff and export-example commands', () => {
           format: dotenv
     `;
     const historicalFiles = {
-      'env/project/shared': `
+      "env/project/shared": `
         path: env/project/shared
         readers:
           roles: [owner, member]
@@ -382,31 +448,39 @@ describe('task 9 diff and export-example commands', () => {
     };
     const repository = writeRepo(root, currentManifest, currentFiles);
     const { ctx, logger, store } = createContext(root, {
-      HEAD: createEncryptedGitHistoryState(root, { manifest: currentManifest, files: currentFiles }, 'HEAD'),
-      'HEAD~1': createEncryptedGitHistoryState(root, { manifest: historicalManifest, files: historicalFiles }, 'HEAD~1'),
+      HEAD: createEncryptedGitHistoryState(
+        root,
+        { manifest: currentManifest, files: currentFiles },
+        "HEAD",
+      ),
+      "HEAD~1": createEncryptedGitHistoryState(
+        root,
+        { manifest: historicalManifest, files: historicalFiles },
+        "HEAD~1",
+      ),
     });
-    setIdentity(ctx, store, repository, 'owner-local');
+    setIdentity(ctx, store, repository, "owner-local");
 
-    await diffCommand(ctx, { store, env: 'development', ref: 'HEAD~1' });
+    await diffCommand(ctx, { store, env: "development", ref: "HEAD~1" });
 
     const output = getLogOutput(logger);
-    expect(output).toContain('Reference: HEAD~1');
-    expect(output).toContain('File changes:');
-    expect(output).toContain('env/project/runtime');
-    expect(output).toContain('env/project/shared');
-    expect(output).toContain('roles=owner,member identities=owner-local');
-    expect(output).toContain('current https://runtime.example.com');
-    expect(output).toContain('ref https://shared.example.com');
-    expect(output).toContain('file=env/project/shared namespace=env');
-    expect(output).toContain('file=env/project/runtime namespace=env');
-    expect(output).toContain('ref [redacted]');
-    expect(output).toContain('current [redacted]');
-    expect(output).not.toContain('postgres://previous-secret');
-    expect(output).not.toContain('postgres://current-secret');
+    expect(output).toContain("Reference: HEAD~1");
+    expect(output).toContain("File changes:");
+    expect(output).toContain("env/project/runtime");
+    expect(output).toContain("env/project/shared");
+    expect(output).toContain("roles=owner,member identities=owner-local");
+    expect(output).toContain("current https://runtime.example.com");
+    expect(output).toContain("ref https://shared.example.com");
+    expect(output).toContain("file=env/project/shared namespace=env");
+    expect(output).toContain("file=env/project/runtime namespace=env");
+    expect(output).toContain("ref [redacted]");
+    expect(output).toContain("current [redacted]");
+    expect(output).not.toContain("postgres://previous-secret");
+    expect(output).not.toContain("postgres://current-secret");
   }, 60000);
 
-  it('export-example omits protected target values and keeps sensitive artifacts redacted', async () => {
-    const root = join(TEST_DIR, 'export-target');
+  it("export-example omits protected target values and keeps sensitive artifacts redacted", async () => {
+    const root = join(TEST_DIR, "export-target");
     const manifest = `
       version: 3
       identities:
@@ -423,7 +497,7 @@ describe('task 9 diff and export-example commands', () => {
           format: dotenv
     `;
     const files = {
-      'env/project/shared': `
+      "env/project/shared": `
         path: env/project/shared
         readers:
           roles: [owner]
@@ -437,7 +511,7 @@ describe('task 9 diff and export-example commands', () => {
             value: super-secret-value
             sensitive: true
       `,
-      'artifacts/project/runtime': `
+      "artifacts/project/runtime": `
         path: artifacts/project/runtime
         readers:
           roles: [owner]
@@ -460,24 +534,24 @@ describe('task 9 diff and export-example commands', () => {
     const { ctx, logger, store } = createContext(root, {
       HEAD: { manifest, files },
     });
-    setIdentity(ctx, store, repository, 'owner-local');
+    setIdentity(ctx, store, repository, "owner-local");
 
-    await exportExampleCommand(ctx, { store, env: 'development' });
+    await exportExampleCommand(ctx, { store, env: "development" });
 
     const output = getLogOutput(logger);
-    expect(output).toContain('Selection: target runtime');
-    expect(output).toContain('Protected values omitted: 1');
-    expect(output).toContain('PUBLIC_URL=https://example.com');
-    expect(output).not.toContain('SECRET_KEY=');
-    expect(output).not.toContain('super-secret-value');
-    expect(output).toContain('artifacts/project/runtime/config (file:json)');
+    expect(output).toContain("Selection: target runtime");
+    expect(output).toContain("Protected values omitted: 1");
+    expect(output).toContain("PUBLIC_URL=https://example.com");
+    expect(output).not.toContain("SECRET_KEY=");
+    expect(output).not.toContain("super-secret-value");
+    expect(output).toContain("artifacts/project/runtime/config (file:json)");
     expect(output).toContain('{"mode":"example"}');
-    expect(output).toContain('artifacts/project/runtime/cert (file:dotenv)');
-    expect(output).toContain('# [redacted sensitive artifact]');
+    expect(output).toContain("artifacts/project/runtime/cert (file:dotenv)");
+    expect(output).toContain("# [redacted sensitive artifact]");
   });
 
-  it('export-example supports bundle output and keeps protected values out of bundle env examples', async () => {
-    const root = join(TEST_DIR, 'export-bundle');
+  it("export-example supports bundle output and keeps protected values out of bundle env examples", async () => {
+    const root = join(TEST_DIR, "export-bundle");
     const manifest = `
       version: 3
       identities:
@@ -497,7 +571,7 @@ describe('task 9 diff and export-example commands', () => {
           mode: example
     `;
     const files = {
-      'env/project/shared': `
+      "env/project/shared": `
         path: env/project/shared
         readers:
           roles: [owner]
@@ -516,15 +590,15 @@ describe('task 9 diff and export-example commands', () => {
     const { ctx, logger, store } = createContext(root, {
       HEAD: { manifest, files },
     });
-    setIdentity(ctx, store, repository, 'owner-local');
+    setIdentity(ctx, store, repository, "owner-local");
 
-    await exportExampleCommand(ctx, { store, env: 'development', bundle: 'project' });
+    await exportExampleCommand(ctx, { store, env: "development", bundle: "project" });
 
     const output = getLogOutput(logger);
-    expect(output).toContain('Selection: bundle project');
-    expect(output).toContain('Protected values omitted: 1');
-    expect(output).toContain('API_URL=https://example.com');
-    expect(output).not.toContain('API_TOKEN');
-    expect(output).not.toContain('token-secret');
+    expect(output).toContain("Selection: bundle project");
+    expect(output).toContain("Protected values omitted: 1");
+    expect(output).toContain("API_URL=https://example.com");
+    expect(output).not.toContain("API_TOKEN");
+    expect(output).not.toContain("token-secret");
   });
 });

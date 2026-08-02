@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { assertNode24 } from "../../scripts/install-local-helpers.mjs";
 import {
   assertInstallerPrerequisites,
@@ -39,7 +40,8 @@ const sourceCommit = execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], {
   env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
 }).trim();
 const stageMarkerName = ".hush-stage-owner";
-const swappedAncestorError = /(?:path changed during install|directory is missing, symlinked, or not a directory)/i;
+const swappedAncestorError =
+  /(?:path changed during install|directory is missing, symlinked, or not a directory)/i;
 const installBin = join(sandbox, "bin");
 const runtimeBase = join(sandbox, "runtimes");
 const runtimeRoot = join(runtimeBase, sourceCommit);
@@ -108,16 +110,24 @@ async function waitForFile(path, timeoutMs = 30_000) {
 }
 
 async function startPausedInstaller(point, overrides = {}, base = env, installerPath = installer) {
-  const pauseRoot = join(fixtureBase, `pause-${point}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const pauseRoot = join(
+    fixtureBase,
+    `pause-${point}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
   mkdirSync(pauseRoot, { recursive: true });
   const marker = join(pauseRoot, "marker");
   const release = join(pauseRoot, "release");
-  const running = spawnInstaller([], {
-    ...overrides,
-    HUSH_INSTALL_TEST_PAUSE_AT: point,
-    HUSH_INSTALL_TEST_PAUSE_MARKER: marker,
-    HUSH_INSTALL_TEST_PAUSE_RELEASE: release,
-  }, base, installerPath);
+  const running = spawnInstaller(
+    [],
+    {
+      ...overrides,
+      HUSH_INSTALL_TEST_PAUSE_AT: point,
+      HUSH_INSTALL_TEST_PAUSE_MARKER: marker,
+      HUSH_INSTALL_TEST_PAUSE_RELEASE: release,
+    },
+    base,
+    installerPath,
+  );
   const paused = {
     ...running,
     marker,
@@ -157,9 +167,8 @@ function killIfRunning(pid, signal) {
 async function reapPausedInstaller(paused) {
   killIfRunning(paused.internalPid, "SIGTERM");
   releasePausedInstaller(paused);
-  const wait = (milliseconds) => new Promise(
-    (resolveTimeout) => setTimeout(() => resolveTimeout(undefined), milliseconds),
-  );
+  const wait = (milliseconds) =>
+    new Promise((resolveTimeout) => setTimeout(() => resolveTimeout(undefined), milliseconds));
   let result = await Promise.race([paused.done, wait(1_000)]);
   if (!result) {
     killIfRunning(paused.child.pid, "SIGTERM");
@@ -206,11 +215,9 @@ function writePrunableRuntime(path) {
 
 function writeStageMarker(path) {
   const metadata = lstatSync(path, { bigint: true });
-  writeFileSync(
-    join(path, stageMarkerName),
-    `hush-stage-v2\t${metadata.dev}\t${metadata.ino}\n`,
-    { mode: 0o400 },
-  );
+  writeFileSync(join(path, stageMarkerName), `hush-stage-v2\t${metadata.dev}\t${metadata.ino}\n`, {
+    mode: 0o400,
+  });
 }
 
 function writeEmptyPruneArtifact(parent) {
@@ -282,8 +289,16 @@ function assertSourceProvenance() {
   git("init", "-q");
   git("config", "user.name", "Hush Installer Test");
   git("config", "user.email", "hush-installer-test@example.invalid");
-  git("add", ".npmrc", "bun.lock", "docs/package.json", "hush-cli/bin/hush.js",
-    "hush-cli/package.json", "hush-cli/schema.json", "package.json");
+  git(
+    "add",
+    ".npmrc",
+    "bun.lock",
+    "docs/package.json",
+    "hush-cli/bin/hush.js",
+    "hush-cli/package.json",
+    "hush-cli/schema.json",
+    "package.json",
+  );
   git("commit", "-qm", "test fixture");
   const original = sourceIdentity(sourceRoot);
   assert.match(original.tracked.commit, /^[0-9a-f]{40}$/);
@@ -313,10 +328,7 @@ function assertSourceProvenance() {
   writeFileSync(outsideInput, "outside\n");
   rmSync(join(sourceRoot, ".npmrc"));
   symlinkSync(outsideInput, join(sourceRoot, ".npmrc"));
-  assert.throws(
-    () => sourceIdentity(sourceRoot),
-    /Hush runtime input symlink is forbidden/,
-  );
+  assert.throws(() => sourceIdentity(sourceRoot), /Hush runtime input symlink is forbidden/);
   rmSync(join(sourceRoot, ".npmrc"));
   writeFileSync(join(sourceRoot, ".npmrc"), "registry=https://example.invalid/\n");
 
@@ -327,10 +339,7 @@ function assertSourceProvenance() {
   mkdirSync(outsideBinPath);
   writeFileSync(join(outsideBinPath, "hush.js"), "");
   symlinkSync(outsideBinPath, binPath, "dir");
-  assert.throws(
-    () => sourceIdentity(sourceRoot),
-    /Hush runtime input symlink is forbidden/,
-  );
+  assert.throws(() => sourceIdentity(sourceRoot), /Hush runtime input symlink is forbidden/);
   rmSync(binPath);
   renameSync(originalBinPath, binPath);
 
@@ -353,17 +362,16 @@ function assertRuntimeFixtures() {
   mkdirSync(fixtureBase, { recursive: true });
   writeFileSync(outsideFile, "export default false;\n");
 
-  const internalRoot = writeRuntimeFixture("internal", { dependencies: { "@fixture/internal": "1.0.0" } });
+  const internalRoot = writeRuntimeFixture("internal", {
+    dependencies: { "@fixture/internal": "1.0.0" },
+  });
   const internalPackage = join(internalRoot, "hush-cli", "node_modules", "@fixture", "internal");
   writePackage(internalPackage, { name: "@fixture/internal", version: "1.0.0", main: "index.js" });
   assert.doesNotThrow(() => validateRuntimeGraph(internalRoot));
 
   const hardlinkAlias = join(internalRoot, "hardlink-alias.js");
   linkSync(join(internalPackage, "index.js"), hardlinkAlias);
-  assert.throws(
-    () => validateRuntimeGraph(internalRoot),
-    /Hush runtime hardlink is forbidden/,
-  );
+  assert.throws(() => validateRuntimeGraph(internalRoot), /Hush runtime hardlink is forbidden/);
   rmSync(hardlinkAlias);
 
   const nestedRoot = writeRuntimeFixture("nested", { dependencies: { "fixture-parent": "1.0.0" } });
@@ -428,8 +436,15 @@ function assertRuntimeFixtures() {
   symlinkSync(internalTarget, join(linkRoot, "internal-link.js"));
   assert.doesNotThrow(() => validateRuntimeGraph(linkRoot));
   const linkManifest = createRuntimeManifest(linkRoot, { commit: "fixture", tree: "fixture" });
-  assert.ok(linkManifest.files.some((entry) =>
-    entry.path === "internal-link.js" && entry.type === "symlink" && entry.resolved && entry.sha256));
+  assert.ok(
+    linkManifest.files.some(
+      (entry) =>
+        entry.path === "internal-link.js" &&
+        entry.type === "symlink" &&
+        entry.resolved &&
+        entry.sha256,
+    ),
+  );
   symlinkSync(outsideFile, join(linkRoot, "external-link.js"));
   assert.throws(
     () => validateRuntimeGraph(linkRoot),
@@ -457,9 +472,8 @@ function caseFoldAlias(path) {
   for (let index = path.length - 1; index >= 0; index--) {
     const character = path[index];
     if (!/[A-Za-z]/.test(character)) continue;
-    const replacement = character === character.toLowerCase()
-      ? character.toUpperCase()
-      : character.toLowerCase();
+    const replacement =
+      character === character.toLowerCase() ? character.toUpperCase() : character.toLowerCase();
     const candidate = `${path.slice(0, index)}${replacement}${path.slice(index + 1)}`;
     try {
       if (candidate !== path && realpathSync(candidate) === canonical) return candidate;
@@ -475,11 +489,9 @@ function shellQuote(value) {
 }
 
 function findExecutable(name) {
-  const result = spawnSync(
-    "sh",
-    ["-c", 'command -v "$1"', "hush-install-test", name],
-    { encoding: "utf8" },
-  );
+  const result = spawnSync("sh", ["-c", 'command -v "$1"', "hush-install-test", name], {
+    encoding: "utf8",
+  });
   if (result.status !== 0) return undefined;
   const path = result.stdout.trim();
   return path && isAbsolute(path) && existsSync(path) ? realpathSync(path) : undefined;
@@ -520,7 +532,9 @@ function setTestXattr(path) {
 
 function assertTestXattr(path, expected) {
   if (!expected) return;
-  const result = spawnSync("/usr/bin/xattr", ["-p", expected.attribute, path], { encoding: "utf8" });
+  const result = spawnSync("/usr/bin/xattr", ["-p", expected.attribute, path], {
+    encoding: "utf8",
+  });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trimEnd(), expected.value);
 }
@@ -537,19 +551,23 @@ async function main() {
   assert.throws(() => assertNode24("23.11.0"), /requires Node 24/);
   assert.doesNotThrow(() => assertNode24(process.version));
   assert.throws(
-    () => assertInstallerPrerequisites({
-      platform: "win32",
-      nodeVersion: process.version,
-      resolveTools: () => ({}),
-    }),
+    () =>
+      assertInstallerPrerequisites({
+        platform: "win32",
+        nodeVersion: process.version,
+        resolveTools: () => ({}),
+      }),
     (error) => error.code === "HUSH_INSTALL_UNSUPPORTED_PLATFORM",
   );
   assert.throws(
-    () => assertInstallerPrerequisites({
-      platform: "darwin",
-      nodeVersion: process.version,
-      resolveTools: () => { throw new Error("compiler missing"); },
-    }),
+    () =>
+      assertInstallerPrerequisites({
+        platform: "darwin",
+        nodeVersion: process.version,
+        resolveTools: () => {
+          throw new Error("compiler missing");
+        },
+      }),
     (error) => error.code === "HUSH_INSTALL_MISSING_PREREQUISITE",
   );
   const linuxSystemFiles = new Map([
@@ -580,18 +598,19 @@ async function main() {
     "/usr/local/bin/git",
   );
   assert.throws(
-    () => resolveSystemExecutable("Git", ["git"], true, {
-      directories: ["/tmp/hostile"],
-      pathExists: () => true,
-      canonicalize: (path) => path,
-      inspect: () => ({
-        uid: 501,
-        nlink: 1,
-        mode: 0o755,
-        isFile: () => true,
-        isSymbolicLink: () => false,
+    () =>
+      resolveSystemExecutable("Git", ["git"], true, {
+        directories: ["/tmp/hostile"],
+        pathExists: () => true,
+        canonicalize: (path) => path,
+        inspect: () => ({
+          uid: 501,
+          nlink: 1,
+          mode: 0o755,
+          isFile: () => true,
+          isSymbolicLink: () => false,
+        }),
       }),
-    }),
     /root-owned executable regular file/,
   );
   assert.doesNotThrow(() => assertInstallerPrerequisites());
@@ -608,13 +627,10 @@ async function main() {
   assert.equal(existsSync(checkOnlyRuntimeParent), false);
   assert.equal(existsSync(checkOnlyBin), false);
 
-  const unguardedInternal = runInstaller(
-    ["--internal-finalize-stage", "e30"],
-    {
-      HUSH_INSTALL_NATIVE_GUARDED: undefined,
-      HUSH_INSTALL_NATIVE_HELPER: undefined,
-    },
-  );
+  const unguardedInternal = runInstaller(["--internal-finalize-stage", "e30"], {
+    HUSH_INSTALL_NATIVE_GUARDED: undefined,
+    HUSH_INSTALL_NATIVE_HELPER: undefined,
+  });
   assert.notEqual(unguardedInternal.status, 0);
   assert.match(unguardedInternal.stderr, /requires the native install guard/);
   assert.equal(existsSync(join(neutralCwd, ".hush-runtime-manifest.json")), false);
@@ -692,8 +708,18 @@ async function main() {
   assert.equal(lstatSync(launcherPath).isSymbolicLink(), false);
   assert.equal(lstatSync(launcherPath).nlink, 1);
   assert.ok((lstatSync(launcherPath).mode & 0o111) !== 0);
-  assert.match(launcher, new RegExp(`exec '${realpathSync(process.execPath).replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
-  assert.match(launcher, new RegExp(`${join(runtimeRoot, "hush-cli", "bin", "hush.js").replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(
+    launcher,
+    new RegExp(
+      `exec '${realpathSync(process.execPath).replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`,
+    ),
+  );
+  assert.match(
+    launcher,
+    new RegExp(
+      `${join(runtimeRoot, "hush-cli", "bin", "hush.js").replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+    ),
+  );
   assert.doesNotMatch(launcher, /\/src\/ch5\/hush(?:\/|$)/);
   assert.doesNotMatch(launcher, /\bbun\b/);
   assert.ok(readFileSync(join(runtimeRoot, "hush-cli", "dist", "cli.js"), "utf8").length > 0);
@@ -702,8 +728,12 @@ async function main() {
   assert.match(manifest.source.tracked.tree, /^[0-9a-f]{40}$/);
   assert.match(manifest.source.build.sha256, /^[0-9a-f]{64}$/);
   assert.match(manifest.source.dependencies.sha256, /^[0-9a-f]{64}$/);
-  assert.ok(manifest.files.some((entry) => entry.path === stageMarkerName && entry.type === "file"));
-  assert.ok(manifest.files.some((entry) => entry.path === "hush-cli/dist" && entry.type === "directory"));
+  assert.ok(
+    manifest.files.some((entry) => entry.path === stageMarkerName && entry.type === "file"),
+  );
+  assert.ok(
+    manifest.files.some((entry) => entry.path === "hush-cli/dist" && entry.type === "directory"),
+  );
   assert.ok(manifest.files.some((entry) => entry.path === "hush-cli/dist/cli.js" && entry.sha256));
   assert.equal(lstatSync(manifestPath).mode & 0o777, 0o444);
   assert.equal(lstatSync(manifestPath).nlink, 1);
@@ -732,12 +762,19 @@ async function main() {
   assert.equal(staleRecovery.status, 0, staleRecovery.stderr);
   assert.equal(existsSync(checkPreservedStage), false);
 
-  const version = spawnSync(launcherPath, ["--version"], { cwd: neutralCwd, env, encoding: "utf8" });
+  const version = spawnSync(launcherPath, ["--version"], {
+    cwd: neutralCwd,
+    env,
+    encoding: "utf8",
+  });
   assert.equal(version.status, 0, version.stderr);
   assert.match(version.stdout, /^\d+\.\d+\.\d+\s*$/);
   const preloadMarker = join(sandbox, "preload-ran");
   const preload = join(sandbox, "ambient-preload.cjs");
-  writeFileSync(preload, `require("node:fs").writeFileSync(${JSON.stringify(preloadMarker)}, "ran");\n`);
+  writeFileSync(
+    preload,
+    `require("node:fs").writeFileSync(${JSON.stringify(preloadMarker)}, "ran");\n`,
+  );
   const isolatedVersion = spawnSync(launcherPath, ["--version"], {
     cwd: neutralCwd,
     env: {
@@ -779,11 +816,16 @@ async function main() {
   const sourceAlias = caseFoldAlias(caseAliasSource.root);
   if (sourceAlias) {
     const physicalOverlapRuntimeParent = join(sandbox, "case-fold-runtime-parent");
-    const physicalRuntimeOverlap = runInstaller([], {
-      HUSH_INSTALL_RUNTIME_ROOT: join(sourceAlias, caseAliasSource.commit),
-      HUSH_INSTALL_BIN_DIR: join(sandbox, "case-fold-runtime-bin"),
-      HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
-    }, process.env, caseAliasSource.installer);
+    const physicalRuntimeOverlap = runInstaller(
+      [],
+      {
+        HUSH_INSTALL_RUNTIME_ROOT: join(sourceAlias, caseAliasSource.commit),
+        HUSH_INSTALL_BIN_DIR: join(sandbox, "case-fold-runtime-bin"),
+        HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
+      },
+      process.env,
+      caseAliasSource.installer,
+    );
     assert.notEqual(physicalRuntimeOverlap.status, 0);
     assert.match(physicalRuntimeOverlap.stderr, /HUSH_INSTALL_ROOT_OVERLAP/);
     assert.equal(existsSync(join(caseAliasSource.root, caseAliasSource.commit)), false);
@@ -791,11 +833,16 @@ async function main() {
     mkdirSync(physicalOverlapRuntimeParent);
     const runtimeParentAlias = caseFoldAlias(physicalOverlapRuntimeParent);
     assert.ok(runtimeParentAlias);
-    const physicalBinOverlap = runInstaller([], {
-      HUSH_INSTALL_RUNTIME_ROOT: join(physicalOverlapRuntimeParent, caseAliasSource.commit),
-      HUSH_INSTALL_BIN_DIR: runtimeParentAlias,
-      HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
-    }, process.env, caseAliasSource.installer);
+    const physicalBinOverlap = runInstaller(
+      [],
+      {
+        HUSH_INSTALL_RUNTIME_ROOT: join(physicalOverlapRuntimeParent, caseAliasSource.commit),
+        HUSH_INSTALL_BIN_DIR: runtimeParentAlias,
+        HUSH_INSTALL_SKIP_SHADOW_CHECK: "1",
+      },
+      process.env,
+      caseAliasSource.installer,
+    );
     assert.notEqual(physicalBinOverlap.status, 0);
     assert.match(physicalBinOverlap.stderr, /HUSH_INSTALL_ROOT_OVERLAP/);
   }
@@ -863,13 +910,19 @@ async function main() {
   writeFileSync(runtimeCliPath, Buffer.concat([runtimeCli, Buffer.from("\n")]));
   const runtimeHashDrift = runInstaller(["--check"]);
   assert.notEqual(runtimeHashDrift.status, 0);
-  assert.match(runtimeHashDrift.stderr, /Hush runtime manifest drift: changed hush-cli\/dist\/cli\.js/);
+  assert.match(
+    runtimeHashDrift.stderr,
+    /Hush runtime manifest drift: changed hush-cli\/dist\/cli\.js/,
+  );
   writeFileSync(runtimeCliPath, runtimeCli, { mode: runtimeCliMode });
 
   chmodSync(runtimeCliPath, runtimeCliMode ^ 0o100);
   const runtimeModeDrift = runInstaller(["--check"]);
   assert.notEqual(runtimeModeDrift.status, 0);
-  assert.match(runtimeModeDrift.stderr, /Hush runtime manifest drift: changed hush-cli\/dist\/cli\.js/);
+  assert.match(
+    runtimeModeDrift.stderr,
+    /Hush runtime manifest drift: changed hush-cli\/dist\/cli\.js/,
+  );
   chmodSync(runtimeCliPath, runtimeCliMode);
 
   const runtimeDistPath = join(runtimeRoot, "hush-cli", "dist");
@@ -877,7 +930,10 @@ async function main() {
   chmodSync(runtimeDistPath, runtimeDistMode ^ 0o1000);
   const runtimeDirectoryModeDrift = runInstaller(["--check"]);
   assert.notEqual(runtimeDirectoryModeDrift.status, 0);
-  assert.match(runtimeDirectoryModeDrift.stderr, /Hush runtime manifest drift: changed hush-cli\/dist/);
+  assert.match(
+    runtimeDirectoryModeDrift.stderr,
+    /Hush runtime manifest drift: changed hush-cli\/dist/,
+  );
   chmodSync(runtimeDistPath, runtimeDistMode);
 
   const manifestText = readFileSync(manifestPath, "utf8");
@@ -967,9 +1023,14 @@ async function main() {
   const staleLauncherRaceResult = await staleLauncherRace.done;
   assert.notEqual(staleLauncherRaceResult.status, 0);
   assert.match(staleLauncherRaceResult.stderr, /quarantined stale launcher changed during cleanup/);
-  const launcherQuarantines = readdirSync(installBin).filter((name) => name.startsWith(".hush-bin-prune-"));
+  const launcherQuarantines = readdirSync(installBin).filter((name) =>
+    name.startsWith(".hush-bin-prune-"),
+  );
   assert.equal(launcherQuarantines.length, 1);
-  assert.equal(readFileSync(join(installBin, launcherQuarantines[0]), "utf8"), "replacement launcher\n");
+  assert.equal(
+    readFileSync(join(installBin, launcherQuarantines[0]), "utf8"),
+    "replacement launcher\n",
+  );
   assert.equal(readFileSync(preservedStaleLauncher, "utf8"), "stale launcher\n");
   assert.equal(existsSync(staleLauncherPath), false);
   rmSync(join(installBin, launcherQuarantines[0]));
@@ -990,25 +1051,44 @@ async function main() {
   assert.match(hardlinkedRuntimeCheck.stderr, /Hush runtime hardlink is forbidden/);
   rmSync(runtimeHardlink);
 
-  const runtimeDependencyPackage = join(runtimeRoot, "hush-cli", "node_modules", "picocolors", "package.json");
+  const runtimeDependencyPackage = join(
+    runtimeRoot,
+    "hush-cli",
+    "node_modules",
+    "picocolors",
+    "package.json",
+  );
   const runtimeDependencyPackageText = readFileSync(runtimeDependencyPackage);
-  writeFileSync(runtimeDependencyPackage, Buffer.concat([runtimeDependencyPackageText, Buffer.from("\n")]));
+  writeFileSync(
+    runtimeDependencyPackage,
+    Buffer.concat([runtimeDependencyPackageText, Buffer.from("\n")]),
+  );
   const dependencyTamper = runInstaller(["--check"]);
   assert.notEqual(dependencyTamper.status, 0);
-  assert.match(dependencyTamper.stderr, /Hush runtime manifest drift: changed hush-cli\/node_modules\/picocolors/);
+  assert.match(
+    dependencyTamper.stderr,
+    /Hush runtime manifest drift: changed hush-cli\/node_modules\/picocolors/,
+  );
   writeFileSync(runtimeDependencyPackage, runtimeDependencyPackageText);
 
   const unexpectedRuntimeFile = join(runtimeRoot, "hush-cli", "node_modules", "tampered.js");
   writeFileSync(unexpectedRuntimeFile, "tampered\n");
   const unexpectedFile = runInstaller(["--check"]);
   assert.notEqual(unexpectedFile.status, 0);
-  assert.match(unexpectedFile.stderr, /Hush runtime manifest drift: unexpected hush-cli\/node_modules\/tampered\.js/);
+  assert.match(
+    unexpectedFile.stderr,
+    /Hush runtime manifest drift: unexpected hush-cli\/node_modules\/tampered\.js/,
+  );
   rmSync(unexpectedRuntimeFile);
 
   const runtimeDependency = join(runtimeRoot, "hush-cli", "node_modules", "picocolors");
   const runtimeDependencyCopy = join(runtimeRoot, "picocolors-copy");
   renameSync(runtimeDependency, runtimeDependencyCopy);
-  symlinkSync(realpathSync(join(root, "hush-cli", "node_modules", "picocolors")), runtimeDependency, "dir");
+  symlinkSync(
+    realpathSync(join(root, "hush-cli", "node_modules", "picocolors")),
+    runtimeDependency,
+    "dir",
+  );
   const externalLink = runInstaller(["--check"]);
   assert.notEqual(externalLink.status, 0);
   assert.match(externalLink.stderr, /Hush runtime symlink escapes runtime/);
@@ -1042,559 +1122,570 @@ async function main() {
   assert.equal(existsSync(hostileCallerMarker), false);
   assert.doesNotMatch(trustedAccountShell.stderr, /exited 99/);
 
-
   const zshPath = findExecutable("zsh");
   if (process.platform === "darwin") {
     assert.ok(zshPath, "zsh is required for macOS installer verification");
   }
   if (zshPath) {
-  const noEnvHome = join(sandbox, "no-env-home");
-  const noEnvZdot = join(noEnvHome, "zdot");
-  const noEnvBin = join(noEnvHome, ".local", "bin");
-  const stalePnpmBin = join(noEnvHome, "Library", "pnpm", "bin");
-  const noEnvShell = join(sandbox, "actual-zsh-login-wrapper");
-  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-  const noEnvRuntime = join(noEnvHome, ".local", "state", "hush", "runtimes", commit);
-  mkdirSync(noEnvHome);
-  mkdirSync(noEnvZdot);
-  mkdirSync(stalePnpmBin, { recursive: true });
-  writeExecShell(noEnvShell, zshPath);
-  writeFileSync(join(stalePnpmBin, "hush"), "#!/bin/sh\nprintf '7.5.0\\n'\n", { mode: 0o755 });
-  const bunPath = execFileSync("bun", ["-e", "console.log(process.execPath)"], {
-    cwd: root,
-    encoding: "utf8",
-  }).trim();
-  const loginPath = [
-    stalePnpmBin,
-    dirname(bunPath),
-    dirname(process.execPath),
-    noEnvBin,
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-  ].join(":");
-  const noEnvZshrc = `export PATH=${JSON.stringify(loginPath)}\n`;
-  const noEnvZshenv = 'export ZDOTDIR="$HOME/zdot"\n';
-  const markerSubstring = "# user text mentions # >>> hush managed login PATH >>> but is not a marker\n";
-  const noEnvZlogin = join(noEnvZdot, ".zlogin");
-  writeFileSync(join(noEnvHome, ".zshenv"), noEnvZshenv);
-  writeFileSync(join(noEnvZdot, ".zshrc"), noEnvZshrc);
-  writeFileSync(noEnvZlogin, markerSubstring, { mode: 0o640 });
-  chmodSync(noEnvZlogin, 0o640);
-  utimesSync(noEnvZlogin, 1_600_000_000, 1_600_000_000);
-  const noEnvMtimeNs = statSync(noEnvZlogin, { bigint: true }).mtimeNs;
-  const noEnvXattr = setTestXattr(noEnvZlogin);
-  const noEnvOverrides = {
-    HOME: noEnvHome,
-    PATH: loginPath,
-    SHELL: noEnvShell,
-    HUSH_INSTALL_BIN_DIR: undefined,
-    HUSH_INSTALL_RUNTIME_ROOT: undefined,
-    HUSH_INSTALL_SKIP_SHADOW_CHECK: undefined,
-    NODE_OPTIONS: undefined,
-    NODE_PATH: undefined,
-    ZDOTDIR: undefined,
-  };
-  const noEnvInstall = runInstaller([], noEnvOverrides, process.env);
-  assert.equal(noEnvInstall.status, 0, noEnvInstall.stderr);
-  assert.doesNotMatch(noEnvInstall.stderr, /SHADOWED INSTALL|not delivered/);
-  const noEnvLauncher = join(noEnvBin, "hush");
-  const noEnvLauncherText = readFileSync(noEnvLauncher, "utf8");
-  const noEnvZloginText = readFileSync(noEnvZlogin, "utf8");
-  const noEnvManifest = JSON.parse(readFileSync(join(noEnvRuntime, ".hush-runtime-manifest.json"), "utf8"));
-  assert.equal(readFileSync(join(noEnvHome, ".zshenv"), "utf8"), noEnvZshenv);
-  assert.equal(readFileSync(join(noEnvZdot, ".zshrc"), "utf8"), noEnvZshrc);
-  assert.match(noEnvZloginText, /hush managed login PATH/);
-  assert.match(noEnvZloginText, new RegExp(markerSubstring.trim().replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.equal(
-    noEnvZloginText.split(/\r?\n/).filter((line) => line === "# >>> hush managed login PATH >>>").length,
-    1,
-  );
-  assert.equal(lstatSync(noEnvZlogin).mode & 0o777, 0o640);
-  assert.equal(statSync(noEnvZlogin, { bigint: true }).mtimeNs, noEnvMtimeNs);
-  assertTestXattr(noEnvZlogin, noEnvXattr);
-  assert.match(noEnvLauncherText, new RegExp(noEnvRuntime.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.equal(noEnvLauncherText.includes(root), false);
-  assert.doesNotMatch(noEnvLauncherText, /\/src\/ch5\/hush(?:\/|$)/);
-  assert.equal(noEnvManifest.source.tracked.commit, commit);
-  const expectedVersion = JSON.parse(readFileSync(join(root, "hush-cli", "package.json"), "utf8")).version;
-  const noEnvLogin = spawnSync(
-    "/usr/bin/env",
-    [
-      "-i",
-      `HOME=${noEnvHome}`,
-      `USER=${process.env.USER || "hush-test"}`,
-      `LOGNAME=${process.env.LOGNAME || process.env.USER || "hush-test"}`,
-      `SHELL=${noEnvShell}`,
-      "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
-      noEnvShell,
-      "-lic",
-      "printf '%s\\n' \"$(command -v hush)\" \"$(hush --version)\"",
-    ],
-    { cwd: neutralCwd, encoding: "utf8" },
-  );
-  assert.equal(noEnvLogin.status, 0, noEnvLogin.stderr);
-  assert.deepEqual(
-    noEnvLogin.stdout.trim().split(/\r?\n/).slice(-2),
-    [noEnvLauncher, expectedVersion],
-  );
-  const noEnvCheck = runInstaller(["--check"], noEnvOverrides, process.env);
-  assert.equal(noEnvCheck.status, 0, noEnvCheck.stderr);
-  assert.doesNotMatch(noEnvCheck.stderr, /SHADOWED INSTALL|not delivered/);
-  const detachedConsumer = spawnSync("hush", ["--version"], {
-    cwd: neutralCwd,
-    env: {
+    const noEnvHome = join(sandbox, "no-env-home");
+    const noEnvZdot = join(noEnvHome, "zdot");
+    const noEnvBin = join(noEnvHome, ".local", "bin");
+    const stalePnpmBin = join(noEnvHome, "Library", "pnpm", "bin");
+    const noEnvShell = join(sandbox, "actual-zsh-login-wrapper");
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    const noEnvRuntime = join(noEnvHome, ".local", "state", "hush", "runtimes", commit);
+    mkdirSync(noEnvHome);
+    mkdirSync(noEnvZdot);
+    mkdirSync(stalePnpmBin, { recursive: true });
+    writeExecShell(noEnvShell, zshPath);
+    writeFileSync(join(stalePnpmBin, "hush"), "#!/bin/sh\nprintf '7.5.0\\n'\n", { mode: 0o755 });
+    const bunPath = execFileSync("bun", ["-e", "console.log(process.execPath)"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    const loginPath = [
+      stalePnpmBin,
+      dirname(bunPath),
+      dirname(process.execPath),
+      noEnvBin,
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+    ].join(":");
+    const noEnvZshrc = `export PATH=${JSON.stringify(loginPath)}\n`;
+    const noEnvZshenv = 'export ZDOTDIR="$HOME/zdot"\n';
+    const markerSubstring =
+      "# user text mentions # >>> hush managed login PATH >>> but is not a marker\n";
+    const noEnvZlogin = join(noEnvZdot, ".zlogin");
+    writeFileSync(join(noEnvHome, ".zshenv"), noEnvZshenv);
+    writeFileSync(join(noEnvZdot, ".zshrc"), noEnvZshrc);
+    writeFileSync(noEnvZlogin, markerSubstring, { mode: 0o640 });
+    chmodSync(noEnvZlogin, 0o640);
+    utimesSync(noEnvZlogin, 1_600_000_000, 1_600_000_000);
+    const noEnvMtimeNs = statSync(noEnvZlogin, { bigint: true }).mtimeNs;
+    const noEnvXattr = setTestXattr(noEnvZlogin);
+    const noEnvOverrides = {
       HOME: noEnvHome,
-      PATH: `${noEnvBin}:/usr/bin:/bin`,
-      HUSH_NO_UPDATE_CHECK: "1",
-    },
-    encoding: "utf8",
-  });
-  assert.equal(detachedConsumer.status, 0, detachedConsumer.stderr);
-  assert.match(detachedConsumer.stdout, /^\d+\.\d+\.\d+\s*$/);
-  const sourceCheckout = runInstaller(
-    ["--source-checkout"],
-    noEnvOverrides,
-    process.env,
-  );
-  assert.equal(sourceCheckout.status, 0, sourceCheckout.stderr);
-  assert.match(sourceCheckout.stdout, /hush-cli\/bin\/hush\.js/);
-  assert.match(sourceCheckout.stderr, /managed launcher unchanged/);
-  assert.equal(readFileSync(noEnvLauncher, "utf8"), noEnvLauncherText);
-
-  const invalidUtf8 = writeZshFixture(
-    "invalid-utf8-home",
-    zshPath,
-    Buffer.concat([Buffer.from("# invalid comment "), Buffer.from([0xff]), Buffer.from("\n")]),
-  );
-  const invalidUtf8Content = readFileSync(invalidUtf8.startup);
-  const invalidUtf8Install = runInstaller([], loginOverrides(invalidUtf8));
-  assert.notEqual(invalidUtf8Install.status, 0);
-  assert.match(invalidUtf8Install.stderr, /not valid UTF-8/);
-  assert.deepEqual(readFileSync(invalidUtf8.startup), invalidUtf8Content);
-
-  const malformedMarkerText = [
-    "# >>> hush managed login PATH >>>",
-    "# malformed user block",
-    "export PATH='/tmp':\"$PATH\"",
-    "# <<< hush managed login PATH <<<",
-    "",
-  ].join("\n");
-  const malformedMarker = writeZshFixture("malformed-marker-home", zshPath, malformedMarkerText);
-  const malformedMarkerInstall = runInstaller([], loginOverrides(malformedMarker));
-  assert.notEqual(malformedMarkerInstall.status, 0);
-  assert.match(malformedMarkerInstall.stderr, /managed login PATH block is malformed/);
-  assert.equal(readFileSync(malformedMarker.startup, "utf8"), malformedMarkerText);
-
-  const emptyZdotdir = writeZshFixture(
-    "empty-zdotdir-home",
-    zshPath,
-    "# empty ZDOTDIR must not redirect startup writes\n",
-  );
-  writeFileSync(join(emptyZdotdir.home, ".zshenv"), 'export ZDOTDIR=""\n');
-  const emptyZdotdirInstall = runInstaller([], loginOverrides(emptyZdotdir));
-  assert.notEqual(emptyZdotdirInstall.status, 0);
-  assert.match(emptyZdotdirInstall.stderr, /ZDOTDIR must not be empty/);
-  assert.equal(
-    readFileSync(emptyZdotdir.startup, "utf8"),
-    "# empty ZDOTDIR must not redirect startup writes\n",
-  );
-
-  const negativeMtime = writeZshFixture(
-    "negative-mtime-home",
-    zshPath,
-    "# pre-epoch startup metadata\n",
-  );
-  utimesSync(negativeMtime.startup, new Date(-1_000), new Date(-1_000));
-  const negativeMtimeInstall = runInstaller([], loginOverrides(negativeMtime));
-  assert.equal(negativeMtimeInstall.status, 0, negativeMtimeInstall.stderr);
-  assert.equal(
-    statSync(negativeMtime.startup, { bigint: true }).mtimeNs,
-    -1_000_000_000n,
-  );
-
-  if (process.platform === "darwin") {
-    const inheritedAcl = writeZshFixture("inherited-acl-home", zshPath);
-    const username = execFileSync("/usr/bin/id", ["-un"], { encoding: "utf8" }).trim();
-    const aclResult = spawnSync(
-      "/bin/chmod",
-      ["+a", `${username} allow read,write,add_file,file_inherit`, inheritedAcl.home],
-      { encoding: "utf8" },
+      PATH: loginPath,
+      SHELL: noEnvShell,
+      HUSH_INSTALL_BIN_DIR: undefined,
+      HUSH_INSTALL_RUNTIME_ROOT: undefined,
+      HUSH_INSTALL_SKIP_SHADOW_CHECK: undefined,
+      NODE_OPTIONS: undefined,
+      NODE_PATH: undefined,
+      ZDOTDIR: undefined,
+    };
+    const noEnvInstall = runInstaller([], noEnvOverrides, process.env);
+    assert.equal(noEnvInstall.status, 0, noEnvInstall.stderr);
+    assert.doesNotMatch(noEnvInstall.stderr, /SHADOWED INSTALL|not delivered/);
+    const noEnvLauncher = join(noEnvBin, "hush");
+    const noEnvLauncherText = readFileSync(noEnvLauncher, "utf8");
+    const noEnvZloginText = readFileSync(noEnvZlogin, "utf8");
+    const noEnvManifest = JSON.parse(
+      readFileSync(join(noEnvRuntime, ".hush-runtime-manifest.json"), "utf8"),
     );
-    assert.equal(aclResult.status, 0, aclResult.stderr);
-    const inheritedAclInstall = runInstaller([], loginOverrides(inheritedAcl));
-    assert.notEqual(inheritedAclInstall.status, 0);
-    assert.match(inheritedAclInstall.stderr, /inherited an ACL/);
-    assert.equal(existsSync(inheritedAcl.startup), false);
+    assert.equal(readFileSync(join(noEnvHome, ".zshenv"), "utf8"), noEnvZshenv);
+    assert.equal(readFileSync(join(noEnvZdot, ".zshrc"), "utf8"), noEnvZshrc);
+    assert.match(noEnvZloginText, /hush managed login PATH/);
+    assert.match(
+      noEnvZloginText,
+      new RegExp(markerSubstring.trim().replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
     assert.equal(
-      readdirSync(inheritedAcl.home).some((name) => name.startsWith(".hush-login-claim-")),
-      true,
+      noEnvZloginText.split(/\r?\n/).filter((line) => line === "# >>> hush managed login PATH >>>")
+        .length,
+      1,
     );
+    assert.equal(lstatSync(noEnvZlogin).mode & 0o777, 0o640);
+    assert.equal(statSync(noEnvZlogin, { bigint: true }).mtimeNs, noEnvMtimeNs);
+    assertTestXattr(noEnvZlogin, noEnvXattr);
+    assert.match(
+      noEnvLauncherText,
+      new RegExp(noEnvRuntime.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+    assert.equal(noEnvLauncherText.includes(root), false);
+    assert.doesNotMatch(noEnvLauncherText, /\/src\/ch5\/hush(?:\/|$)/);
+    assert.equal(noEnvManifest.source.tracked.commit, commit);
+    const expectedVersion = JSON.parse(
+      readFileSync(join(root, "hush-cli", "package.json"), "utf8"),
+    ).version;
+    const noEnvLogin = spawnSync(
+      "/usr/bin/env",
+      [
+        "-i",
+        `HOME=${noEnvHome}`,
+        `USER=${process.env.USER || "hush-test"}`,
+        `LOGNAME=${process.env.LOGNAME || process.env.USER || "hush-test"}`,
+        `SHELL=${noEnvShell}`,
+        "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+        noEnvShell,
+        "-lic",
+        'printf \'%s\\n\' "$(command -v hush)" "$(hush --version)"',
+      ],
+      { cwd: neutralCwd, encoding: "utf8" },
+    );
+    assert.equal(noEnvLogin.status, 0, noEnvLogin.stderr);
+    assert.deepEqual(noEnvLogin.stdout.trim().split(/\r?\n/).slice(-2), [
+      noEnvLauncher,
+      expectedVersion,
+    ]);
+    const noEnvCheck = runInstaller(["--check"], noEnvOverrides, process.env);
+    assert.equal(noEnvCheck.status, 0, noEnvCheck.stderr);
+    assert.doesNotMatch(noEnvCheck.stderr, /SHADOWED INSTALL|not delivered/);
+    const detachedConsumer = spawnSync("hush", ["--version"], {
+      cwd: neutralCwd,
+      env: {
+        HOME: noEnvHome,
+        PATH: `${noEnvBin}:/usr/bin:/bin`,
+        HUSH_NO_UPDATE_CHECK: "1",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(detachedConsumer.status, 0, detachedConsumer.stderr);
+    assert.match(detachedConsumer.stdout, /^\d+\.\d+\.\d+\s*$/);
+    const sourceCheckout = runInstaller(["--source-checkout"], noEnvOverrides, process.env);
+    assert.equal(sourceCheckout.status, 0, sourceCheckout.stderr);
+    assert.match(sourceCheckout.stdout, /hush-cli\/bin\/hush\.js/);
+    assert.match(sourceCheckout.stderr, /managed launcher unchanged/);
+    assert.equal(readFileSync(noEnvLauncher, "utf8"), noEnvLauncherText);
 
-    const xattrRace = writeZshFixture(
-      "login-xattr-race-home",
+    const invalidUtf8 = writeZshFixture(
+      "invalid-utf8-home",
       zshPath,
-      "# original xattr target\n",
+      Buffer.concat([Buffer.from("# invalid comment "), Buffer.from([0xff]), Buffer.from("\n")]),
     );
-    const xattrRaceState = setTestXattr(xattrRace.startup);
-    const xattrRacePause = await startPausedInstaller(
-      "during-login-metadata-copy",
-      loginOverrides(xattrRace),
+    const invalidUtf8Content = readFileSync(invalidUtf8.startup);
+    const invalidUtf8Install = runInstaller([], loginOverrides(invalidUtf8));
+    assert.notEqual(invalidUtf8Install.status, 0);
+    assert.match(invalidUtf8Install.stderr, /not valid UTF-8/);
+    assert.deepEqual(readFileSync(invalidUtf8.startup), invalidUtf8Content);
+
+    const malformedMarkerText = [
+      "# >>> hush managed login PATH >>>",
+      "# malformed user block",
+      "export PATH='/tmp':\"$PATH\"",
+      "# <<< hush managed login PATH <<<",
+      "",
+    ].join("\n");
+    const malformedMarker = writeZshFixture("malformed-marker-home", zshPath, malformedMarkerText);
+    const malformedMarkerInstall = runInstaller([], loginOverrides(malformedMarker));
+    assert.notEqual(malformedMarkerInstall.status, 0);
+    assert.match(malformedMarkerInstall.stderr, /managed login PATH block is malformed/);
+    assert.equal(readFileSync(malformedMarker.startup, "utf8"), malformedMarkerText);
+
+    const emptyZdotdir = writeZshFixture(
+      "empty-zdotdir-home",
+      zshPath,
+      "# empty ZDOTDIR must not redirect startup writes\n",
     );
-    const changedXattr = spawnSync(
-      "/usr/bin/xattr",
-      ["-w", xattrRaceState.attribute, "changed", xattrRace.startup],
-      { encoding: "utf8" },
-    );
-    assert.equal(changedXattr.status, 0, changedXattr.stderr);
-    releasePausedInstaller(xattrRacePause);
-    const xattrRaceResult = await xattrRacePause.done;
-    assert.notEqual(xattrRaceResult.status, 0);
-    assert.match(xattrRaceResult.stderr, /ACL or extended attributes changed during copy/);
-    assert.equal(readFileSync(xattrRace.startup, "utf8"), "# original xattr target\n");
+    writeFileSync(join(emptyZdotdir.home, ".zshenv"), 'export ZDOTDIR=""\n');
+    const emptyZdotdirInstall = runInstaller([], loginOverrides(emptyZdotdir));
+    assert.notEqual(emptyZdotdirInstall.status, 0);
+    assert.match(emptyZdotdirInstall.stderr, /ZDOTDIR must not be empty/);
     assert.equal(
-      readdirSync(xattrRace.home).some((name) => name.startsWith(".hush-login-claim-")),
-      true,
+      readFileSync(emptyZdotdir.startup, "utf8"),
+      "# empty ZDOTDIR must not redirect startup writes\n",
     );
 
-    const aclRace = writeZshFixture(
-      "login-acl-race-home",
+    const negativeMtime = writeZshFixture(
+      "negative-mtime-home",
       zshPath,
-      "# original ACL target\n",
+      "# pre-epoch startup metadata\n",
     );
-    const initialAcl = spawnSync(
-      "/bin/chmod",
-      ["+a", `${username} allow read`, aclRace.startup],
-      { encoding: "utf8" },
-    );
-    assert.equal(initialAcl.status, 0, initialAcl.stderr);
-    const aclRacePause = await startPausedInstaller(
-      "during-login-metadata-copy",
-      loginOverrides(aclRace),
-    );
-    const changedAcl = spawnSync(
-      "/bin/chmod",
-      ["+a", `${username} deny write`, aclRace.startup],
-      { encoding: "utf8" },
-    );
-    assert.equal(changedAcl.status, 0, changedAcl.stderr);
-    releasePausedInstaller(aclRacePause);
-    const aclRaceResult = await aclRacePause.done;
-    assert.notEqual(aclRaceResult.status, 0);
-    assert.match(aclRaceResult.stderr, /ACL or extended attributes changed during copy/);
-    assert.equal(readFileSync(aclRace.startup, "utf8"), "# original ACL target\n");
-    assert.equal(
-      readdirSync(aclRace.home).some((name) => name.startsWith(".hush-login-claim-")),
-      true,
-    );
-  }
+    utimesSync(negativeMtime.startup, new Date(-1_000), new Date(-1_000));
+    const negativeMtimeInstall = runInstaller([], loginOverrides(negativeMtime));
+    assert.equal(negativeMtimeInstall.status, 0, negativeMtimeInstall.stderr);
+    assert.equal(statSync(negativeMtime.startup, { bigint: true }).mtimeNs, -1_000_000_000n);
 
-  const parentRace = writeZshFixture("login-parent-race-home", zshPath);
-  const parentRaceOutside = join(sandbox, "login-parent-race-outside");
-  const parentRacePause = await startPausedInstaller(
-    "after-login-temp-create",
-    loginOverrides(parentRace),
-  );
-  const restoreParentRace = swapDirectory(parentRace.home, parentRaceOutside);
-  releasePausedInstaller(parentRacePause);
-  const parentRaceResult = await parentRacePause.done;
-  assert.notEqual(parentRaceResult.status, 0);
-  assert.match(parentRaceResult.stderr, /startup directory changed during publish/);
-  assertOutsideEmpty(parentRaceOutside);
-  restoreParentRace();
-  assert.equal(existsSync(parentRace.startup), false);
-  assert.equal(
-    readdirSync(parentRace.home).some((name) => name.startsWith(".hush-login-claim-")),
-    true,
-  );
+    if (process.platform === "darwin") {
+      const inheritedAcl = writeZshFixture("inherited-acl-home", zshPath);
+      const username = execFileSync("/usr/bin/id", ["-un"], { encoding: "utf8" }).trim();
+      const aclResult = spawnSync(
+        "/bin/chmod",
+        ["+a", `${username} allow read,write,add_file,file_inherit`, inheritedAcl.home],
+        { encoding: "utf8" },
+      );
+      assert.equal(aclResult.status, 0, aclResult.stderr);
+      const inheritedAclInstall = runInstaller([], loginOverrides(inheritedAcl));
+      assert.notEqual(inheritedAclInstall.status, 0);
+      assert.match(inheritedAclInstall.stderr, /inherited an ACL/);
+      assert.equal(existsSync(inheritedAcl.startup), false);
+      assert.equal(
+        readdirSync(inheritedAcl.home).some((name) => name.startsWith(".hush-login-claim-")),
+        true,
+      );
 
-  const metadataRace = writeZshFixture(
-    "login-metadata-race-home",
-    zshPath,
-    "# original metadata target\n",
-  );
-  chmodSync(metadataRace.startup, 0o640);
-  const metadataRacePause = await startPausedInstaller(
-    "after-login-temp-create",
-    loginOverrides(metadataRace),
-  );
-  chmodSync(metadataRace.startup, 0o600);
-  releasePausedInstaller(metadataRacePause);
-  const metadataRaceResult = await metadataRacePause.done;
-  assert.notEqual(metadataRaceResult.status, 0);
-  assert.match(metadataRaceResult.stderr, /startup file changed during publish/);
-  assert.equal(readFileSync(metadataRace.startup, "utf8"), "# original metadata target\n");
-  assert.equal(lstatSync(metadataRace.startup).mode & 0o777, 0o600);
-  assert.equal(
-    readdirSync(metadataRace.home).some((name) => name.startsWith(".hush-login-claim-")),
-    true,
-  );
+      const xattrRace = writeZshFixture(
+        "login-xattr-race-home",
+        zshPath,
+        "# original xattr target\n",
+      );
+      const xattrRaceState = setTestXattr(xattrRace.startup);
+      const xattrRacePause = await startPausedInstaller(
+        "during-login-metadata-copy",
+        loginOverrides(xattrRace),
+      );
+      const changedXattr = spawnSync(
+        "/usr/bin/xattr",
+        ["-w", xattrRaceState.attribute, "changed", xattrRace.startup],
+        { encoding: "utf8" },
+      );
+      assert.equal(changedXattr.status, 0, changedXattr.stderr);
+      releasePausedInstaller(xattrRacePause);
+      const xattrRaceResult = await xattrRacePause.done;
+      assert.notEqual(xattrRaceResult.status, 0);
+      assert.match(xattrRaceResult.stderr, /ACL or extended attributes changed during copy/);
+      assert.equal(readFileSync(xattrRace.startup, "utf8"), "# original xattr target\n");
+      assert.equal(
+        readdirSync(xattrRace.home).some((name) => name.startsWith(".hush-login-claim-")),
+        true,
+      );
 
-  const temporaryMetadataRace = writeZshFixture(
-    "login-temp-metadata-race-home",
-    zshPath,
-    "# original temp metadata target\n",
-  );
-  const temporaryMetadataPause = await startPausedInstaller(
-    "after-login-temp-create",
-    loginOverrides(temporaryMetadataRace),
-  );
-  const temporaryMetadataNames = readdirSync(temporaryMetadataRace.home)
-    .filter((name) => name.startsWith(".hush-login-"));
-  assert.equal(temporaryMetadataNames.length, 1);
-  const temporaryMetadataPath = join(temporaryMetadataRace.home, temporaryMetadataNames[0]);
-  chmodSync(temporaryMetadataPath, 0o600);
-  releasePausedInstaller(temporaryMetadataPause);
-  const temporaryMetadataResult = await temporaryMetadataPause.done;
-  assert.notEqual(temporaryMetadataResult.status, 0);
-  assert.match(temporaryMetadataResult.stderr, /startup temporary changed while binding for publish/);
-  assert.equal(
-    readFileSync(temporaryMetadataRace.startup, "utf8"),
-    "# original temp metadata target\n",
-  );
-  assert.equal(lstatSync(temporaryMetadataPath).mode & 0o777, 0o600);
-
-  const targetRace = writeZshFixture("login-target-race-home", zshPath, "# original target\n");
-  const targetRacePause = await startPausedInstaller(
-    "after-login-temp-create",
-    loginOverrides(targetRace),
-  );
-  const preservedTarget = `${targetRace.startup}-original`;
-  renameSync(targetRace.startup, preservedTarget);
-  writeFileSync(targetRace.startup, "# replacement target\n");
-  releasePausedInstaller(targetRacePause);
-  const targetRaceResult = await targetRacePause.done;
-  assert.notEqual(targetRaceResult.status, 0);
-  assert.match(targetRaceResult.stderr, /startup file changed during publish/);
-  assert.equal(readFileSync(targetRace.startup, "utf8"), "# replacement target\n");
-  assert.equal(readFileSync(preservedTarget, "utf8"), "# original target\n");
-  assert.equal(
-    readdirSync(targetRace.home).some((name) => name.startsWith(".hush-login-claim-")),
-    true,
-  );
-
-  for (const existing of [true, false]) {
-    const publishRace = writeZshFixture(
-      `login-bound-publish-${existing ? "exchange" : "noreplace"}-race-home`,
-      zshPath,
-      existing ? "# original bound publish target\n" : undefined,
-    );
-    const publishPause = await startPausedInstaller(
-      "before-login-publish-bind",
-      loginOverrides(publishRace),
-    );
-    const temporaryNames = readdirSync(publishRace.home)
-      .filter((name) => name.startsWith(".hush-login-")
-        && !name.startsWith(".hush-login-bound-"));
-    assert.equal(temporaryNames.length, 1);
-    const temporaryPath = join(publishRace.home, temporaryNames[0]);
-    const preservedTemporary = `${temporaryPath}-original`;
-    renameSync(temporaryPath, preservedTemporary);
-    writeFileSync(temporaryPath, "# hostile publication replacement\n");
-    releasePausedInstaller(publishPause);
-    const publishResult = await publishPause.done;
-    assert.notEqual(publishResult.status, 0);
-    assert.match(publishResult.stderr, /startup temporary changed while binding for publish/);
-    if (existing) {
-      assert.equal(readFileSync(publishRace.startup, "utf8"), "# original bound publish target\n");
-    } else {
-      assert.equal(existsSync(publishRace.startup), false);
+      const aclRace = writeZshFixture("login-acl-race-home", zshPath, "# original ACL target\n");
+      const initialAcl = spawnSync(
+        "/bin/chmod",
+        ["+a", `${username} allow read`, aclRace.startup],
+        { encoding: "utf8" },
+      );
+      assert.equal(initialAcl.status, 0, initialAcl.stderr);
+      const aclRacePause = await startPausedInstaller(
+        "during-login-metadata-copy",
+        loginOverrides(aclRace),
+      );
+      const changedAcl = spawnSync(
+        "/bin/chmod",
+        ["+a", `${username} deny write`, aclRace.startup],
+        { encoding: "utf8" },
+      );
+      assert.equal(changedAcl.status, 0, changedAcl.stderr);
+      releasePausedInstaller(aclRacePause);
+      const aclRaceResult = await aclRacePause.done;
+      assert.notEqual(aclRaceResult.status, 0);
+      assert.match(aclRaceResult.stderr, /ACL or extended attributes changed during copy/);
+      assert.equal(readFileSync(aclRace.startup, "utf8"), "# original ACL target\n");
+      assert.equal(
+        readdirSync(aclRace.home).some((name) => name.startsWith(".hush-login-claim-")),
+        true,
+      );
     }
-    assert.equal(readFileSync(temporaryPath, "utf8"), "# hostile publication replacement\n");
-    assert.match(readFileSync(preservedTemporary, "utf8"), /hush managed login PATH/);
-  }
 
-  const exchangeRace = writeZshFixture(
-    "login-exchange-race-home",
-    zshPath,
-    "# original exchange target\n",
-  );
-  const exchangePause = await startPausedInstaller(
-    "after-login-publish-exchange",
-    loginOverrides(exchangeRace),
-  );
-  const exchangeTemporaryNames = readdirSync(exchangeRace.home)
-    .filter((name) => name.startsWith(".hush-login-"));
-  assert.equal(exchangeTemporaryNames.length, 1);
-  const exchangeTemporary = join(exchangeRace.home, exchangeTemporaryNames[0]);
-  writeFileSync(exchangeRace.startup, "# changed published target\n");
-  releasePausedInstaller(exchangePause);
-  const exchangeResult = await exchangePause.done;
-  assert.notEqual(exchangeResult.status, 0);
-  assert.match(exchangeResult.stderr, /original restored and changed replacement preserved/);
-  assert.equal(readFileSync(exchangeRace.startup, "utf8"), "# original exchange target\n");
-  assert.equal(readFileSync(exchangeTemporary, "utf8"), "# changed published target\n");
-
-  const absentPublishRace = writeZshFixture("login-absent-publish-race-home", zshPath);
-  const absentPublishPause = await startPausedInstaller(
-    "after-login-publish-noreplace",
-    loginOverrides(absentPublishRace),
-  );
-  writeFileSync(absentPublishRace.startup, "# changed new publication\n");
-  releasePausedInstaller(absentPublishPause);
-  const absentPublishResult = await absentPublishPause.done;
-  assert.notEqual(absentPublishResult.status, 0);
-  assert.match(absentPublishResult.stderr, /original absence restored and changed replacement preserved/);
-  assert.equal(existsSync(absentPublishRace.startup), false);
-  const absentPreservedNames = readdirSync(absentPublishRace.home)
-    .filter((name) => name.startsWith(".hush-login-"));
-  assert.equal(absentPreservedNames.length, 1);
-  assert.equal(
-    readFileSync(join(absentPublishRace.home, absentPreservedNames[0]), "utf8"),
-    "# changed new publication\n",
-  );
-
-  const displacedRace = writeZshFixture(
-    "login-displaced-race-home",
-    zshPath,
-    "# original displaced target\n",
-  );
-  const displacedPause = await startPausedInstaller(
-    "before-login-displaced-unlink",
-    loginOverrides(displacedRace),
-  );
-  const displacedNames = readdirSync(displacedRace.home)
-    .filter((name) => name.startsWith(".hush-login-"));
-  assert.equal(displacedNames.length, 1);
-  const displacedPath = join(displacedRace.home, displacedNames[0]);
-  const preservedDisplaced = `${displacedPath}-original`;
-  renameSync(displacedPath, preservedDisplaced);
-  writeFileSync(displacedPath, "# foreign displaced replacement\n");
-  releasePausedInstaller(displacedPause);
-  const displacedResult = await displacedPause.done;
-  assert.notEqual(displacedResult.status, 0);
-  assert.match(displacedResult.stderr, /displaced startup file changed.*original restored/);
-  assert.equal(readFileSync(displacedRace.startup, "utf8"), "# original displaced target\n");
-  assert.equal(readFileSync(displacedPath, "utf8"), "# foreign displaced replacement\n");
-  assert.equal(readFileSync(preservedDisplaced, "utf8"), "# original displaced target\n");
-
-  const cleanupSealRace = writeZshFixture(
-    "login-cleanup-seal-race-home",
-    zshPath,
-    "# original cleanup seal target\n",
-  );
-  const cleanupSealPause = await startPausedInstaller(
-    "before-login-cleanup-seal",
-    loginOverrides(cleanupSealRace),
-  );
-  const cleanupClaimNames = readdirSync(cleanupSealRace.home)
-    .filter((name) => name.startsWith(".hush-login-claim-"));
-  assert.equal(cleanupClaimNames.length, 1);
-  const cleanupClaim = join(cleanupSealRace.home, cleanupClaimNames[0]);
-  const preservedCleanupClaim = `${cleanupClaim}-original`;
-  renameSync(cleanupClaim, preservedCleanupClaim);
-  writeFileSync(cleanupClaim, "# hostile cleanup replacement\n");
-  releasePausedInstaller(cleanupSealPause);
-  const cleanupSealResult = await cleanupSealPause.done;
-  assert.equal(cleanupSealResult.status, 0, cleanupSealResult.stderr);
-  assert.equal(readFileSync(cleanupClaim, "utf8"), "# hostile cleanup replacement\n");
-  assert.equal(readFileSync(preservedCleanupClaim, "utf8"), "# original cleanup seal target\n");
-  assert.match(cleanupSealResult.stderr, /startup cleanup claim changed/);
-  assert.match(readFileSync(cleanupSealRace.startup, "utf8"), /hush managed login PATH/);
-
-  for (const replacementKind of ["symlink", "file"]) {
-    const temporaryRace = writeZshFixture(
-      `login-temp-${replacementKind}-race-home`,
-      zshPath,
-      "# original startup\n",
-    );
-    const temporaryPause = await startPausedInstaller(
+    const parentRace = writeZshFixture("login-parent-race-home", zshPath);
+    const parentRaceOutside = join(sandbox, "login-parent-race-outside");
+    const parentRacePause = await startPausedInstaller(
       "after-login-temp-create",
-      loginOverrides(temporaryRace),
+      loginOverrides(parentRace),
     );
-    const temporaryNames = readdirSync(temporaryRace.home)
-      .filter((name) => name.startsWith(".hush-login-"));
-    assert.equal(temporaryNames.length, 1);
-    const temporaryPath = join(temporaryRace.home, temporaryNames[0]);
-    const preservedTemporary = `${temporaryPath}-original`;
-    renameSync(temporaryPath, preservedTemporary);
-    const foreignContent = `foreign ${replacementKind} replacement\n`;
-    if (replacementKind === "symlink") {
-      const foreignTarget = join(sandbox, "login-temp-symlink-foreign");
-      writeFileSync(foreignTarget, foreignContent);
-      symlinkSync(foreignTarget, temporaryPath);
-    } else {
-      writeFileSync(temporaryPath, foreignContent);
+    const restoreParentRace = swapDirectory(parentRace.home, parentRaceOutside);
+    releasePausedInstaller(parentRacePause);
+    const parentRaceResult = await parentRacePause.done;
+    assert.notEqual(parentRaceResult.status, 0);
+    assert.match(parentRaceResult.stderr, /startup directory changed during publish/);
+    assertOutsideEmpty(parentRaceOutside);
+    restoreParentRace();
+    assert.equal(existsSync(parentRace.startup), false);
+    assert.equal(
+      readdirSync(parentRace.home).some((name) => name.startsWith(".hush-login-claim-")),
+      true,
+    );
+
+    const metadataRace = writeZshFixture(
+      "login-metadata-race-home",
+      zshPath,
+      "# original metadata target\n",
+    );
+    chmodSync(metadataRace.startup, 0o640);
+    const metadataRacePause = await startPausedInstaller(
+      "after-login-temp-create",
+      loginOverrides(metadataRace),
+    );
+    chmodSync(metadataRace.startup, 0o600);
+    releasePausedInstaller(metadataRacePause);
+    const metadataRaceResult = await metadataRacePause.done;
+    assert.notEqual(metadataRaceResult.status, 0);
+    assert.match(metadataRaceResult.stderr, /startup file changed during publish/);
+    assert.equal(readFileSync(metadataRace.startup, "utf8"), "# original metadata target\n");
+    assert.equal(lstatSync(metadataRace.startup).mode & 0o777, 0o600);
+    assert.equal(
+      readdirSync(metadataRace.home).some((name) => name.startsWith(".hush-login-claim-")),
+      true,
+    );
+
+    const temporaryMetadataRace = writeZshFixture(
+      "login-temp-metadata-race-home",
+      zshPath,
+      "# original temp metadata target\n",
+    );
+    const temporaryMetadataPause = await startPausedInstaller(
+      "after-login-temp-create",
+      loginOverrides(temporaryMetadataRace),
+    );
+    const temporaryMetadataNames = readdirSync(temporaryMetadataRace.home).filter((name) =>
+      name.startsWith(".hush-login-"),
+    );
+    assert.equal(temporaryMetadataNames.length, 1);
+    const temporaryMetadataPath = join(temporaryMetadataRace.home, temporaryMetadataNames[0]);
+    chmodSync(temporaryMetadataPath, 0o600);
+    releasePausedInstaller(temporaryMetadataPause);
+    const temporaryMetadataResult = await temporaryMetadataPause.done;
+    assert.notEqual(temporaryMetadataResult.status, 0);
+    assert.match(
+      temporaryMetadataResult.stderr,
+      /startup temporary changed while binding for publish/,
+    );
+    assert.equal(
+      readFileSync(temporaryMetadataRace.startup, "utf8"),
+      "# original temp metadata target\n",
+    );
+    assert.equal(lstatSync(temporaryMetadataPath).mode & 0o777, 0o600);
+
+    const targetRace = writeZshFixture("login-target-race-home", zshPath, "# original target\n");
+    const targetRacePause = await startPausedInstaller(
+      "after-login-temp-create",
+      loginOverrides(targetRace),
+    );
+    const preservedTarget = `${targetRace.startup}-original`;
+    renameSync(targetRace.startup, preservedTarget);
+    writeFileSync(targetRace.startup, "# replacement target\n");
+    releasePausedInstaller(targetRacePause);
+    const targetRaceResult = await targetRacePause.done;
+    assert.notEqual(targetRaceResult.status, 0);
+    assert.match(targetRaceResult.stderr, /startup file changed during publish/);
+    assert.equal(readFileSync(targetRace.startup, "utf8"), "# replacement target\n");
+    assert.equal(readFileSync(preservedTarget, "utf8"), "# original target\n");
+    assert.equal(
+      readdirSync(targetRace.home).some((name) => name.startsWith(".hush-login-claim-")),
+      true,
+    );
+
+    for (const existing of [true, false]) {
+      const publishRace = writeZshFixture(
+        `login-bound-publish-${existing ? "exchange" : "noreplace"}-race-home`,
+        zshPath,
+        existing ? "# original bound publish target\n" : undefined,
+      );
+      const publishPause = await startPausedInstaller(
+        "before-login-publish-bind",
+        loginOverrides(publishRace),
+      );
+      const temporaryNames = readdirSync(publishRace.home).filter(
+        (name) => name.startsWith(".hush-login-") && !name.startsWith(".hush-login-bound-"),
+      );
+      assert.equal(temporaryNames.length, 1);
+      const temporaryPath = join(publishRace.home, temporaryNames[0]);
+      const preservedTemporary = `${temporaryPath}-original`;
+      renameSync(temporaryPath, preservedTemporary);
+      writeFileSync(temporaryPath, "# hostile publication replacement\n");
+      releasePausedInstaller(publishPause);
+      const publishResult = await publishPause.done;
+      assert.notEqual(publishResult.status, 0);
+      assert.match(publishResult.stderr, /startup temporary changed while binding for publish/);
+      if (existing) {
+        assert.equal(
+          readFileSync(publishRace.startup, "utf8"),
+          "# original bound publish target\n",
+        );
+      } else {
+        assert.equal(existsSync(publishRace.startup), false);
+      }
+      assert.equal(readFileSync(temporaryPath, "utf8"), "# hostile publication replacement\n");
+      assert.match(readFileSync(preservedTemporary, "utf8"), /hush managed login PATH/);
     }
-    releasePausedInstaller(temporaryPause);
-    const temporaryResult = await temporaryPause.done;
-    assert.notEqual(temporaryResult.status, 0);
-    assert.match(temporaryResult.stderr, /startup temporary changed while binding for publish/);
-    assert.equal(readFileSync(temporaryRace.startup, "utf8"), "# original startup\n");
-    assert.equal(readFileSync(temporaryPath, "utf8"), foreignContent);
-    assert.equal(lstatSync(temporaryPath).isSymbolicLink(), replacementKind === "symlink");
-    assert.match(readFileSync(preservedTemporary, "utf8"), /hush managed login PATH/);
-  }
 
-  const readbackRollback = writeZshFixture(
-    "readback-rollback-home",
-    zshPath,
-    "# original readback target\n",
-  );
-  const readbackRollbackInstall = runInstaller([], {
-    ...loginOverrides(readbackRollback),
-    HUSH_INSTALL_TEST_FAIL_LOGIN_READBACK: "1",
-  });
-  assert.notEqual(readbackRollbackInstall.status, 0);
-  assert.match(readbackRollbackInstall.stderr, /Original startup state restored/);
-  assert.equal(
-    readFileSync(readbackRollback.startup, "utf8"),
-    "# original readback target\n",
-  );
-  assert.equal(
-    readdirSync(readbackRollback.home).some((name) => name.startsWith(".hush-login-claim-")),
-    true,
-  );
+    const exchangeRace = writeZshFixture(
+      "login-exchange-race-home",
+      zshPath,
+      "# original exchange target\n",
+    );
+    const exchangePause = await startPausedInstaller(
+      "after-login-publish-exchange",
+      loginOverrides(exchangeRace),
+    );
+    const exchangeTemporaryNames = readdirSync(exchangeRace.home).filter((name) =>
+      name.startsWith(".hush-login-"),
+    );
+    assert.equal(exchangeTemporaryNames.length, 1);
+    const exchangeTemporary = join(exchangeRace.home, exchangeTemporaryNames[0]);
+    writeFileSync(exchangeRace.startup, "# changed published target\n");
+    releasePausedInstaller(exchangePause);
+    const exchangeResult = await exchangePause.done;
+    assert.notEqual(exchangeResult.status, 0);
+    assert.match(exchangeResult.stderr, /original restored and changed replacement preserved/);
+    assert.equal(readFileSync(exchangeRace.startup, "utf8"), "# original exchange target\n");
+    assert.equal(readFileSync(exchangeTemporary, "utf8"), "# changed published target\n");
 
-  const absentReadbackRollback = writeZshFixture(
-    "absent-readback-rollback-home",
-    zshPath,
-  );
-  const absentReadbackRollbackInstall = runInstaller([], {
-    ...loginOverrides(absentReadbackRollback),
-    HUSH_INSTALL_TEST_FAIL_LOGIN_READBACK: "1",
-  });
-  assert.notEqual(absentReadbackRollbackInstall.status, 0);
-  assert.match(absentReadbackRollbackInstall.stderr, /Original startup state restored/);
-  assert.equal(existsSync(absentReadbackRollback.startup), false);
-  assert.equal(
-    readdirSync(absentReadbackRollback.home).some((name) => name.startsWith(".hush-login-claim-")),
-    true,
-  );
+    const absentPublishRace = writeZshFixture("login-absent-publish-race-home", zshPath);
+    const absentPublishPause = await startPausedInstaller(
+      "after-login-publish-noreplace",
+      loginOverrides(absentPublishRace),
+    );
+    writeFileSync(absentPublishRace.startup, "# changed new publication\n");
+    releasePausedInstaller(absentPublishPause);
+    const absentPublishResult = await absentPublishPause.done;
+    assert.notEqual(absentPublishResult.status, 0);
+    assert.match(
+      absentPublishResult.stderr,
+      /original absence restored and changed replacement preserved/,
+    );
+    assert.equal(existsSync(absentPublishRace.startup), false);
+    const absentPreservedNames = readdirSync(absentPublishRace.home).filter((name) =>
+      name.startsWith(".hush-login-"),
+    );
+    assert.equal(absentPreservedNames.length, 1);
+    assert.equal(
+      readFileSync(join(absentPublishRace.home, absentPreservedNames[0]), "utf8"),
+      "# changed new publication\n",
+    );
 
-  const readbackRace = writeZshFixture(
-    "readback-race-home",
-    zshPath,
-    "# original readback race target\n",
-  );
-  const readbackRacePause = await startPausedInstaller(
-    "before-login-readback",
-    loginOverrides(readbackRace),
-  );
-  const preservedReadbackPublication = `${readbackRace.startup}-published`;
-  renameSync(readbackRace.startup, preservedReadbackPublication);
-  writeFileSync(readbackRace.startup, "# foreign readback replacement\n");
-  releasePausedInstaller(readbackRacePause);
-  const readbackRaceResult = await readbackRacePause.done;
-  assert.notEqual(readbackRaceResult.status, 0);
-  assert.match(
-    readbackRaceResult.stderr,
-    /Changed startup target preserved; original preserved at/,
-  );
-  assert.equal(
-    readFileSync(readbackRace.startup, "utf8"),
-    "# foreign readback replacement\n",
-  );
-  assert.match(readFileSync(preservedReadbackPublication, "utf8"), /hush managed login PATH/);
-  const readbackRecoveryNames = readdirSync(readbackRace.home)
-    .filter((name) => name.startsWith(".hush-login-recovery-"));
-  assert.equal(readbackRecoveryNames.length, 1);
-  assert.equal(
-    readFileSync(join(readbackRace.home, readbackRecoveryNames[0]), "utf8"),
-    "# original readback race target\n",
-  );
+    const displacedRace = writeZshFixture(
+      "login-displaced-race-home",
+      zshPath,
+      "# original displaced target\n",
+    );
+    const displacedPause = await startPausedInstaller(
+      "before-login-displaced-unlink",
+      loginOverrides(displacedRace),
+    );
+    const displacedNames = readdirSync(displacedRace.home).filter((name) =>
+      name.startsWith(".hush-login-"),
+    );
+    assert.equal(displacedNames.length, 1);
+    const displacedPath = join(displacedRace.home, displacedNames[0]);
+    const preservedDisplaced = `${displacedPath}-original`;
+    renameSync(displacedPath, preservedDisplaced);
+    writeFileSync(displacedPath, "# foreign displaced replacement\n");
+    releasePausedInstaller(displacedPause);
+    const displacedResult = await displacedPause.done;
+    assert.notEqual(displacedResult.status, 0);
+    assert.match(displacedResult.stderr, /displaced startup file changed.*original restored/);
+    assert.equal(readFileSync(displacedRace.startup, "utf8"), "# original displaced target\n");
+    assert.equal(readFileSync(displacedPath, "utf8"), "# foreign displaced replacement\n");
+    assert.equal(readFileSync(preservedDisplaced, "utf8"), "# original displaced target\n");
 
+    const cleanupSealRace = writeZshFixture(
+      "login-cleanup-seal-race-home",
+      zshPath,
+      "# original cleanup seal target\n",
+    );
+    const cleanupSealPause = await startPausedInstaller(
+      "before-login-cleanup-seal",
+      loginOverrides(cleanupSealRace),
+    );
+    const cleanupClaimNames = readdirSync(cleanupSealRace.home).filter((name) =>
+      name.startsWith(".hush-login-claim-"),
+    );
+    assert.equal(cleanupClaimNames.length, 1);
+    const cleanupClaim = join(cleanupSealRace.home, cleanupClaimNames[0]);
+    const preservedCleanupClaim = `${cleanupClaim}-original`;
+    renameSync(cleanupClaim, preservedCleanupClaim);
+    writeFileSync(cleanupClaim, "# hostile cleanup replacement\n");
+    releasePausedInstaller(cleanupSealPause);
+    const cleanupSealResult = await cleanupSealPause.done;
+    assert.equal(cleanupSealResult.status, 0, cleanupSealResult.stderr);
+    assert.equal(readFileSync(cleanupClaim, "utf8"), "# hostile cleanup replacement\n");
+    assert.equal(readFileSync(preservedCleanupClaim, "utf8"), "# original cleanup seal target\n");
+    assert.match(cleanupSealResult.stderr, /startup cleanup claim changed/);
+    assert.match(readFileSync(cleanupSealRace.startup, "utf8"), /hush managed login PATH/);
+
+    for (const replacementKind of ["symlink", "file"]) {
+      const temporaryRace = writeZshFixture(
+        `login-temp-${replacementKind}-race-home`,
+        zshPath,
+        "# original startup\n",
+      );
+      const temporaryPause = await startPausedInstaller(
+        "after-login-temp-create",
+        loginOverrides(temporaryRace),
+      );
+      const temporaryNames = readdirSync(temporaryRace.home).filter((name) =>
+        name.startsWith(".hush-login-"),
+      );
+      assert.equal(temporaryNames.length, 1);
+      const temporaryPath = join(temporaryRace.home, temporaryNames[0]);
+      const preservedTemporary = `${temporaryPath}-original`;
+      renameSync(temporaryPath, preservedTemporary);
+      const foreignContent = `foreign ${replacementKind} replacement\n`;
+      if (replacementKind === "symlink") {
+        const foreignTarget = join(sandbox, "login-temp-symlink-foreign");
+        writeFileSync(foreignTarget, foreignContent);
+        symlinkSync(foreignTarget, temporaryPath);
+      } else {
+        writeFileSync(temporaryPath, foreignContent);
+      }
+      releasePausedInstaller(temporaryPause);
+      const temporaryResult = await temporaryPause.done;
+      assert.notEqual(temporaryResult.status, 0);
+      assert.match(temporaryResult.stderr, /startup temporary changed while binding for publish/);
+      assert.equal(readFileSync(temporaryRace.startup, "utf8"), "# original startup\n");
+      assert.equal(readFileSync(temporaryPath, "utf8"), foreignContent);
+      assert.equal(lstatSync(temporaryPath).isSymbolicLink(), replacementKind === "symlink");
+      assert.match(readFileSync(preservedTemporary, "utf8"), /hush managed login PATH/);
+    }
+
+    const readbackRollback = writeZshFixture(
+      "readback-rollback-home",
+      zshPath,
+      "# original readback target\n",
+    );
+    const readbackRollbackInstall = runInstaller([], {
+      ...loginOverrides(readbackRollback),
+      HUSH_INSTALL_TEST_FAIL_LOGIN_READBACK: "1",
+    });
+    assert.notEqual(readbackRollbackInstall.status, 0);
+    assert.match(readbackRollbackInstall.stderr, /Original startup state restored/);
+    assert.equal(readFileSync(readbackRollback.startup, "utf8"), "# original readback target\n");
+    assert.equal(
+      readdirSync(readbackRollback.home).some((name) => name.startsWith(".hush-login-claim-")),
+      true,
+    );
+
+    const absentReadbackRollback = writeZshFixture("absent-readback-rollback-home", zshPath);
+    const absentReadbackRollbackInstall = runInstaller([], {
+      ...loginOverrides(absentReadbackRollback),
+      HUSH_INSTALL_TEST_FAIL_LOGIN_READBACK: "1",
+    });
+    assert.notEqual(absentReadbackRollbackInstall.status, 0);
+    assert.match(absentReadbackRollbackInstall.stderr, /Original startup state restored/);
+    assert.equal(existsSync(absentReadbackRollback.startup), false);
+    assert.equal(
+      readdirSync(absentReadbackRollback.home).some((name) =>
+        name.startsWith(".hush-login-claim-"),
+      ),
+      true,
+    );
+
+    const readbackRace = writeZshFixture(
+      "readback-race-home",
+      zshPath,
+      "# original readback race target\n",
+    );
+    const readbackRacePause = await startPausedInstaller(
+      "before-login-readback",
+      loginOverrides(readbackRace),
+    );
+    const preservedReadbackPublication = `${readbackRace.startup}-published`;
+    renameSync(readbackRace.startup, preservedReadbackPublication);
+    writeFileSync(readbackRace.startup, "# foreign readback replacement\n");
+    releasePausedInstaller(readbackRacePause);
+    const readbackRaceResult = await readbackRacePause.done;
+    assert.notEqual(readbackRaceResult.status, 0);
+    assert.match(
+      readbackRaceResult.stderr,
+      /Changed startup target preserved; original preserved at/,
+    );
+    assert.equal(readFileSync(readbackRace.startup, "utf8"), "# foreign readback replacement\n");
+    assert.match(readFileSync(preservedReadbackPublication, "utf8"), /hush managed login PATH/);
+    const readbackRecoveryNames = readdirSync(readbackRace.home).filter((name) =>
+      name.startsWith(".hush-login-recovery-"),
+    );
+    assert.equal(readbackRecoveryNames.length, 1);
+    assert.equal(
+      readFileSync(join(readbackRace.home, readbackRecoveryNames[0]), "utf8"),
+      "# original readback race target\n",
+    );
   }
 
   const lockPause = await startPausedInstaller("after-lock");
@@ -1642,7 +1733,10 @@ async function main() {
     HUSH_INSTALL_BIN_DIR: publishRaceBin,
   });
   assert.equal(recoveredPublish.status, 0, recoveredPublish.stderr);
-  assert.equal(readdirSync(publishRaceParent).some((name) => name.startsWith(".hush-stage-")), false);
+  assert.equal(
+    readdirSync(publishRaceParent).some((name) => name.startsWith(".hush-stage-")),
+    false,
+  );
 
   const stageEntryRaceParent = join(sandbox, "stage-entry-race-runtimes");
   const stageEntryRaceRoot = join(stageEntryRaceParent, sourceCommit);
@@ -1651,7 +1745,9 @@ async function main() {
     HUSH_INSTALL_RUNTIME_ROOT: stageEntryRaceRoot,
     HUSH_INSTALL_BIN_DIR: stageEntryRaceBin,
   });
-  const stageEntryName = readdirSync(stageEntryRaceParent).find((name) => name.startsWith(".hush-stage-"));
+  const stageEntryName = readdirSync(stageEntryRaceParent).find((name) =>
+    name.startsWith(".hush-stage-"),
+  );
   assert.ok(stageEntryName);
   const stageEntryPath = join(stageEntryRaceParent, stageEntryName);
   const movedStageEntry = join(stageEntryRaceParent, ".moved-stage-entry");
@@ -1796,13 +1892,19 @@ async function main() {
   const crashResult = await crashed.done;
   assert.notEqual(crashResult.status, 0);
   assert.equal(existsSync(crashRoot), false);
-  assert.equal(readdirSync(crashParent).some((name) => name.startsWith(".hush-stage-")), true);
+  assert.equal(
+    readdirSync(crashParent).some((name) => name.startsWith(".hush-stage-")),
+    true,
+  );
   const recoveredCrash = runInstaller([], {
     HUSH_INSTALL_RUNTIME_ROOT: crashRoot,
     HUSH_INSTALL_BIN_DIR: crashBin,
   });
   assert.equal(recoveredCrash.status, 0, recoveredCrash.stderr);
-  assert.equal(readdirSync(crashParent).some((name) => name.startsWith(".hush-stage-")), false);
+  assert.equal(
+    readdirSync(crashParent).some((name) => name.startsWith(".hush-stage-")),
+    false,
+  );
   assert.equal(existsSync(join(crashBin, "hush")), true);
 
   const renameCrashParent = join(sandbox, "rename-crash-runtimes");
@@ -1823,7 +1925,10 @@ async function main() {
     HUSH_INSTALL_BIN_DIR: renameCrashBin,
   });
   assert.equal(recoveredRenameCrash.status, 0, recoveredRenameCrash.stderr);
-  assert.equal(readdirSync(renameCrashParent).some((name) => name.startsWith(".hush-stage-")), false);
+  assert.equal(
+    readdirSync(renameCrashParent).some((name) => name.startsWith(".hush-stage-")),
+    false,
+  );
   assert.equal(existsSync(join(renameCrashBin, "hush")), true);
 
   const cleanupPauseParent = join(sandbox, "cleanup-pause-runtimes");

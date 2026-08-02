@@ -1,4 +1,4 @@
-import type { EnvVar } from '../types.js';
+import type { EnvVar } from "../types.js";
 
 /**
  * Format environment variables as YAML.
@@ -12,7 +12,7 @@ import type { EnvVar } from '../types.js';
  */
 export function formatYaml(vars: EnvVar[]): string {
   if (vars.length === 0) {
-    return '{}\n';
+    return "{}\n";
   }
 
   return (
@@ -23,23 +23,23 @@ export function formatYaml(vars: EnvVar[]): string {
         // - Values with special chars need double quotes
         // - Double quotes inside values need escaping
         const needsQuotes =
-          value === '' ||
-          value.includes(':') ||
-          value.includes('#') ||
+          value === "" ||
+          value.includes(":") ||
+          value.includes("#") ||
           value.includes("'") ||
           value.includes('"') ||
-          value.includes('\n') ||
-          value.includes('\\') ||
-          value.startsWith(' ') ||
-          value.endsWith(' ') ||
-          value.startsWith('!') ||
-          value.startsWith('&') ||
-          value.startsWith('*') ||
-          value.startsWith('|') ||
-          value.startsWith('>') ||
-          value.startsWith('%') ||
-          value.startsWith('@') ||
-          value.startsWith('`') ||
+          value.includes("\n") ||
+          value.includes("\\") ||
+          value.startsWith(" ") ||
+          value.endsWith(" ") ||
+          value.startsWith("!") ||
+          value.startsWith("&") ||
+          value.startsWith("*") ||
+          value.startsWith("|") ||
+          value.startsWith(">") ||
+          value.startsWith("%") ||
+          value.startsWith("@") ||
+          value.startsWith("`") ||
           /^(true|false|yes|no|on|off|null|~)$/i.test(value) ||
           /^-?\d+(\.\d+)?$/.test(value) ||
           /^0x[0-9a-fA-F]+$/.test(value) ||
@@ -47,12 +47,12 @@ export function formatYaml(vars: EnvVar[]): string {
 
         if (needsQuotes) {
           // Escape backslashes and double quotes for YAML double-quoted strings
-          const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+          const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
           return `${key}: "${escaped}"`;
         }
 
         return `${key}: ${value}`;
       })
-      .join('\n') + '\n'
+      .join("\n") + "\n"
   );
 }

@@ -1,11 +1,13 @@
-import { fs } from '../lib/fs.js';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { spawn } from 'node:child_process';
-import pc from 'picocolors';
+import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-const CONFIG_DIR = join(homedir(), '.config', 'hush');
-const CACHE_FILE = join(CONFIG_DIR, 'update-check.json');
+import pc from "picocolors";
+
+import { fs } from "../lib/fs.js";
+
+const CONFIG_DIR = join(homedir(), ".config", "hush");
+const CACHE_FILE = join(CONFIG_DIR, "update-check.json");
 const CHECK_INTERVAL_MS = 1000 * 60 * 60 * 24;
 
 interface UpdateCache {
@@ -15,9 +17,7 @@ interface UpdateCache {
 
 function updateCheckDisabled(): boolean {
   return Boolean(
-    process.env.HUSH_NO_UPDATE_CHECK ||
-    process.env.NO_UPDATE_NOTIFIER ||
-    process.env.CI
+    process.env.HUSH_NO_UPDATE_CHECK || process.env.NO_UPDATE_NOTIFIER || process.env.CI,
   );
 }
 
@@ -34,26 +34,24 @@ export function checkForUpdate(currentVersion: string): void {
     let cache: UpdateCache | null = null;
     if (fs.existsSync(CACHE_FILE)) {
       try {
-        cache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8') as string);
-      } catch {
-      }
+        cache = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8") as string);
+      } catch {}
     }
 
     if (cache && cache.latestVersion && isNewer(cache.latestVersion, currentVersion)) {
       console.error(
-        pc.bgYellow(pc.black(' UPDATE ')) +
-        pc.yellow(` New version available: ${cache.latestVersion} (current: ${currentVersion})`)
+        pc.bgYellow(pc.black(" UPDATE ")) +
+          pc.yellow(` New version available: ${cache.latestVersion} (current: ${currentVersion})`),
       );
       console.error(pc.dim(`Run "npm install -D @chriscode/hush@latest" to update`));
-      console.error('');
+      console.error("");
     }
 
     const now = Date.now();
     if (!cache || now - cache.lastCheck > CHECK_INTERVAL_MS) {
       spawnBackgroundCheck();
     }
-  } catch {
-  }
+  } catch {}
 }
 
 function spawnBackgroundCheck() {
@@ -62,7 +60,7 @@ function spawnBackgroundCheck() {
     const fs = require('fs');
     const path = require('path');
     
-    const cacheFile = '${CACHE_FILE.replace(/\\/g, '\\\\')}';
+    const cacheFile = '${CACHE_FILE.replace(/\\/g, "\\\\")}';
     
     const req = https.get('https://registry.npmjs.org/@chriscode/hush/latest', {
       timeout: 3000,
@@ -90,31 +88,31 @@ function spawnBackgroundCheck() {
 
   // Minimal env on purpose: never leak SOPS_AGE_KEY or other secrets into the
   // detached update-check child.
-  const childEnv: NodeJS.ProcessEnv = { NO_UPDATE_NOTIFIER: '1' };
+  const childEnv: NodeJS.ProcessEnv = { NO_UPDATE_NOTIFIER: "1" };
   if (process.env.PATH) childEnv.PATH = process.env.PATH;
   if (process.env.HOME) childEnv.HOME = process.env.HOME;
   if (process.env.HTTPS_PROXY) childEnv.HTTPS_PROXY = process.env.HTTPS_PROXY;
   if (process.env.SYSTEMROOT) childEnv.SYSTEMROOT = process.env.SYSTEMROOT;
 
-  const child = spawn(process.execPath, ['-e', script], {
+  const child = spawn(process.execPath, ["-e", script], {
     detached: true,
-    stdio: 'ignore',
-    env: childEnv
+    stdio: "ignore",
+    env: childEnv,
   });
-  
+
   child.unref();
 }
 
 function isNewer(latest: string, current: string): boolean {
-  const l = latest.split('.').map(Number);
-  const c = current.split('.').map(Number);
-  
+  const l = latest.split(".").map(Number);
+  const c = current.split(".").map(Number);
+
   if (l[0] > c[0]) return true;
   if (l[0] < c[0]) return false;
-  
+
   if (l[1] > c[1]) return true;
   if (l[1] < c[1]) return false;
-  
+
   if (l[2] > c[2]) return true;
   return false;
 }

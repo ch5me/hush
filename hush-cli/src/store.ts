@@ -1,12 +1,13 @@
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { fs } from './lib/fs.js';
-import type { StoreContext, StoreMode } from './types.js';
-import { findConfigPath, findProjectRoot, type FindProjectRootOptions } from './config/loader.js';
-import { findKeysByPublicKey } from './lib/age.js';
-import { getProjectIdentifier } from './project.js';
-import { loadV3Repository } from './v3/repository.js';
-import { getProjectStatePaths } from './v3/state.js';
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+
+import { findConfigPath, findProjectRoot, type FindProjectRootOptions } from "./config/loader.js";
+import { findKeysByPublicKey } from "./lib/age.js";
+import { fs } from "./lib/fs.js";
+import { getProjectIdentifier } from "./project.js";
+import type { StoreContext, StoreMode } from "./types.js";
+import { loadV3Repository } from "./v3/repository.js";
+import { getProjectStatePaths } from "./v3/state.js";
 
 export interface ResolveStoreContextOptions extends FindProjectRootOptions {
   /**
@@ -16,31 +17,35 @@ export interface ResolveStoreContextOptions extends FindProjectRootOptions {
   explicitRoot?: string;
 }
 
-export const GLOBAL_STORE_ROOT = join(homedir(), '.hush');
-export const GLOBAL_STORE_KEY_IDENTITY = 'hush-global';
-export const GLOBAL_STORE_STATE_ROOT = join(GLOBAL_STORE_ROOT, 'state');
+export const GLOBAL_STORE_ROOT = join(homedir(), ".hush");
+export const GLOBAL_STORE_KEY_IDENTITY = "hush-global";
+export const GLOBAL_STORE_STATE_ROOT = join(GLOBAL_STORE_ROOT, "state");
 
 function getSopsPublicKeys(projectRoot: string): string[] {
-  const sopsPath = join(projectRoot, '.sops.yaml');
+  const sopsPath = join(projectRoot, ".sops.yaml");
   if (!fs.existsSync(sopsPath)) {
     return [];
   }
 
   try {
-    const content = fs.readFileSync(sopsPath, 'utf-8') as string;
-    return [...content.matchAll(/age:\s*([^\n]+)/g)]
-      .flatMap((match) => (match[1] ?? '').match(/age1[a-z0-9]+/g) ?? []);
+    const content = fs.readFileSync(sopsPath, "utf-8") as string;
+    return [...content.matchAll(/age:\s*([^\n]+)/g)].flatMap(
+      (match) => (match[1] ?? "").match(/age1[a-z0-9]+/g) ?? [],
+    );
   } catch {
     return [];
   }
 }
 
-function resolveProjectKeyIdentity(projectRoot: string, repositoryKind: 'legacy-v2' | 'v3' | undefined): string | undefined {
-  if (repositoryKind === 'v3') {
+function resolveProjectKeyIdentity(
+  projectRoot: string,
+  repositoryKind: "legacy-v2" | "v3" | undefined,
+): string | undefined {
+  if (repositoryKind === "v3") {
     try {
       const repository = loadV3Repository(projectRoot);
       const projectIdentity = repository.manifest.metadata?.project;
-      if (typeof projectIdentity === 'string' && projectIdentity.trim().length > 0) {
+      if (typeof projectIdentity === "string" && projectIdentity.trim().length > 0) {
         return projectIdentity;
       }
     } catch {
@@ -49,7 +54,10 @@ function resolveProjectKeyIdentity(projectRoot: string, repositoryKind: 'legacy-
 
     const matchedKeys = getSopsPublicKeys(projectRoot)
       .flatMap((recipient) => findKeysByPublicKey(recipient))
-      .filter((candidate, index, all) => all.findIndex((entry) => entry.path === candidate.path) === index);
+      .filter(
+        (candidate, index, all) =>
+          all.findIndex((entry) => entry.path === candidate.path) === index,
+      );
     if (matchedKeys.length === 1) {
       return matchedKeys[0]?.project;
     }
@@ -63,14 +71,14 @@ export function resolveStoreContext(
   mode: StoreMode,
   options: ResolveStoreContextOptions = {},
 ): StoreContext {
-  if (mode === 'global') {
+  if (mode === "global") {
     const root = GLOBAL_STORE_ROOT;
     const store: StoreContext = {
       mode,
       root,
       configPath: findConfigPath(root),
       keyIdentity: GLOBAL_STORE_KEY_IDENTITY,
-      displayLabel: '~/.hush',
+      displayLabel: "~/.hush",
     };
 
     const statePaths = getProjectStatePaths(store);
@@ -90,9 +98,7 @@ export function resolveStoreContext(
   const projectInfo = explicitRoot
     ? findProjectRoot(resolve(explicitRoot), { ignoreAncestors: true })
     : findProjectRoot(resolvedStart, findOptions);
-  const root = explicitRoot
-    ? resolve(explicitRoot)
-    : (projectInfo?.projectRoot ?? resolvedStart);
+  const root = explicitRoot ? resolve(explicitRoot) : (projectInfo?.projectRoot ?? resolvedStart);
 
   const store: StoreContext = {
     mode,

@@ -1,4 +1,7 @@
-export function suggestKnownName(requested: string, candidates: readonly string[]): string | undefined {
+export function suggestKnownName(
+  requested: string,
+  candidates: readonly string[],
+): string | undefined {
   const normalized = requested.trim().toLowerCase();
   if (!normalized || candidates.length === 0) return undefined;
 
@@ -20,7 +23,10 @@ export function suggestKnownName(requested: string, candidates: readonly string[
 
   const ranked = candidates
     .map((candidate) => ({ candidate, distance: distance(normalized, candidate.toLowerCase()) }))
-    .sort((left, right) => left.distance - right.distance || left.candidate.localeCompare(right.candidate));
+    .sort(
+      (left, right) =>
+        left.distance - right.distance || left.candidate.localeCompare(right.candidate),
+    );
   const best = ranked[0];
   const second = ranked[1];
   const threshold = Math.max(1, Math.floor(normalized.length / 3));
@@ -29,7 +35,11 @@ export function suggestKnownName(requested: string, candidates: readonly string[
     : undefined;
 }
 
-export function withSuggestion(message: string, requested: string, candidates: readonly string[]): string {
+export function withSuggestion(
+  message: string,
+  requested: string,
+  candidates: readonly string[],
+): string {
   const suggestion = suggestKnownName(requested, candidates);
   return suggestion ? `${message} Did you mean "${suggestion}"?` : message;
 }

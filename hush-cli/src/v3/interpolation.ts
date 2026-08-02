@@ -1,6 +1,10 @@
-import type { HushArtifactEntry, HushFileEntry, HushScalarValue } from './domain.js';
-import type { HushInterpolationDependency, HushResolvedNode, HushSelectedEntryCandidate } from './provenance.js';
-import { dedupeProvenance, withResolvedEntry } from './provenance.js';
+import type { HushArtifactEntry, HushFileEntry, HushScalarValue } from "./domain.js";
+import type {
+  HushInterpolationDependency,
+  HushResolvedNode,
+  HushSelectedEntryCandidate,
+} from "./provenance.js";
+import { dedupeProvenance, withResolvedEntry } from "./provenance.js";
 
 const INTERPOLATION_PATTERN = /\$\{([^}]+)\}/g;
 
@@ -20,19 +24,19 @@ interface ResolutionState {
 }
 
 function isArtifactEntry(entry: HushFileEntry): entry is HushArtifactEntry {
-  return 'type' in entry;
+  return "type" in entry;
 }
 
 function renderInterpolatedValue(value: HushScalarValue): string {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value;
   }
 
   if (value === null) {
-    return '';
+    return "";
   }
 
-  if (typeof value === 'number' || typeof value === 'boolean') {
+  if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
 
@@ -45,8 +49,8 @@ function interpolateString(
   options: InterpolateCandidatesOptions,
   state: ResolutionState,
   dependencies: Map<string, HushInterpolationDependency>,
-): { value: string; provenance: HushSelectedEntryCandidate['provenance'] } {
-  const referencedProvenance: HushSelectedEntryCandidate['provenance'] = [];
+): { value: string; provenance: HushSelectedEntryCandidate["provenance"] } {
+  const referencedProvenance: HushSelectedEntryCandidate["provenance"] = [];
 
   const interpolated = value.replace(INTERPOLATION_PATTERN, (_match, rawReference: string) => {
     const reference = rawReference.trim();
@@ -60,10 +64,15 @@ function interpolateString(
     referencedProvenance.push(...resolvedDependency.provenance);
 
     const resolvedValue = isArtifactEntry(resolvedDependency.entry)
-      ? resolvedDependency.entry.value ?? ''
+      ? (resolvedDependency.entry.value ?? "")
       : resolvedDependency.entry.value;
 
-    if (typeof resolvedValue !== 'string' && typeof resolvedValue !== 'number' && typeof resolvedValue !== 'boolean' && resolvedValue !== null) {
+    if (
+      typeof resolvedValue !== "string" &&
+      typeof resolvedValue !== "number" &&
+      typeof resolvedValue !== "boolean" &&
+      resolvedValue !== null
+    ) {
       throw new Error(
         `Interpolation source "${reference}" for "${currentPath}" must resolve to a scalar or stringifiable value`,
       );
@@ -84,13 +93,13 @@ function resolveScalarValue(
   options: InterpolateCandidatesOptions,
   state: ResolutionState,
   dependencies: Map<string, HushInterpolationDependency>,
-): { value: HushScalarValue; provenance: HushSelectedEntryCandidate['provenance'] } {
-  if (typeof value === 'string') {
+): { value: HushScalarValue; provenance: HushSelectedEntryCandidate["provenance"] } {
+  if (typeof value === "string") {
     return interpolateString(value, currentPath, options, state, dependencies);
   }
 
   if (Array.isArray(value)) {
-    const provenance: HushSelectedEntryCandidate['provenance'] = [];
+    const provenance: HushSelectedEntryCandidate["provenance"] = [];
     const resolvedItems = value.map((item) => {
       const resolved = resolveScalarValue(item, currentPath, options, state, dependencies);
       provenance.push(...resolved.provenance);
@@ -100,8 +109,8 @@ function resolveScalarValue(
     return { value: resolvedItems, provenance };
   }
 
-  if (value && typeof value === 'object') {
-    const provenance: HushSelectedEntryCandidate['provenance'] = [];
+  if (value && typeof value === "object") {
+    const provenance: HushSelectedEntryCandidate["provenance"] = [];
     const resolvedEntries = Object.fromEntries(
       Object.entries(value).map(([key, nestedValue]) => {
         const resolved = resolveScalarValue(nestedValue, currentPath, options, state, dependencies);
@@ -128,7 +137,13 @@ function resolveEntry(
       return withResolvedEntry(candidate, candidate.entry, null);
     }
 
-    const resolved = interpolateString(candidate.entry.value, candidate.path, options, state, dependencies);
+    const resolved = interpolateString(
+      candidate.entry.value,
+      candidate.path,
+      options,
+      state,
+      dependencies,
+    );
 
     return withResolvedEntry(
       {
@@ -143,7 +158,13 @@ function resolveEntry(
     );
   }
 
-  const resolved = resolveScalarValue(candidate.entry.value, candidate.path, options, state, dependencies);
+  const resolved = resolveScalarValue(
+    candidate.entry.value,
+    candidate.path,
+    options,
+    state,
+    dependencies,
+  );
 
   return withResolvedEntry(
     {
@@ -186,7 +207,9 @@ function resolveCandidate(
     }
 
     if (pathState && pathState.readableFiles.size > 0) {
-      throw new Error(`Interpolation source "${path}" is not included in the resolved bundle or target graph`);
+      throw new Error(
+        `Interpolation source "${path}" is not included in the resolved bundle or target graph`,
+      );
     }
 
     throw new Error(`Interpolation source "${path}" does not exist in the repository graph`);
@@ -203,7 +226,9 @@ function resolveCandidate(
   }
 }
 
-export function interpolateCandidates(options: InterpolateCandidatesOptions): Record<string, HushResolvedNode> {
+export function interpolateCandidates(
+  options: InterpolateCandidatesOptions,
+): Record<string, HushResolvedNode> {
   const state: ResolutionState = {
     resolved: new Map<string, HushResolvedNode>(),
     visiting: new Set<string>(),

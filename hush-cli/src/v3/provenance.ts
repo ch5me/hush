@@ -7,7 +7,7 @@ import type {
   HushProvenanceRecord,
   HushResolvedValue,
   HushTargetName,
-} from './domain.js';
+} from "./domain.js";
 
 export interface HushInterpolationDependency {
   path: HushLogicalPath;
@@ -71,7 +71,7 @@ export function dedupeProvenance(records: readonly HushProvenanceRecord[]): Hush
 export function withResolvedEntry(
   candidate: HushSelectedEntryCandidate,
   entry: HushFileEntry,
-  interpolation: HushResolvedNode['interpolation'],
+  interpolation: HushResolvedNode["interpolation"],
 ): HushResolvedNode {
   return {
     path: candidate.path,

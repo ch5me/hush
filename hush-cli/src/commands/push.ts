@@ -1,11 +1,6 @@
-import pc from 'picocolors';
-import { withMaterializedTarget } from '../index.js';
-import {
-  appendCommandReadAudit,
-  requireV3Repository,
-  resolveTargetDeploymentContext,
-  resolveTargetEnvView,
-} from './v3-command-helpers.js';
+import pc from "picocolors";
+
+import { withMaterializedTarget } from "../index.js";
 import type {
   EnvVar,
   HushContext,
@@ -15,11 +10,17 @@ import type {
   StoreContext,
   VercelEnvironment,
   VercelPushConfig,
-} from '../types.js';
-import type { V3ResolvedEnvView } from './v3-command-helpers.js';
+} from "../types.js";
+import {
+  appendCommandReadAudit,
+  requireV3Repository,
+  resolveTargetDeploymentContext,
+  resolveTargetEnvView,
+} from "./v3-command-helpers.js";
+import type { V3ResolvedEnvView } from "./v3-command-helpers.js";
 
-type PushDestination = 'cloudflare' | 'vercel';
-type VercelSecretType = 'sensitive' | 'encrypted';
+type PushDestination = "cloudflare" | "vercel";
+type VercelSecretType = "sensitive" | "encrypted";
 
 interface ConfiguredPushTarget {
   targetName: string;
@@ -41,18 +42,18 @@ interface VercelPushResult {
 }
 
 interface PushVercelSecretsOptions {
-  envView: Pick<V3ResolvedEnvView, 'env' | 'resolution'>;
+  envView: Pick<V3ResolvedEnvView, "env" | "resolution">;
   config: VercelPushConfig;
   token?: string;
   dryRun: boolean;
 }
 
-const DEFAULT_VERCEL_ENVIRONMENTS: VercelEnvironment[] = ['production', 'preview', 'development'];
+const DEFAULT_VERCEL_ENVIRONMENTS: VercelEnvironment[] = ["production", "preview", "development"];
 
 class VercelPushError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'VercelPushError';
+    this.name = "VercelPushError";
   }
 }
 
@@ -61,28 +62,31 @@ function pushWorkerSecret(
   key: string,
   value: string,
   targetDir: string,
-  pushMode: 'workers' | 'pages',
+  pushMode: "workers" | "pages",
   pagesProject: string | undefined,
   dryRun: boolean,
   verbose: boolean,
   wranglerEnv?: string,
 ): boolean {
   if (dryRun) {
-    const envLabel = wranglerEnv ? ` (--env ${wranglerEnv})` : '';
-    ctx.logger.log(verbose ? pc.green(`    + ${key}${envLabel}`) : pc.dim(`    [dry-run] ${key}${envLabel}`));
+    const envLabel = wranglerEnv ? ` (--env ${wranglerEnv})` : "";
+    ctx.logger.log(
+      verbose ? pc.green(`    + ${key}${envLabel}`) : pc.dim(`    [dry-run] ${key}${envLabel}`),
+    );
     return true;
   }
 
   try {
-    const envArgs: string[] = wranglerEnv ? ['--env', wranglerEnv] : [];
-    const wranglerArgs = pushMode === 'pages'
-      ? ['pages', 'secret', 'put', key, '--project-name', pagesProject ?? '', ...envArgs]
-      : ['secret', 'put', key, ...envArgs];
-    const result = ctx.exec.spawnSync('wrangler', wranglerArgs, {
+    const envArgs: string[] = wranglerEnv ? ["--env", wranglerEnv] : [];
+    const wranglerArgs =
+      pushMode === "pages"
+        ? ["pages", "secret", "put", key, "--project-name", pagesProject ?? "", ...envArgs]
+        : ["secret", "put", key, ...envArgs];
+    const result = ctx.exec.spawnSync("wrangler", wranglerArgs, {
       cwd: targetDir,
       input: value,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     if (result.error) {
@@ -90,7 +94,8 @@ function pushWorkerSecret(
     }
 
     if (result.status !== 0) {
-      const stderr = typeof result.stderr === 'string' ? result.stderr : result.stderr.toString('utf-8');
+      const stderr =
+        typeof result.stderr === "string" ? result.stderr : result.stderr.toString("utf-8");
       throw new Error(stderr || `wrangler secret put exited with code ${result.status}`);
     }
 
@@ -103,11 +108,11 @@ function pushWorkerSecret(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === "object" && value !== null;
 }
 
 function logicalPathToEnvKey(path: string): string {
-  const segments = path.split('/').filter(Boolean);
+  const segments = path.split("/").filter(Boolean);
   const key = segments.at(-1);
 
   if (!key) {
@@ -118,10 +123,12 @@ function logicalPathToEnvKey(path: string): string {
 }
 
 function describeVercelPush(type: VercelSecretType, target: readonly VercelEnvironment[]): string {
-  return `${type} -> ${target.join(',')}`;
+  return `${type} -> ${target.join(",")}`;
 }
 
-function buildVercelSensitivityMap(envView: Pick<V3ResolvedEnvView, 'resolution'>): Map<string, boolean> {
+function buildVercelSensitivityMap(
+  envView: Pick<V3ResolvedEnvView, "resolution">,
+): Map<string, boolean> {
   const sensitivityByKey = new Map<string, boolean>();
 
   for (const [logicalPath, node] of Object.entries(envView.resolution.values)) {
@@ -131,7 +138,7 @@ function buildVercelSensitivityMap(envView: Pick<V3ResolvedEnvView, 'resolution'
   return sensitivityByKey;
 }
 
-function collectVercelEnvPairs(envView: Pick<V3ResolvedEnvView, 'env' | 'resolution'>): Array<{
+function collectVercelEnvPairs(envView: Pick<V3ResolvedEnvView, "env" | "resolution">): Array<{
   key: string;
   value: string;
   type: VercelSecretType;
@@ -145,7 +152,7 @@ function collectVercelEnvPairs(envView: Pick<V3ResolvedEnvView, 'env' | 'resolut
       value,
       // Local overrides are always sensitive. Unknown keys default to sensitive so
       // projection stays write-only instead of accidentally downgrading exposure.
-      type: sensitivityByKey.get(key) === false ? 'encrypted' : 'sensitive',
+      type: sensitivityByKey.get(key) === false ? "encrypted" : "sensitive",
     }));
 }
 
@@ -160,11 +167,11 @@ async function parseResponseBody(response: Response): Promise<unknown> {
 function extractVercelErrorMessage(response: Response, body: unknown): string {
   if (isRecord(body)) {
     const error = body.error;
-    if (isRecord(error) && typeof error.message === 'string') {
+    if (isRecord(error) && typeof error.message === "string") {
       return error.message;
     }
 
-    if (typeof body.message === 'string') {
+    if (typeof body.message === "string") {
       return body.message;
     }
   }
@@ -172,28 +179,38 @@ function extractVercelErrorMessage(response: Response, body: unknown): string {
   return response.statusText || `HTTP ${response.status}`;
 }
 
-function buildVercelUrl(config: Pick<VercelPushConfig, 'projectId' | 'teamId'>): string {
-  const params = new URLSearchParams({ upsert: 'true' });
+function buildVercelUrl(config: Pick<VercelPushConfig, "projectId" | "teamId">): string {
+  const params = new URLSearchParams({ upsert: "true" });
   if (config.teamId) {
-    params.set('teamId', config.teamId);
+    params.set("teamId", config.teamId);
   }
 
   return `https://api.vercel.com/v10/projects/${encodeURIComponent(config.projectId)}/env?${params.toString()}`;
 }
 
-function resolveVercelToken(ctx: HushContext, envView: Pick<V3ResolvedEnvView, 'env'>, config: Pick<VercelPushConfig, 'token' | 'projectId'>, explicitToken?: string): string {
-  const token = config.token?.trim()
-    || explicitToken?.trim()
-    || envView.env.VERCEL_TOKEN?.trim()
-    || ctx.process.env.VERCEL_TOKEN?.trim()
-    || '';
+function resolveVercelToken(
+  ctx: HushContext,
+  envView: Pick<V3ResolvedEnvView, "env">,
+  config: Pick<VercelPushConfig, "token" | "projectId">,
+  explicitToken?: string,
+): string {
+  const token =
+    config.token?.trim() ||
+    explicitToken?.trim() ||
+    envView.env.VERCEL_TOKEN?.trim() ||
+    ctx.process.env.VERCEL_TOKEN?.trim() ||
+    "";
 
   if (!config.projectId.trim()) {
-    throw new VercelPushError('Vercel push requires a projectId. Configure push_to.projectId or pass --project.');
+    throw new VercelPushError(
+      "Vercel push requires a projectId. Configure push_to.projectId or pass --project.",
+    );
   }
 
   if (!token) {
-    throw new VercelPushError('Vercel push requires VERCEL_TOKEN. Configure push_to.token, add VERCEL_TOKEN to the target, or export VERCEL_TOKEN in the process environment.');
+    throw new VercelPushError(
+      "Vercel push requires VERCEL_TOKEN. Configure push_to.token, add VERCEL_TOKEN to the target, or export VERCEL_TOKEN in the process environment.",
+    );
   }
 
   return token;
@@ -207,20 +224,20 @@ function buildConfiguredTargets(
   const targets: ConfiguredPushTarget[] = [];
 
   for (const [targetName, target] of Object.entries(repository.manifest.targets ?? {})) {
-    if (target.mode === 'example') {
+    if (target.mode === "example") {
       continue;
     }
 
-      const deployment = resolveTargetDeploymentContext(store, repository, targetName);
+    const deployment = resolveTargetDeploymentContext(store, repository, targetName);
 
-      if (deployment.pushTo?.type === 'vercel' || target.format === 'vercel') {
-        targets.push({ targetName, target, destination: 'vercel' });
-        continue;
-      }
+    if (deployment.pushTo?.type === "vercel" || target.format === "vercel") {
+      targets.push({ targetName, target, destination: "vercel" });
+      continue;
+    }
 
-      if (target.format === 'wrangler') {
-        targets.push({ targetName, target, destination: 'cloudflare' });
-      }
+    if (target.format === "wrangler") {
+      targets.push({ targetName, target, destination: "cloudflare" });
+    }
   }
 
   targets.sort((left, right) => left.targetName.localeCompare(right.targetName));
@@ -229,7 +246,7 @@ function buildConfiguredTargets(
     const match = targets.find((target) => target.targetName === requestedTarget);
     if (!match) {
       throw new Error(
-        `Target "${requestedTarget}" is not pushable in v3. Available push targets: ${targets.map((target) => target.targetName).join(', ') || '(none)'}`,
+        `Target "${requestedTarget}" is not pushable in v3. Available push targets: ${targets.map((target) => target.targetName).join(", ") || "(none)"}`,
       );
     }
     return [match];
@@ -248,49 +265,50 @@ function buildCommandArgs(options: PushOptions): string[] {
   const args: string[] = [];
 
   if (options.target) {
-    args.push('--target', options.target);
+    args.push("--target", options.target);
   }
   if (options.vercel) {
-    args.push('--vercel');
+    args.push("--vercel");
   }
   if (options.project) {
-    args.push('--project', options.project);
+    args.push("--project", options.project);
   }
   if (options.team) {
-    args.push('--team', options.team);
+    args.push("--team", options.team);
   }
   if (options.environments && options.environments.length > 0) {
     for (const environment of options.environments) {
-      args.push('--environment', environment);
+      args.push("--environment", environment);
     }
   }
   if (options.wranglerEnv) {
-    args.push('--wrangler-env', options.wranglerEnv);
+    args.push("--wrangler-env", options.wranglerEnv);
   }
   if (options.dryRun) {
-    args.push('--dry-run');
+    args.push("--dry-run");
   }
   if (options.verbose) {
-    args.push('--verbose');
+    args.push("--verbose");
   }
 
   return args;
 }
 
 function buildVercelConfig(
-  options: Pick<PushOptions, 'project' | 'team' | 'environments'>,
+  options: Pick<PushOptions, "project" | "team" | "environments">,
   configured?: VercelPushConfig,
 ): VercelPushConfig {
   return {
-    type: 'vercel',
+    type: "vercel",
     token: configured?.token,
     teamId: options.team ?? configured?.teamId,
-    projectId: options.project ?? configured?.projectId ?? '',
-    environments: options.environments && options.environments.length > 0
-      ? Array.from(new Set(options.environments))
-      : configured?.environments?.length
-        ? configured.environments
-        : DEFAULT_VERCEL_ENVIRONMENTS,
+    projectId: options.project ?? configured?.projectId ?? "",
+    environments:
+      options.environments && options.environments.length > 0
+        ? Array.from(new Set(options.environments))
+        : configured?.environments?.length
+          ? configured.environments
+          : DEFAULT_VERCEL_ENVIRONMENTS,
   };
 }
 
@@ -308,7 +326,9 @@ export async function pushVercelSecrets(
 
   if (dryRun) {
     for (const pair of envPairs) {
-      ctx.logger.log(pc.dim(`    [dry-run] ${pair.key} (${describeVercelPush(pair.type, config.environments)})`));
+      ctx.logger.log(
+        pc.dim(`    [dry-run] ${pair.key} (${describeVercelPush(pair.type, config.environments)})`),
+      );
     }
     return { success: envPairs.length, failed: [], skipped: false };
   }
@@ -321,11 +341,11 @@ export async function pushVercelSecrets(
   for (const pair of envPairs) {
     try {
       const response = await fetchImpl(url, {
-        method: 'POST',
+        method: "POST",
         headers: {
           Authorization: `Bearer ${resolvedToken}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
+          "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify({
           key: pair.key,
@@ -344,11 +364,17 @@ export async function pushVercelSecrets(
           target: config.environments,
           error,
         });
-        ctx.logger.error(pc.red(`    Failed: ${pair.key} (${describeVercelPush(pair.type, config.environments)}) - ${error}`));
+        ctx.logger.error(
+          pc.red(
+            `    Failed: ${pair.key} (${describeVercelPush(pair.type, config.environments)}) - ${error}`,
+          ),
+        );
         continue;
       }
 
-      ctx.logger.log(pc.green(`    ${pair.key} (${describeVercelPush(pair.type, config.environments)})`));
+      ctx.logger.log(
+        pc.green(`    ${pair.key} (${describeVercelPush(pair.type, config.environments)})`),
+      );
       success++;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -358,7 +384,11 @@ export async function pushVercelSecrets(
         target: config.environments,
         error: message,
       });
-      ctx.logger.error(pc.red(`    Failed: ${pair.key} (${describeVercelPush(pair.type, config.environments)}) - ${message}`));
+      ctx.logger.error(
+        pc.red(
+          `    Failed: ${pair.key} (${describeVercelPush(pair.type, config.environments)}) - ${message}`,
+        ),
+      );
     }
   }
 
@@ -372,21 +402,23 @@ async function pushConfiguredVercelTarget(
   targetName: string,
 ): Promise<void> {
   const envView = resolveTargetEnvView(ctx, options.store, targetName, {
-    name: 'push',
+    name: "push",
     args: buildCommandArgs(options),
   });
   appendCommandReadAudit(ctx, options.store, envView, {
-    name: 'push',
+    name: "push",
     args: buildCommandArgs(options),
   });
 
   const deployment = resolveTargetDeploymentContext(options.store, repository, targetName);
-  const configuredPush = deployment.pushTo?.type === 'vercel' ? deployment.pushTo : undefined;
+  const configuredPush = deployment.pushTo?.type === "vercel" ? deployment.pushTo : undefined;
   const config = buildVercelConfig(options, configuredPush);
 
-  ctx.logger.log(options.dryRun && options.verbose
-    ? pc.blue(`\n[DRY RUN] Would push ${targetName}:`)
-    : pc.blue(`\n${targetName}`));
+  ctx.logger.log(
+    options.dryRun && options.verbose
+      ? pc.blue(`\n[DRY RUN] Would push ${targetName}:`)
+      : pc.blue(`\n${targetName}`),
+  );
 
   const result = await pushVercelSecrets(ctx, {
     envView,
@@ -408,43 +440,62 @@ function pushConfiguredCloudflareTarget(
   repository: HushV3Repository,
   targetName: string,
 ): void {
-  const result = withMaterializedTarget(ctx, {
-    store: options.store,
-    repository,
-    targetName,
-    command: { name: 'push', args: buildCommandArgs(options) },
-    mode: 'memory',
-    machineLocal: 'include',
-  }, (materialization) => {
-    const envPairs = toEnvPairs(materialization.env);
-    const deployment = resolveTargetDeploymentContext(options.store, repository, targetName);
-    const pushMode = deployment.pushTo?.type === 'cloudflare-pages' ? 'pages' : 'workers';
-    const pagesProject = deployment.pushTo?.type === 'cloudflare-pages' ? deployment.pushTo.project : undefined;
+  const result = withMaterializedTarget(
+    ctx,
+    {
+      store: options.store,
+      repository,
+      targetName,
+      command: { name: "push", args: buildCommandArgs(options) },
+      mode: "memory",
+      machineLocal: "include",
+    },
+    (materialization) => {
+      const envPairs = toEnvPairs(materialization.env);
+      const deployment = resolveTargetDeploymentContext(options.store, repository, targetName);
+      const pushMode = deployment.pushTo?.type === "cloudflare-pages" ? "pages" : "workers";
+      const pagesProject =
+        deployment.pushTo?.type === "cloudflare-pages" ? deployment.pushTo.project : undefined;
 
-    if (envPairs.length === 0) {
-      return { success: 0, failed: 0, skipped: true };
-    }
-
-    ctx.logger.log(options.dryRun && options.verbose
-      ? pc.blue(`\n[DRY RUN] Would push ${targetName}:`)
-      : pc.blue(`\n${targetName}`));
-
-    let success = 0;
-    let failed = 0;
-
-    for (const { key, value } of envPairs) {
-      if (pushWorkerSecret(ctx, key, value, deployment.cwd, pushMode, pagesProject, options.dryRun, options.verbose, options.wranglerEnv)) {
-        if (!options.dryRun) {
-          ctx.logger.log(pc.green(`    ${key}`));
-        }
-        success++;
-      } else {
-        failed++;
+      if (envPairs.length === 0) {
+        return { success: 0, failed: 0, skipped: true };
       }
-    }
 
-    return { success, failed, skipped: false };
-  });
+      ctx.logger.log(
+        options.dryRun && options.verbose
+          ? pc.blue(`\n[DRY RUN] Would push ${targetName}:`)
+          : pc.blue(`\n${targetName}`),
+      );
+
+      let success = 0;
+      let failed = 0;
+
+      for (const { key, value } of envPairs) {
+        if (
+          pushWorkerSecret(
+            ctx,
+            key,
+            value,
+            deployment.cwd,
+            pushMode,
+            pagesProject,
+            options.dryRun,
+            options.verbose,
+            options.wranglerEnv,
+          )
+        ) {
+          if (!options.dryRun) {
+            ctx.logger.log(pc.green(`    ${key}`));
+          }
+          success++;
+        } else {
+          failed++;
+        }
+      }
+
+      return { success, failed, skipped: false };
+    },
+  );
 
   if (result.skipped) {
     ctx.logger.log(pc.dim(`\n${targetName} - no matching env values, skipped`));
@@ -455,28 +506,30 @@ function pushConfiguredCloudflareTarget(
 }
 
 async function pushExplicitVercelTarget(ctx: HushContext, options: PushOptions): Promise<void> {
-  const repository = requireV3Repository(options.store, 'push');
+  const repository = requireV3Repository(options.store, "push");
   const envView = resolveTargetEnvView(ctx, options.store, options.target, {
-    name: 'push',
+    name: "push",
     args: buildCommandArgs(options),
   });
   appendCommandReadAudit(ctx, options.store, envView, {
-    name: 'push',
+    name: "push",
     args: buildCommandArgs(options),
   });
 
   const deployment = resolveTargetDeploymentContext(options.store, repository, envView.targetName);
-  const configuredPush = deployment.pushTo?.type === 'vercel' ? deployment.pushTo : undefined;
+  const configuredPush = deployment.pushTo?.type === "vercel" ? deployment.pushTo : undefined;
   const config = buildVercelConfig(options, configuredPush);
 
-  ctx.logger.log(pc.blue('Pushing secrets to Vercel...'));
+  ctx.logger.log(pc.blue("Pushing secrets to Vercel..."));
   if (options.dryRun) {
-    ctx.logger.log(pc.yellow('(dry-run mode)'));
+    ctx.logger.log(pc.yellow("(dry-run mode)"));
   }
 
-  ctx.logger.log(options.dryRun && options.verbose
-    ? pc.blue(`\n[DRY RUN] Would push ${envView.targetName}:`)
-    : pc.blue(`\n${envView.targetName}`));
+  ctx.logger.log(
+    options.dryRun && options.verbose
+      ? pc.blue(`\n[DRY RUN] Would push ${envView.targetName}:`)
+      : pc.blue(`\n${envView.targetName}`),
+  );
 
   const result = await pushVercelSecrets(ctx, {
     envView,
@@ -490,7 +543,9 @@ async function pushExplicitVercelTarget(ctx: HushContext, options: PushOptions):
     ctx.logger.log(pc.dim(`  ${result.success} pushed, ${result.failed.length} failed`));
   }
 
-  ctx.logger.log(options.dryRun ? pc.yellow('\n[dry-run] No secrets were pushed') : pc.green('\nPush complete'));
+  ctx.logger.log(
+    options.dryRun ? pc.yellow("\n[dry-run] No secrets were pushed") : pc.green("\nPush complete"),
+  );
 }
 
 export async function pushCommand(ctx: HushContext, options: PushOptions): Promise<void> {
@@ -505,22 +560,24 @@ export async function pushCommand(ctx: HushContext, options: PushOptions): Promi
     }
   }
 
-  const repository = requireV3Repository(options.store, 'push');
+  const repository = requireV3Repository(options.store, "push");
   const pushableTargets = buildConfiguredTargets(options.store, repository, options.target);
 
   if (pushableTargets.length === 0) {
-    ctx.logger.error(pc.red('No pushable targets found. Add a wrangler-formatted target or a Vercel push target.'));
+    ctx.logger.error(
+      pc.red("No pushable targets found. Add a wrangler-formatted target or a Vercel push target."),
+    );
     ctx.process.exit(1);
   }
 
-  ctx.logger.log(pc.blue('Pushing secrets to configured destinations...'));
+  ctx.logger.log(pc.blue("Pushing secrets to configured destinations..."));
   if (options.dryRun) {
-    ctx.logger.log(pc.yellow('(dry-run mode)'));
+    ctx.logger.log(pc.yellow("(dry-run mode)"));
   }
 
   for (const pushTarget of pushableTargets) {
     try {
-      if (pushTarget.destination === 'vercel') {
+      if (pushTarget.destination === "vercel") {
         await pushConfiguredVercelTarget(ctx, options, repository, pushTarget.targetName);
       } else {
         pushConfiguredCloudflareTarget(ctx, options, repository, pushTarget.targetName);
@@ -532,5 +589,7 @@ export async function pushCommand(ctx: HushContext, options: PushOptions): Promi
     }
   }
 
-  ctx.logger.log(options.dryRun ? pc.yellow('\n[dry-run] No secrets were pushed') : pc.green('\nPush complete'));
+  ctx.logger.log(
+    options.dryRun ? pc.yellow("\n[dry-run] No secrets were pushed") : pc.green("\nPush complete"),
+  );
 }

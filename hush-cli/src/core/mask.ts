@@ -1,4 +1,4 @@
-import type { EnvVar } from '../types.js';
+import type { EnvVar } from "../types.js";
 
 export interface MaskedVar {
   key: string;
@@ -6,7 +6,7 @@ export interface MaskedVar {
   isSet: boolean;
 }
 
-const REDACTION = '********';
+const REDACTION = "********";
 
 /**
  * Fixed-width redaction. Deliberately reveals neither a prefix nor the exact
@@ -14,7 +14,7 @@ const REDACTION = '********';
  * length disclosure materially narrows guessing for structured tokens.
  */
 export function maskValue(value: string): string {
-  if (!value) return '(not set)';
+  if (!value) return "(not set)";
   return REDACTION;
 }
 

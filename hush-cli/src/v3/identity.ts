@@ -1,12 +1,12 @@
-import type { HushIdentityName, HushIdentityRecord } from './domain.js';
-import type { HushContext, StoreContext } from '../types.js';
-import { appendAuditEvent, type HushAuditCommandContext } from './audit.js';
+import type { HushContext, StoreContext } from "../types.js";
+import { appendAuditEvent, type HushAuditCommandContext } from "./audit.js";
+import type { HushIdentityName, HushIdentityRecord } from "./domain.js";
 import {
   ensureProjectStateRoot,
   getProjectStatePaths,
   readStateJsonFile,
   writeStateJsonFile,
-} from './state.js';
+} from "./state.js";
 
 export const ACTIVE_IDENTITY_STATE_VERSION = 1;
 
@@ -16,7 +16,9 @@ export interface ActiveIdentityStateDocument {
   updatedAt: string;
 }
 
-export type DeclaredIdentities = ReadonlyArray<HushIdentityName> | Record<HushIdentityName, HushIdentityRecord>;
+export type DeclaredIdentities =
+  | ReadonlyArray<HushIdentityName>
+  | Record<HushIdentityName, HushIdentityRecord>;
 
 export interface SetActiveIdentityOptions {
   store: StoreContext;
@@ -36,10 +38,16 @@ function normalizeIdentityName(identity: string, label: string): HushIdentityNam
 }
 
 function getDeclaredIdentitySet(identities: DeclaredIdentities): Set<HushIdentityName> {
-  return new Set(Array.isArray(identities) ? identities.map((value) => normalizeIdentityName(value, 'Identity')) : Object.keys(identities).map((value) => normalizeIdentityName(value, 'Identity')));
+  return new Set(
+    Array.isArray(identities)
+      ? identities.map((value) => normalizeIdentityName(value, "Identity"))
+      : Object.keys(identities).map((value) => normalizeIdentityName(value, "Identity")),
+  );
 }
 
-function assertStoredIdentityDocument(value: ActiveIdentityStateDocument | null): ActiveIdentityStateDocument | null {
+function assertStoredIdentityDocument(
+  value: ActiveIdentityStateDocument | null,
+): ActiveIdentityStateDocument | null {
   if (!value) {
     return null;
   }
@@ -50,37 +58,47 @@ function assertStoredIdentityDocument(value: ActiveIdentityStateDocument | null)
 
   return {
     ...value,
-    identity: normalizeIdentityName(value.identity, 'Stored active identity'),
+    identity: normalizeIdentityName(value.identity, "Stored active identity"),
   };
 }
 
-export function readActiveIdentityState(ctx: HushContext, store: StoreContext): ActiveIdentityStateDocument | null {
+export function readActiveIdentityState(
+  ctx: HushContext,
+  store: StoreContext,
+): ActiveIdentityStateDocument | null {
   const statePaths = getProjectStatePaths(store);
-  return assertStoredIdentityDocument(readStateJsonFile<ActiveIdentityStateDocument>(ctx, statePaths.activeIdentityPath));
+  return assertStoredIdentityDocument(
+    readStateJsonFile<ActiveIdentityStateDocument>(ctx, statePaths.activeIdentityPath),
+  );
 }
 
 export function getActiveIdentity(ctx: HushContext, store: StoreContext): HushIdentityName | null {
   return readActiveIdentityState(ctx, store)?.identity ?? null;
 }
 
-export function requireActiveIdentity(ctx: HushContext, store: StoreContext, identities: DeclaredIdentities, command?: HushAuditCommandContext): HushIdentityName {
+export function requireActiveIdentity(
+  ctx: HushContext,
+  store: StoreContext,
+  identities: DeclaredIdentities,
+  command?: HushAuditCommandContext,
+): HushIdentityName {
   const declared = getDeclaredIdentitySet(identities);
   const activeIdentity = getActiveIdentity(ctx, store);
 
   if (!activeIdentity) {
     appendAuditEvent(ctx, store, {
-      type: 'access_denied',
+      type: "access_denied",
       success: false,
       command,
-      reason: 'No active identity is configured for this project state',
+      reason: "No active identity is configured for this project state",
     });
 
-    throw new Error('No active identity is configured for this project state');
+    throw new Error("No active identity is configured for this project state");
   }
 
   if (!declared.has(activeIdentity)) {
     appendAuditEvent(ctx, store, {
-      type: 'access_denied',
+      type: "access_denied",
       activeIdentity,
       requestedIdentity: activeIdentity,
       success: false,
@@ -94,14 +112,17 @@ export function requireActiveIdentity(ctx: HushContext, store: StoreContext, ide
   return activeIdentity;
 }
 
-export function setActiveIdentity(ctx: HushContext, options: SetActiveIdentityOptions): ActiveIdentityStateDocument {
+export function setActiveIdentity(
+  ctx: HushContext,
+  options: SetActiveIdentityOptions,
+): ActiveIdentityStateDocument {
   const declared = getDeclaredIdentitySet(options.identities);
-  const identity = normalizeIdentityName(options.identity, 'Active identity');
+  const identity = normalizeIdentityName(options.identity, "Active identity");
   const previousIdentity = getActiveIdentity(ctx, options.store) ?? undefined;
 
   if (!declared.has(identity)) {
     appendAuditEvent(ctx, options.store, {
-      type: 'access_denied',
+      type: "access_denied",
       activeIdentity: previousIdentity,
       requestedIdentity: identity,
       success: false,
@@ -123,7 +144,7 @@ export function setActiveIdentity(ctx: HushContext, options: SetActiveIdentityOp
   writeStateJsonFile(ctx, statePaths.activeIdentityPath, document);
 
   appendAuditEvent(ctx, options.store, {
-    type: 'identity_change',
+    type: "identity_change",
     activeIdentity: identity,
     previousIdentity,
     nextIdentity: identity,

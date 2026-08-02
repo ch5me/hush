@@ -1,17 +1,23 @@
-import type { HushIdentityName, HushLogicalPath, HushFilePath, HushTargetName, HushBundleName } from './domain.js';
-import type { HushContext, StoreContext, StoreMode } from '../types.js';
-import { ensureProjectStateRoot, getProjectStatePaths } from './state.js';
+import type { HushContext, StoreContext, StoreMode } from "../types.js";
+import type {
+  HushIdentityName,
+  HushLogicalPath,
+  HushFilePath,
+  HushTargetName,
+  HushBundleName,
+} from "./domain.js";
+import { ensureProjectStateRoot, getProjectStatePaths } from "./state.js";
 
 export const HUSH_AUDIT_EVENT_VERSION = 1;
 
 export type HushAuditEventType =
-  | 'identity_change'
-  | 'read_attempt'
-  | 'write'
-  | 'metadata_change'
-  | 'import_resolution'
-  | 'materialize'
-  | 'access_denied';
+  | "identity_change"
+  | "read_attempt"
+  | "write"
+  | "metadata_change"
+  | "import_resolution"
+  | "materialize"
+  | "access_denied";
 
 export interface HushAuditCommandContext {
   name: string;
@@ -57,7 +63,10 @@ export interface AppendAuditEventInput {
   details?: Record<string, string | number | boolean | null | string[] | number[] | boolean[]>;
 }
 
-export function createAuditEvent(store: StoreContext, input: AppendAuditEventInput): HushAuditEvent {
+export function createAuditEvent(
+  store: StoreContext,
+  input: AppendAuditEventInput,
+): HushAuditEvent {
   const statePaths = getProjectStatePaths(store);
 
   return {
@@ -87,15 +96,19 @@ export function serializeAuditEvent(event: HushAuditEvent): string {
   return JSON.stringify(event);
 }
 
-export function appendAuditEvent(ctx: HushContext, store: StoreContext, input: AppendAuditEventInput): HushAuditEvent {
+export function appendAuditEvent(
+  ctx: HushContext,
+  store: StoreContext,
+  input: AppendAuditEventInput,
+): HushAuditEvent {
   const statePaths = getProjectStatePaths(store);
   const event = createAuditEvent(store, input);
 
   try {
     ensureProjectStateRoot(ctx, store);
     ctx.fs.writeFileSync(statePaths.auditLogPath, `${serializeAuditEvent(event)}\n`, {
-      encoding: 'utf-8',
-      flag: 'a',
+      encoding: "utf-8",
+      flag: "a",
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);

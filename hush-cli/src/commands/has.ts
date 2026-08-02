@@ -1,8 +1,9 @@
-import pc from 'picocolors';
-import { appendCommandReadAudit, resolveTargetEnvView } from './v3-command-helpers.js';
-import type { Environment, HushContext, StoreContext } from '../types.js';
-import { globalStoreHint } from '../lib/global-store-hint.js';
-import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
+import pc from "picocolors";
+
+import { writeJsonError, writeJsonSuccess } from "../lib/command-output.js";
+import { globalStoreHint } from "../lib/global-store-hint.js";
+import type { Environment, HushContext, StoreContext } from "../types.js";
+import { appendCommandReadAudit, resolveTargetEnvView } from "./v3-command-helpers.js";
 
 export interface HasOptions {
   store: StoreContext;
@@ -18,16 +19,16 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
 
   try {
     const view = resolveTargetEnvView(ctx, store, undefined, {
-      name: 'has',
+      name: "has",
       args: [key],
     });
     const found = view.envVars.find((variable) => variable.key === key);
     const exists = found !== undefined && found.value.length > 0;
 
-    appendCommandReadAudit(ctx, store, view, { name: 'has', args: [key] });
+    appendCommandReadAudit(ctx, store, view, { name: "has", args: [key] });
 
     if (json) {
-      writeJsonSuccess(ctx, 'has', {
+      writeJsonSuccess(ctx, "has", {
         key,
         target: view.targetName,
         exists,
@@ -40,8 +41,8 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
         ctx.logger.log(pc.yellow(`${key} exists but is empty`));
       } else {
         ctx.logger.log(pc.red(`${key} not found in target ${view.targetName}`));
-        if (store.mode !== 'global') {
-          const hint = globalStoreHint(key, 'key', store.root);
+        if (store.mode !== "global") {
+          const hint = globalStoreHint(key, "key", store.root);
           if (hint) {
             ctx.logger.warn(pc.yellow(`\nHint: ${hint}`));
           }
@@ -53,8 +54,8 @@ export async function hasCommand(ctx: HushContext, options: HasOptions): Promise
   } catch (error) {
     if (json) {
       const message = error instanceof Error ? error.message : String(error);
-      writeJsonError(ctx, 'has', {
-        code: 'RESOLUTION_FAILED',
+      writeJsonError(ctx, "has", {
+        code: "RESOLUTION_FAILED",
         message,
         rejectedInput: key,
         details: { key, exists: false },

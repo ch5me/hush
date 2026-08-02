@@ -1,8 +1,12 @@
-import { platform } from 'node:os';
-import pc from 'picocolors';
-import { appendAuditEvent } from '../index.js';
-import type { HushContext, HushFileDocument, HushV3Repository, SetOptions } from '../types.js';
-import { ensureGlobalStoreBootstrap } from '../global-store.js';
+import { platform } from "node:os";
+
+import pc from "picocolors";
+
+import { ensureGlobalStoreBootstrap } from "../global-store.js";
+import { appendAuditEvent } from "../index.js";
+import { writeJsonSuccess } from "../lib/command-output.js";
+import type { HushContext, HushFileDocument, HushV3Repository, SetOptions } from "../types.js";
+import { LEGACY_MACHINE_LOCAL_FILE_PATH, MACHINE_LOCAL_FILE_PATH } from "../v3/schema.js";
 import {
   DEFAULT_V3_FILE_PATHS,
   FILE_KEYS,
@@ -21,10 +25,8 @@ import {
   setEnvValueInDocument,
   writeMachineLocalOverrides,
   writeEditableFileDocument,
-} from './v3-command-helpers.js';
-import type { EditableDestination, EditableScope } from './v3-command-helpers.js';
-import { LEGACY_MACHINE_LOCAL_FILE_PATH, MACHINE_LOCAL_FILE_PATH } from '../v3/schema.js';
-import { writeJsonSuccess } from '../lib/command-output.js';
+} from "./v3-command-helpers.js";
+import type { EditableDestination, EditableScope } from "./v3-command-helpers.js";
 
 type SetDestination = EditableDestination;
 
@@ -37,37 +39,36 @@ function hasStdinPipe(ctx: HushContext): boolean {
 }
 
 function trimTrailingLineEndings(value: string): string {
-  return value.replace(/[\r\n]+$/, '');
+  return value.replace(/[\r\n]+$/, "");
 }
 
 function readFromStdinPipe(ctx: HushContext): Promise<string> {
   return new Promise((resolve, reject) => {
-    let data = '';
+    let data = "";
 
-    ctx.process.stdin.setEncoding('utf8');
-    ctx.process.stdin.on('data', (chunk) => {
+    ctx.process.stdin.setEncoding("utf8");
+    ctx.process.stdin.on("data", (chunk) => {
       data += chunk;
     });
-    ctx.process.stdin.on('end', () => {
+    ctx.process.stdin.on("end", () => {
       resolve(trimTrailingLineEndings(data));
     });
-    ctx.process.stdin.on('error', reject);
+    ctx.process.stdin.on("error", reject);
     ctx.process.stdin.resume();
   });
 }
 
-
 function promptViaMacOSDialog(ctx: HushContext, key: string): string {
   try {
     const script = `text returned of (display dialog "Enter value for ${key}:" default answer "" with hidden answer with title "Hush - Set Secret")`;
-    const result = ctx.exec.spawnSync('osascript', ['-e', script], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
+    const result = ctx.exec.spawnSync("osascript", ["-e", script], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
     });
     if (result.status !== 0) {
-      const message = (result.stderr || result.stdout || '').toString().trim();
-      if (message.toLowerCase().includes('user canceled')) {
-        throw new Error('Cancelled');
+      const message = (result.stderr || result.stdout || "").toString().trim();
+      if (message.toLowerCase().includes("user canceled")) {
+        throw new Error("Cancelled");
       }
       throw new Error(`macOS dialog failed: ${message}`);
     }
@@ -122,10 +123,10 @@ function promptViaWindowsDialog(ctx: HushContext, key: string): string | null {
       }
     `;
 
-    const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
-    const result = ctx.exec.spawnSync('powershell', ['-EncodedCommand', encodedCommand], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
+    const encodedCommand = Buffer.from(psScript, "utf16le").toString("base64");
+    const result = ctx.exec.spawnSync("powershell", ["-EncodedCommand", encodedCommand], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
     });
     if (result.status !== 0) {
       return null;
@@ -138,18 +139,18 @@ function promptViaWindowsDialog(ctx: HushContext, key: string): string | null {
 
 function promptViaLinuxDialog(ctx: HushContext, key: string): string | null {
   const zenityResult = ctx.exec.spawnSync(
-    'zenity',
-    ['--password', `--title=Hush - Set Secret`, `--text=Enter value for ${key}:`],
-    { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+    "zenity",
+    ["--password", `--title=Hush - Set Secret`, `--text=Enter value for ${key}:`],
+    { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
   );
   if (zenityResult.status === 0) {
     return zenityResult.stdout.toString().trim();
   }
 
   const kdialogResult = ctx.exec.spawnSync(
-    'kdialog',
-    ['--password', `Enter value for ${key}:`, '--title', 'Hush - Set Secret'],
-    { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+    "kdialog",
+    ["--password", `Enter value for ${key}:`, "--title", "Hush - Set Secret"],
+    { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
   );
   if (kdialogResult.status === 0) {
     return kdialogResult.stdout.toString().trim();
@@ -165,42 +166,42 @@ function promptViaTTY(ctx: HushContext, key: string): Promise<string> {
     const stdin = ctx.process.stdin;
     stdin.setRawMode(true);
     stdin.resume();
-    stdin.setEncoding('utf8');
+    stdin.setEncoding("utf8");
 
-    let value = '';
+    let value = "";
 
     const onData = (char: string) => {
       switch (char) {
-        case '\n':
-        case '\r':
-        case '\u0004':
+        case "\n":
+        case "\r":
+        case "\u0004":
           stdin.setRawMode(false);
           stdin.pause();
-          stdin.removeListener('data', onData);
-          ctx.process.stdout.write('\n');
+          stdin.removeListener("data", onData);
+          ctx.process.stdout.write("\n");
           resolve(trimTrailingLineEndings(value));
           break;
-        case '\u0003':
+        case "\u0003":
           stdin.setRawMode(false);
           stdin.pause();
-          stdin.removeListener('data', onData);
-          ctx.process.stdout.write('\n');
-          reject(new Error('Cancelled'));
+          stdin.removeListener("data", onData);
+          ctx.process.stdout.write("\n");
+          reject(new Error("Cancelled"));
           break;
-        case '\u007F':
-        case '\b':
+        case "\u007F":
+        case "\b":
           if (value.length > 0) {
             value = value.slice(0, -1);
-            ctx.process.stdout.write('\b \b');
+            ctx.process.stdout.write("\b \b");
           }
           break;
         default:
           value += char;
-          ctx.process.stdout.write('\u2022');
+          ctx.process.stdout.write("\u2022");
       }
     };
 
-    stdin.on('data', onData);
+    stdin.on("data", onData);
   });
 }
 
@@ -220,26 +221,26 @@ function resolveSetDestination(
   // Shared resolver: honors explicit --file aliases AND declared v3 paths, and
   // hard-errors (never silently falls back, and never across storage classes)
   // when the selector is unknown. Same class fix covers `set` and `edit`.
-  return resolveEditableDestination(file ?? 'shared', repository);
+  return resolveEditableDestination(file ?? "shared", repository);
 }
 
 function getScopeLabel(destination: SetDestination, scope: EditableScope): string {
-  if (scope === 'machine-local') {
-    return 'repo-local';
+  if (scope === "machine-local") {
+    return "repo-local";
   }
 
-  return destination.fileKey ?? 'repository';
+  return destination.fileKey ?? "repository";
 }
 
 function getUsageLines(): string[] {
   return [
-    pc.red('Usage: hush set <KEY> [VALUE] [--file <path-or-alias>] [--repo-local]'),
-    pc.dim('Examples:'),
-    pc.dim('  hush set DATABASE_URL'),
-    pc.dim('  hush set API_KEY --file production'),
-    pc.dim('  hush set API_KEY --repo-local'),
-    pc.dim('  hush set WORKER_ENV staging --file env/project/staging'),
-    pc.dim('\nTo edit all secrets in an editor, use: hush edit'),
+    pc.red("Usage: hush set <KEY> [VALUE] [--file <path-or-alias>] [--repo-local]"),
+    pc.dim("Examples:"),
+    pc.dim("  hush set DATABASE_URL"),
+    pc.dim("  hush set API_KEY --file production"),
+    pc.dim("  hush set API_KEY --repo-local"),
+    pc.dim("  hush set WORKER_ENV staging --file env/project/staging"),
+    pc.dim("\nTo edit all secrets in an editor, use: hush edit"),
   ];
 }
 
@@ -249,7 +250,11 @@ function logUsage(ctx: HushContext): void {
   }
 }
 
-function detectLegacyPositionalFileArg(key: string | undefined, file: string | undefined, repoLocal: boolean | undefined): void {
+function detectLegacyPositionalFileArg(
+  key: string | undefined,
+  file: string | undefined,
+  repoLocal: boolean | undefined,
+): void {
   if (repoLocal || file || !key || !isLegacyPositionalFileArg(key)) {
     return;
   }
@@ -259,22 +264,30 @@ function detectLegacyPositionalFileArg(key: string | undefined, file: string | u
   );
 }
 
-function getDocumentValue(document: HushFileDocument | null, filePath: string, key: string): string | undefined {
+function getDocumentValue(
+  document: HushFileDocument | null,
+  filePath: string,
+  key: string,
+): string | undefined {
   if (!document) {
     return undefined;
   }
 
   const entry = document.entries[`${filePath}/${key}`];
-  if (!entry || 'type' in entry) {
+  if (!entry || "type" in entry) {
     return undefined;
   }
 
-  return typeof entry.value === 'string' ? entry.value : undefined;
+  return typeof entry.value === "string" ? entry.value : undefined;
 }
 
-function findSharedConflicts(ctx: HushContext, store: SetOptions['store'], repository: HushV3Repository, key: string): string[] {
-  const repositoryConflicts = FILE_KEYS
-    .filter((fileKey) => fileKey !== 'shared')
+function findSharedConflicts(
+  ctx: HushContext,
+  store: SetOptions["store"],
+  repository: HushV3Repository,
+  key: string,
+): string[] {
+  const repositoryConflicts = FILE_KEYS.filter((fileKey) => fileKey !== "shared")
     .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey])
     .filter((filePath) => {
       if (!repository.filesByPath[filePath]) {
@@ -286,17 +299,21 @@ function findSharedConflicts(ctx: HushContext, store: SetOptions['store'], repos
 
   // Machine-local always wins at resolution, so it always shadows shared.
   const machineLocalConflict =
-    getDocumentValue(loadMachineLocalOverrides(ctx, store), MACHINE_LOCAL_FILE_PATH, key) !== undefined;
+    getDocumentValue(loadMachineLocalOverrides(ctx, store), MACHINE_LOCAL_FILE_PATH, key) !==
+    undefined;
 
-  return machineLocalConflict ? [...repositoryConflicts, MACHINE_LOCAL_FILE_PATH] : repositoryConflicts;
+  return machineLocalConflict
+    ? [...repositoryConflicts, MACHINE_LOCAL_FILE_PATH]
+    : repositoryConflicts;
 }
 
 /** Repository files holding `key`, which a machine-local override displaces. */
 function findMachineLocalShadows(repository: HushV3Repository, key: string): string[] {
-  return FILE_KEYS
-    .map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey])
-    .filter((filePath) => repository.filesByPath[filePath]
-      && getDocumentValue(repository.loadFile(filePath), filePath, key) !== undefined);
+  return FILE_KEYS.map((fileKey) => DEFAULT_V3_FILE_PATHS[fileKey]).filter(
+    (filePath) =>
+      repository.filesByPath[filePath] &&
+      getDocumentValue(repository.loadFile(filePath), filePath, key) !== undefined,
+  );
 }
 
 async function promptForValue(ctx: HushContext, key: string, forceGui: boolean): Promise<string> {
@@ -308,18 +325,18 @@ async function promptForValue(ctx: HushContext, key: string, forceGui: boolean):
     return normalizePromptValue(await promptViaTTY(ctx, key));
   }
 
-  ctx.logger.log(pc.dim('Opening dialog for secret input...'));
+  ctx.logger.log(pc.dim("Opening dialog for secret input..."));
 
   let value: string | null = null;
 
   switch (platform()) {
-    case 'darwin':
+    case "darwin":
       value = promptViaMacOSDialog(ctx, key);
       break;
-    case 'win32':
+    case "win32":
       value = promptViaWindowsDialog(ctx, key);
       break;
-    case 'linux':
+    case "linux":
       value = promptViaLinuxDialog(ctx, key);
       break;
   }
@@ -328,26 +345,19 @@ async function promptForValue(ctx: HushContext, key: string, forceGui: boolean):
     return normalizePromptValue(value);
   }
 
-  if (platform() === 'linux') {
+  if (platform() === "linux") {
     throw new Error('GUI prompt failed. Please install "zenity" or "kdialog".');
   }
 
-  throw new Error('Dialog cancelled or failed. Interactive input requires a terminal (TTY) or a supported GUI environment.');
+  throw new Error(
+    "Dialog cancelled or failed. Interactive input requires a terminal (TTY) or a supported GUI environment.",
+  );
 }
 
 export async function setCommand(ctx: HushContext, options: SetOptions): Promise<void> {
-  const {
-    store,
-    file,
-    key,
-    value: inlineValue,
-    gui,
-    repoLocal,
-    showLength,
-    json,
-  } = options;
+  const { store, file, key, value: inlineValue, gui, repoLocal, showLength, json } = options;
 
-  if (store.mode === 'global') {
+  if (store.mode === "global") {
     ensureGlobalStoreBootstrap(ctx, store);
   }
 
@@ -357,7 +367,9 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
   }
 
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-    ctx.logger.error(pc.red(`Invalid key name "${key}". Keys must match /^[A-Za-z_][A-Za-z0-9_]*$/`));
+    ctx.logger.error(
+      pc.red(`Invalid key name "${key}". Keys must match /^[A-Za-z_][A-Za-z0-9_]*$/`),
+    );
     ctx.process.exit(1);
   }
 
@@ -366,18 +378,18 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
 
   try {
     detectLegacyPositionalFileArg(key, file, repoLocal);
-    repository = requireV3Repository(store, 'set');
+    repository = requireV3Repository(store, "set");
     destination = resolveSetDestination(file, repoLocal, repository);
 
     const activeIdentity = requireMutableIdentity(ctx, store, repository, {
-      name: 'set',
+      name: "set",
       args: [destination.fileKey ?? destination.filePath, key],
     });
 
-    const value = inlineValue ?? await promptForValue(ctx, key, gui ?? false);
+    const value = inlineValue ?? (await promptForValue(ctx, key, gui ?? false));
 
     if (!value) {
-      ctx.logger.error(pc.yellow('No value entered. Nothing written.'));
+      ctx.logger.error(pc.yellow("No value entered. Nothing written."));
       ctx.process.exit(1);
     }
 
@@ -390,10 +402,13 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     // Preflight, not a source-only note: writing into a committed file named
     // "local" is the one case where the destination's storage class is likely
     // not what the operator assumed.
-    const legacyLocal = destination.filePath === LEGACY_MACHINE_LOCAL_FILE_PATH
-      ? findLegacyLocalRepositoryFile(repository)
-      : null;
-    const legacyLocalWarning = legacyLocal ? describeLegacyLocalRepositoryFile(legacyLocal) : undefined;
+    const legacyLocal =
+      destination.filePath === LEGACY_MACHINE_LOCAL_FILE_PATH
+        ? findLegacyLocalRepositoryFile(repository)
+        : null;
+    const legacyLocalWarning = legacyLocal
+      ? describeLegacyLocalRepositoryFile(legacyLocal)
+      : undefined;
     if (legacyLocalWarning && !json) {
       ctx.logger.warn(pc.yellow(`warning: ${legacyLocalWarning}`));
     }
@@ -403,13 +418,13 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     const previousValue = getDocumentValue(editable.document, editable.filePath, key);
     if (previousValue === value) {
       const payload = {
-        action: 'set',
+        action: "set",
         changed: false,
         key,
-        requestedScope: { file: file ?? (repoLocal ? 'repo-local' : 'shared') },
+        requestedScope: { file: file ?? (repoLocal ? "repo-local" : "shared") },
         resolvedScope: { file: editable.filePath, scope: editable.scope },
       };
-      if (json) writeJsonSuccess(ctx, 'set', payload);
+      if (json) writeJsonSuccess(ctx, "set", payload);
       else ctx.logger.log(pc.green(`${key} is already set in ${editable.filePath} (no change).`));
       return;
     }
@@ -417,7 +432,12 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     if (destination.filePath === DEFAULT_V3_FILE_PATHS.shared) {
       const conflicts = findSharedConflicts(ctx, store, repository, key);
       if (conflicts.length > 0) {
-        if (!json) ctx.logger.warn(pc.yellow(`warning: ${key} already exists in ${conflicts.join(', ')}; shared may not win at runtime.`));
+        if (!json)
+          ctx.logger.warn(
+            pc.yellow(
+              `warning: ${key} already exists in ${conflicts.join(", ")}; shared may not win at runtime.`,
+            ),
+          );
       }
     }
 
@@ -426,15 +446,19 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     // only moment the operator is looking; after this the override is silent by
     // design, and a stale one masking a rotated shared secret is the failure
     // this notice exists to make findable.
-    if (editable.scope === 'machine-local') {
+    if (editable.scope === "machine-local") {
       const shadowed = findMachineLocalShadows(repository, key);
       if (shadowed.length > 0 && !json) {
-        ctx.logger.warn(pc.yellow(`warning: ${key} is also set in ${shadowed.join(', ')}; the repo-local value now wins on this machine.`));
+        ctx.logger.warn(
+          pc.yellow(
+            `warning: ${key} is also set in ${shadowed.join(", ")}; the repo-local value now wins on this machine.`,
+          ),
+        );
       }
     }
 
     const nextDocument = setEnvValueInDocument(editable.document, key, value);
-    if (editable.scope === 'machine-local') {
+    if (editable.scope === "machine-local") {
       writeMachineLocalOverrides(ctx, store, nextDocument);
     } else {
       writeEditableFileDocument(ctx, store, repository, editable.systemPath, nextDocument);
@@ -453,15 +477,15 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     );
 
     appendAuditEvent(ctx, store, {
-      type: 'write',
+      type: "write",
       activeIdentity,
       success: true,
-      command: { name: 'set', args: [destination.fileKey ?? destination.filePath, key] },
+      command: { name: "set", args: [destination.fileKey ?? destination.filePath, key] },
       files: [editable.filePath],
       logicalPaths: [`${editable.filePath}/${key}`],
       details: {
         scope: editable.scope,
-        requestedFile: file ?? (repoLocal ? 'repo-local' : 'shared'),
+        requestedFile: file ?? (repoLocal ? "repo-local" : "shared"),
         resolvedFile: editable.filePath,
         chars: value.length,
       },
@@ -470,33 +494,38 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     const unresolvedWarning = describeUnresolvedWrite(ctx, store, key, editable.filePath);
     const scopeLabel = getScopeLabel(destination, editable.scope);
     const payload = {
-      action: 'set',
+      action: "set",
       changed: true,
       key,
-      requestedScope: { file: file ?? (repoLocal ? 'repo-local' : 'shared') },
+      requestedScope: { file: file ?? (repoLocal ? "repo-local" : "shared") },
       resolvedScope: { file: editable.filePath, scope: editable.scope },
       chars: value.length,
       ...(unresolvedWarning ? { resolutionWarning: unresolvedWarning } : {}),
       ...(legacyLocalWarning ? { storageClassWarning: legacyLocalWarning } : {}),
     };
     if (json) {
-      writeJsonSuccess(ctx, 'set', payload);
+      writeJsonSuccess(ctx, "set", payload);
     } else {
       if (unresolvedWarning) ctx.logger.warn(pc.yellow(`warning: ${unresolvedWarning}`));
-      ctx.logger.log(pc.green(`\n${key} set in ${editable.filePath} (${scopeLabel}, ${value.length} chars)`));
+      ctx.logger.log(
+        pc.green(`\n${key} set in ${editable.filePath} (${scopeLabel}, ${value.length} chars)`),
+      );
     }
   } catch (error) {
     const err = error as Error;
-    if (err.message === 'Cancelled') {
-      ctx.logger.log(pc.yellow('Cancelled'));
+    if (err.message === "Cancelled") {
+      ctx.logger.log(pc.yellow("Cancelled"));
       ctx.process.exit(1);
     }
-    if (err.message.startsWith('Invalid syntax:') || err.message.startsWith('Unknown file')) {
+    if (err.message.startsWith("Invalid syntax:") || err.message.startsWith("Unknown file")) {
       appendAuditEvent(ctx, store, {
-        type: 'write',
+        type: "write",
         activeIdentity: readCurrentIdentity(ctx, store),
         success: false,
-        command: { name: 'set', args: [destination?.fileKey ?? destination?.filePath ?? file ?? 'shared', key ?? ''] },
+        command: {
+          name: "set",
+          args: [destination?.fileKey ?? destination?.filePath ?? file ?? "shared", key ?? ""],
+        },
         reason: err.message,
       });
       ctx.logger.error(pc.red(err.message));
@@ -504,10 +533,13 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       ctx.process.exit(1);
     }
     appendAuditEvent(ctx, store, {
-      type: 'write',
+      type: "write",
       activeIdentity: readCurrentIdentity(ctx, store),
       success: false,
-      command: { name: 'set', args: [destination?.fileKey ?? destination?.filePath ?? file ?? 'shared', key ?? ''] },
+      command: {
+        name: "set",
+        args: [destination?.fileKey ?? destination?.filePath ?? file ?? "shared", key ?? ""],
+      },
       reason: err.message,
     });
     throw err;

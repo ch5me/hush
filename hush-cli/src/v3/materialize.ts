@@ -1,14 +1,18 @@
-import { appendAuditEvent, type HushAuditCommandContext } from './audit.js';
-import type { HushArtifactDescriptor, HushArtifactShapeResult, HushTargetArtifactDescriptor } from './artifacts.js';
-import { shadowPolicyFromEnv, shapeBundleArtifacts, shapeResolvedArtifacts } from './artifacts.js';
-import type { HushBundleName, HushTargetName } from './domain.js';
-import type { HushBundleResolution, HushTargetResolution } from './provenance.js';
-import type { HushImportRepositoryMap } from './imports.js';
-import { resolveV3Bundle, resolveV3Target, type ResolveV3Options } from './resolver.js';
-import { HushTempController, type HushStagedArtifact } from './temp.js';
-import type { HushContext, HushV3Repository, StoreContext } from '../types.js';
+import type { HushContext, HushV3Repository, StoreContext } from "../types.js";
+import type {
+  HushArtifactDescriptor,
+  HushArtifactShapeResult,
+  HushTargetArtifactDescriptor,
+} from "./artifacts.js";
+import { shadowPolicyFromEnv, shapeBundleArtifacts, shapeResolvedArtifacts } from "./artifacts.js";
+import { appendAuditEvent, type HushAuditCommandContext } from "./audit.js";
+import type { HushBundleName, HushTargetName } from "./domain.js";
+import type { HushImportRepositoryMap } from "./imports.js";
+import type { HushBundleResolution, HushTargetResolution } from "./provenance.js";
+import { resolveV3Bundle, resolveV3Target, type ResolveV3Options } from "./resolver.js";
+import { HushTempController, type HushStagedArtifact } from "./temp.js";
 
-export type HushMaterializationMode = 'memory' | 'staged' | 'persisted';
+export type HushMaterializationMode = "memory" | "staged" | "persisted";
 
 export interface HushMaterializationOptions extends ResolveV3Options {
   store: StoreContext;
@@ -28,7 +32,7 @@ export interface HushMaterializeBundleOptions extends HushMaterializationOptions
 }
 
 export interface HushMaterialization {
-  kind: 'target' | 'bundle';
+  kind: "target" | "bundle";
   identity: string;
   bundle?: string;
   target?: string;
@@ -36,13 +40,13 @@ export interface HushMaterialization {
   files: string[];
   logicalPaths: string[];
   env: Record<string, string>;
-  envVars: HushArtifactShapeResult['envVars'];
+  envVars: HushArtifactShapeResult["envVars"];
   targetArtifact: HushTargetArtifactDescriptor | null;
   artifacts: HushArtifactDescriptor[];
   stagedArtifacts: HushStagedArtifact[];
   mode: HushMaterializationMode;
   cleanup(): void;
-  interruptedSignal(): 'SIGINT' | 'SIGTERM' | null;
+  interruptedSignal(): "SIGINT" | "SIGTERM" | null;
 }
 
 export interface HushMaterializationFailure {
@@ -52,17 +56,17 @@ export interface HushMaterializationFailure {
 }
 
 export class HushMaterializationInterruptedError extends Error {
-  readonly signal: 'SIGINT' | 'SIGTERM';
+  readonly signal: "SIGINT" | "SIGTERM";
 
-  constructor(signal: 'SIGINT' | 'SIGTERM') {
+  constructor(signal: "SIGINT" | "SIGTERM") {
     super(`Materialization interrupted by ${signal}`);
-    this.name = 'HushMaterializationInterruptedError';
+    this.name = "HushMaterializationInterruptedError";
     this.signal = signal;
   }
 }
 
 function getMode(mode: HushMaterializationMode | undefined): HushMaterializationMode {
-  return mode ?? 'memory';
+  return mode ?? "memory";
 }
 
 function toLogicalPaths(resolution: HushBundleResolution): string[] {
@@ -79,7 +83,7 @@ function stageArtifacts(
   targetArtifact: HushTargetArtifactDescriptor | null,
   artifacts: HushArtifactDescriptor[],
 ): HushStagedArtifact[] {
-  if (mode === 'memory') {
+  if (mode === "memory") {
     return [];
   }
 
@@ -101,18 +105,18 @@ function createMaterialization(
   options: HushMaterializationOptions,
   resolution: HushBundleResolution,
   shape: HushArtifactShapeResult,
-  kind: 'target' | 'bundle',
+  kind: "target" | "bundle",
 ): HushMaterialization {
   const mode = getMode(options.mode);
   const controller = new HushTempController(ctx, {
-    persist: mode === 'persisted',
+    persist: mode === "persisted",
     outputRoot: options.outputRoot,
   });
 
   controller.initialize();
 
   const stagedArtifacts = stageArtifacts(controller, mode, shape.targetArtifact, shape.artifacts);
-  const target = kind === 'target' ? (resolution as HushTargetResolution).target : undefined;
+  const target = kind === "target" ? (resolution as HushTargetResolution).target : undefined;
 
   return {
     kind,
@@ -136,13 +140,16 @@ function createMaterialization(
 function emitMaterializeAudit(
   ctx: HushContext,
   store: StoreContext,
-  materialization: Pick<HushMaterialization, 'identity' | 'files' | 'logicalPaths' | 'bundle' | 'target' | 'repositoryRoot' | 'mode'>,
+  materialization: Pick<
+    HushMaterialization,
+    "identity" | "files" | "logicalPaths" | "bundle" | "target" | "repositoryRoot" | "mode"
+  >,
   command: HushAuditCommandContext | undefined,
   success: boolean,
   reason?: string,
 ): void {
   appendAuditEvent(ctx, store, {
-    type: 'materialize',
+    type: "materialize",
     activeIdentity: materialization.identity,
     success,
     command,
@@ -162,22 +169,35 @@ function toFailureReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function materializeV3Target(ctx: HushContext, options: HushMaterializeTargetOptions): HushMaterialization {
+export function materializeV3Target(
+  ctx: HushContext,
+  options: HushMaterializeTargetOptions,
+): HushMaterialization {
   const target = options.repository.manifest.targets?.[options.targetName];
 
   if (!target) {
-    throw new Error(`Target "${options.targetName}" is not declared in repository ${options.repository.projectRoot}`);
+    throw new Error(
+      `Target "${options.targetName}" is not declared in repository ${options.repository.projectRoot}`,
+    );
   }
 
   const resolution = resolveV3Target(ctx, options);
-  const shape = shapeResolvedArtifacts(options.targetName, target, resolution, shadowPolicyFromEnv(ctx));
-  return createMaterialization(ctx, options, resolution, shape, 'target');
+  const shape = shapeResolvedArtifacts(
+    options.targetName,
+    target,
+    resolution,
+    shadowPolicyFromEnv(ctx),
+  );
+  return createMaterialization(ctx, options, resolution, shape, "target");
 }
 
-export function materializeV3Bundle(ctx: HushContext, options: HushMaterializeBundleOptions): HushMaterialization {
+export function materializeV3Bundle(
+  ctx: HushContext,
+  options: HushMaterializeBundleOptions,
+): HushMaterialization {
   const resolution = resolveV3Bundle(ctx, options);
   const shape = buildBundleShape(resolution);
-  return createMaterialization(ctx, options, resolution, shape, 'bundle');
+  return createMaterialization(ctx, options, resolution, shape, "bundle");
 }
 
 export function withMaterializedTarget<T>(
@@ -200,7 +220,7 @@ export function withMaterializedTarget<T>(
     return result;
   } catch (error) {
     const failure = materialization ?? {
-      identity: options.activeIdentity ?? 'unknown',
+      identity: options.activeIdentity ?? "unknown",
       files: [] as string[],
       logicalPaths: [] as string[],
       bundle: undefined,
@@ -208,7 +228,14 @@ export function withMaterializedTarget<T>(
       repositoryRoot: options.repository.projectRoot,
       mode: getMode(options.mode),
     };
-    emitMaterializeAudit(ctx, options.store, failure, options.command, false, toFailureReason(error));
+    emitMaterializeAudit(
+      ctx,
+      options.store,
+      failure,
+      options.command,
+      false,
+      toFailureReason(error),
+    );
     throw error;
   } finally {
     materialization?.cleanup();
@@ -235,7 +262,7 @@ export function withMaterializedBundle<T>(
     return result;
   } catch (error) {
     const failure = materialization ?? {
-      identity: options.activeIdentity ?? 'unknown',
+      identity: options.activeIdentity ?? "unknown",
       files: [] as string[],
       logicalPaths: [] as string[],
       bundle: options.bundleName,
@@ -243,7 +270,14 @@ export function withMaterializedBundle<T>(
       repositoryRoot: options.repository.projectRoot,
       mode: getMode(options.mode),
     };
-    emitMaterializeAudit(ctx, options.store, failure, options.command, false, toFailureReason(error));
+    emitMaterializeAudit(
+      ctx,
+      options.store,
+      failure,
+      options.command,
+      false,
+      toFailureReason(error),
+    );
     throw error;
   } finally {
     materialization?.cleanup();

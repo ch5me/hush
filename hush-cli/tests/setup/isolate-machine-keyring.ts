@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterAll } from "vitest";
 
 /**
  * sops loads age identities from SOPS_AGE_KEY_FILE *in addition to* the machine's
@@ -20,7 +21,7 @@ import { afterAll } from 'vitest';
  * `~/.hush` store) reads HOME through `os.homedir()`, so it follows the sandbox
  * too — tests can no longer touch the developer's real hush state either.
  */
-const sandboxHome = mkdtempSync(join(tmpdir(), 'hush-test-home-'));
+const sandboxHome = mkdtempSync(join(tmpdir(), "hush-test-home-"));
 
 process.env.HOME = sandboxHome;
 

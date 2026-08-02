@@ -1,17 +1,17 @@
-import { 
-  existsSync as nodeExistsSync, 
-  readFileSync as nodeReadFileSync, 
-  writeFileSync as nodeWriteFileSync, 
-  mkdirSync as nodeMkdirSync, 
-  readdirSync as nodeReaddirSync, 
-  unlinkSync as nodeUnlinkSync, 
+import {
+  existsSync as nodeExistsSync,
+  readFileSync as nodeReadFileSync,
+  writeFileSync as nodeWriteFileSync,
+  mkdirSync as nodeMkdirSync,
+  readdirSync as nodeReaddirSync,
+  unlinkSync as nodeUnlinkSync,
   rmSync as nodeRmSync,
-  statSync as nodeStatSync, 
+  statSync as nodeStatSync,
   fstatSync as nodeFstatSync,
   renameSync as nodeRenameSync,
   type PathLike,
   type WriteFileOptions,
-} from 'node:fs';
+} from "node:fs";
 
 /**
  * Filesystem wrapper to allow for easier testing and isolation of side effects.
@@ -23,7 +23,10 @@ export const fs = {
     return nodeExistsSync(path);
   },
 
-  readFileSync: (path: PathLike, options?: { encoding?: BufferEncoding; flag?: string } | BufferEncoding): string | Buffer => {
+  readFileSync: (
+    path: PathLike,
+    options?: { encoding?: BufferEncoding; flag?: string } | BufferEncoding,
+  ): string | Buffer => {
     // @ts-ignore - handled by overloads in node:fs
     return nodeReadFileSync(path, options);
   },
@@ -32,7 +35,10 @@ export const fs = {
     nodeWriteFileSync(path, data, options);
   },
 
-  mkdirSync: (path: PathLike, options?: { recursive?: boolean; mode?: number }): string | undefined => {
+  mkdirSync: (
+    path: PathLike,
+    options?: { recursive?: boolean; mode?: number },
+  ): string | undefined => {
     return nodeMkdirSync(path, options);
   },
 
@@ -59,5 +65,5 @@ export const fs = {
 
   renameSync: (oldPath: PathLike, newPath: PathLike): void => {
     nodeRenameSync(oldPath, newPath);
-  }
+  },
 };

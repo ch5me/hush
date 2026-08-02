@@ -13,41 +13,47 @@
  * - Never decrypts values from the source store; reads only structural names.
  */
 
-import pc from 'picocolors';
-import { stringify as stringifyYaml } from 'yaml';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve, basename } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import { appendAuditEvent, createManifestDocument } from '../index.js';
-import { persistV3ManifestDocument } from '../v3/repository.js';
-import { requireMutableIdentity, requireV3Repository } from './v3-command-helpers.js';
-import type { HushContext, ImportAddOptions } from '../types.js';
-import { suggestKnownName } from './mutation-feedback.js';
-import { writeJsonSuccess } from '../lib/command-output.js';
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve, basename } from "node:path";
+
+import pc from "picocolors";
+import { stringify as stringifyYaml } from "yaml";
+import { parse as parseYaml } from "yaml";
+
+import { appendAuditEvent, createManifestDocument } from "../index.js";
+import { writeJsonSuccess } from "../lib/command-output.js";
+import type { HushContext, ImportAddOptions } from "../types.js";
+import { persistV3ManifestDocument } from "../v3/repository.js";
+import { suggestKnownName } from "./mutation-feedback.js";
+import { requireMutableIdentity, requireV3Repository } from "./v3-command-helpers.js";
 
 /**
  * Safely read target/bundle names from an external store's manifest without
  * decrypting any secret values.
  */
-function readExternalManifestNames(storeRoot: string): { targetNames: string[]; bundleNames: string[] } | undefined {
-  const manifestPath = join(storeRoot, '.hush', 'manifest.encrypted');
+function readExternalManifestNames(
+  storeRoot: string,
+): { targetNames: string[]; bundleNames: string[] } | undefined {
+  const manifestPath = join(storeRoot, ".hush", "manifest.encrypted");
   if (!existsSync(manifestPath)) {
     return undefined;
   }
   try {
-    const raw = readFileSync(manifestPath, 'utf-8');
+    const raw = readFileSync(manifestPath, "utf-8");
     const parsed = parseYaml(raw) as Record<string, unknown> | null;
-    if (!parsed || typeof parsed !== 'object') return undefined;
+    if (!parsed || typeof parsed !== "object") return undefined;
 
     const targets = parsed.targets;
     const bundles = parsed.bundles;
     return {
-      targetNames: targets && typeof targets === 'object' && !Array.isArray(targets)
-        ? Object.keys(targets as Record<string, unknown>)
-        : [],
-      bundleNames: bundles && typeof bundles === 'object' && !Array.isArray(bundles)
-        ? Object.keys(bundles as Record<string, unknown>)
-        : [],
+      targetNames:
+        targets && typeof targets === "object" && !Array.isArray(targets)
+          ? Object.keys(targets as Record<string, unknown>)
+          : [],
+      bundleNames:
+        bundles && typeof bundles === "object" && !Array.isArray(bundles)
+          ? Object.keys(bundles as Record<string, unknown>)
+          : [],
     };
   } catch {
     return undefined;
@@ -61,9 +67,9 @@ function readExternalManifestNames(storeRoot: string): { targetNames: string[]; 
  *      /path/to/other-repo + bundle 'shared' → 'other-repo-shared'
  */
 function deriveImportName(sourceRoot: string, bundle?: string): string {
-  const home = process.env.HOME ?? '';
-  const isGlobal = home && resolve(sourceRoot) === resolve(join(home, '.hush'));
-  const baseName = isGlobal ? 'global' : basename(resolve(sourceRoot));
+  const home = process.env.HOME ?? "";
+  const isGlobal = home && resolve(sourceRoot) === resolve(join(home, ".hush"));
+  const baseName = isGlobal ? "global" : basename(resolve(sourceRoot));
   return bundle ? `${baseName}-${bundle}` : baseName;
 }
 
@@ -71,7 +77,11 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
   const { store, sourceRoot, bundle, file: fileArg, json } = options;
 
   if (!sourceRoot) {
-    ctx.logger.error(pc.red('Usage: hush import add --source-root <source-store-root> [--bundle <name>] [--file <path>] [--import-name <name>] [--json]'));
+    ctx.logger.error(
+      pc.red(
+        "Usage: hush import add --source-root <source-store-root> [--bundle <name>] [--file <path>] [--import-name <name>] [--json]",
+      ),
+    );
     ctx.process.exit(1);
   }
 
@@ -83,9 +93,13 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
     ctx.process.exit(1);
   }
 
-  const sourceManifestPath = join(resolvedSourceRoot, '.hush', 'manifest.encrypted');
+  const sourceManifestPath = join(resolvedSourceRoot, ".hush", "manifest.encrypted");
   if (!existsSync(sourceManifestPath)) {
-    ctx.logger.error(pc.red(`Source root is not a v3 Hush store (no .hush/manifest.encrypted): ${resolvedSourceRoot}`));
+    ctx.logger.error(
+      pc.red(
+        `Source root is not a v3 Hush store (no .hush/manifest.encrypted): ${resolvedSourceRoot}`,
+      ),
+    );
     ctx.process.exit(1);
   }
 
@@ -93,17 +107,29 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
   if (bundle) {
     const names = readExternalManifestNames(resolvedSourceRoot);
     if (names && !names.bundleNames.includes(bundle)) {
-      const available = names.bundleNames.length > 0 ? names.bundleNames.join(', ') : '(none)';
-      ctx.logger.error(pc.red(`Bundle "${bundle}" not found in source store ${resolvedSourceRoot}.`));
+      const available = names.bundleNames.length > 0 ? names.bundleNames.join(", ") : "(none)";
+      ctx.logger.error(
+        pc.red(`Bundle "${bundle}" not found in source store ${resolvedSourceRoot}.`),
+      );
       ctx.logger.error(pc.dim(`Available bundles: ${available}`));
       const suggestion = suggestKnownName(bundle, names.bundleNames);
-      if (suggestion) ctx.logger.error(pc.dim(`Did you mean "${suggestion}"? No import was changed.`));
+      if (suggestion)
+        ctx.logger.error(pc.dim(`Did you mean "${suggestion}"? No import was changed.`));
       ctx.process.exit(1);
     }
   }
 
-  const repository = requireV3Repository(store, 'import');
-  const command = { name: 'import', args: ['add', '--source-root', resolvedSourceRoot, ...(bundle ? ['--bundle', bundle] : []), ...(fileArg ? ['--file', fileArg] : [])] };
+  const repository = requireV3Repository(store, "import");
+  const command = {
+    name: "import",
+    args: [
+      "add",
+      "--source-root",
+      resolvedSourceRoot,
+      ...(bundle ? ["--bundle", bundle] : []),
+      ...(fileArg ? ["--file", fileArg] : []),
+    ],
+  };
   const activeIdentity = requireMutableIdentity(ctx, store, repository, command);
 
   // Derive a stable project identity string from the source manifest metadata,
@@ -113,14 +139,16 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
     const names = readExternalManifestNames(resolvedSourceRoot);
     // The source manifest metadata.project field — if present, use it as the
     // canonical project identity reference.
-    const raw = existsSync(sourceManifestPath) ? readFileSync(sourceManifestPath, 'utf-8') : '';
+    const raw = existsSync(sourceManifestPath) ? readFileSync(sourceManifestPath, "utf-8") : "";
     const parsed = parseYaml(raw) as Record<string, unknown> | null;
-    const metadataProject = parsed?.metadata && typeof parsed.metadata === 'object' && !Array.isArray(parsed.metadata)
-      ? (parsed.metadata as Record<string, unknown>).project
-      : undefined;
-    projectName = typeof metadataProject === 'string' && metadataProject.trim()
-      ? metadataProject.trim()
-      : basename(resolvedSourceRoot);
+    const metadataProject =
+      parsed?.metadata && typeof parsed.metadata === "object" && !Array.isArray(parsed.metadata)
+        ? (parsed.metadata as Record<string, unknown>).project
+        : undefined;
+    projectName =
+      typeof metadataProject === "string" && metadataProject.trim()
+        ? metadataProject.trim()
+        : basename(resolvedSourceRoot);
     void names; // read for bundle validation above
   } catch {
     projectName = basename(resolvedSourceRoot);
@@ -132,14 +160,14 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
   // (e.g. `bundles/project`). Prefix bare names automatically so users can pass
   // `--bundle project` without needing to know the namespace convention.
   function toNamespacedBundle(name: string): string {
-    return name.startsWith('bundles/') ? name : `bundles/${name}`;
+    return name.startsWith("bundles/") ? name : `bundles/${name}`;
   }
 
   function toNamespacedFile(path: string): string {
     // Files must be namespace-prefixed; if the user passed a bare path like
     // `env/project/shared`, it's already namespaced — leave it alone.
-    const namespaces = ['env', 'artifacts', 'bundles', 'user', 'imports'];
-    const first = path.split('/')[0] ?? '';
+    const namespaces = ["env", "artifacts", "bundles", "user", "imports"];
+    const first = path.split("/")[0] ?? "";
     return namespaces.includes(first) ? path : `env/${path}`;
   }
 
@@ -162,12 +190,14 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
     const newFiles = pull.files ?? [];
     const sameProject = existing.project === projectName;
     const sameSourceRoot = existing.sourceRoot === resolvedSourceRoot;
-    const sameBundles = JSON.stringify([...existingBundles].sort()) === JSON.stringify([...newBundles].sort());
-    const sameFiles = JSON.stringify([...existingFiles].sort()) === JSON.stringify([...newFiles].sort());
+    const sameBundles =
+      JSON.stringify([...existingBundles].sort()) === JSON.stringify([...newBundles].sort());
+    const sameFiles =
+      JSON.stringify([...existingFiles].sort()) === JSON.stringify([...newFiles].sort());
 
     if (sameProject && sameSourceRoot && sameBundles && sameFiles) {
       const payload = {
-        action: 'add-import',
+        action: "add-import",
         changed: false,
         requestedScope: { sourceRoot, bundle, file: fileArg, importName: options.importName },
         resolvedScope: { sourceRoot: resolvedSourceRoot, importName },
@@ -177,17 +207,27 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
         idempotent: true,
       };
       if (json) {
-        writeJsonSuccess(ctx, 'import', payload);
+        writeJsonSuccess(ctx, "import", payload);
       } else {
-        ctx.logger.log(pc.green(`Import "${importName}" already declared with identical configuration (no change).`));
+        ctx.logger.log(
+          pc.green(
+            `Import "${importName}" already declared with identical configuration (no change).`,
+          ),
+        );
         ctx.logger.log(pc.dim(stringifyYaml(payload, { indent: 2 }).trimEnd()));
       }
       return;
     }
 
     // Same name but different config → error; user should pick a different name or remove+re-add.
-    ctx.logger.error(pc.red(`Import name "${importName}" already exists with different configuration.`));
-    ctx.logger.error(pc.dim('Pass --import-name <name> to use a different import name, or remove the existing import first.'));
+    ctx.logger.error(
+      pc.red(`Import name "${importName}" already exists with different configuration.`),
+    );
+    ctx.logger.error(
+      pc.dim(
+        "Pass --import-name <name> to use a different import name, or remove the existing import first.",
+      ),
+    );
     ctx.process.exit(1);
   }
 
@@ -206,7 +246,7 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
   persistV3ManifestDocument(ctx, store, repository, nextManifest);
 
   appendAuditEvent(ctx, store, {
-    type: 'metadata_change',
+    type: "metadata_change",
     activeIdentity,
     success: true,
     command,
@@ -219,7 +259,7 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
   });
 
   const payload = {
-    action: 'add-import',
+    action: "add-import",
     changed: true,
     requestedScope: { sourceRoot, bundle, file: fileArg, importName: options.importName },
     resolvedScope: { sourceRoot: resolvedSourceRoot, importName },
@@ -229,7 +269,7 @@ export async function importAddCommand(ctx: HushContext, options: ImportAddOptio
     added: true,
   };
   if (json) {
-    writeJsonSuccess(ctx, 'import', payload);
+    writeJsonSuccess(ctx, "import", payload);
     return;
   }
 

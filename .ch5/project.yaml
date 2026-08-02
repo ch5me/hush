@@ -75,9 +75,9 @@ project:
       crop. No text, no logotype, no UI chrome, no padlock, no shield, no
       generic purple-SaaS gradient backdrop.
     colors:
-      primary: '#7C3AED'
-      accent: '#06B6D4'
-      neutral: '#0F172A'
+      primary: "#7C3AED"
+      accent: "#06B6D4"
+      neutral: "#0F172A"
     assets:
       icon_source: .ch5/assets/master/icon.png
       icon_variant_profile: ch5-master-icon-v2

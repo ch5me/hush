@@ -1,7 +1,7 @@
-import type { EnvVar } from '../types.js';
+import type { EnvVar } from "../types.js";
 
 const VAR_PATTERN = /\$\{([^}]+)\}/g;
-const ENV_PREFIX = 'env:';
+const ENV_PREFIX = "env:";
 
 export interface InterpolateOptions {
   processEnv?: Record<string, string | undefined>;
@@ -9,24 +9,28 @@ export interface InterpolateOptions {
 }
 
 export function interpolateValue(
-  value: string, 
+  value: string,
   context: Record<string, string>,
-  options: InterpolateOptions = {}
+  options: InterpolateOptions = {},
 ): string {
   return value.replace(VAR_PATTERN, (match, expression: string) => {
     if (expression.startsWith(ENV_PREFIX)) {
       const envVarName = expression.slice(ENV_PREFIX.length);
       const envValue = options.processEnv?.[envVarName];
-      return envValue ?? '';
+      return envValue ?? "";
     }
-    
+
     const defaultMatch = expression.match(/^([^:]+):-(.*)$/);
     if (defaultMatch) {
       const [, varName, defaultValue] = defaultMatch;
-      if (varName in context && context[varName] !== '') {
+      if (varName in context && context[varName] !== "") {
         const val = context[varName];
         if (val === match) {
-          if (options.baseContext && varName in options.baseContext && options.baseContext[varName] !== '') {
+          if (
+            options.baseContext &&
+            varName in options.baseContext &&
+            options.baseContext[varName] !== ""
+          ) {
             return options.baseContext[varName];
           }
           return defaultValue;
@@ -35,7 +39,7 @@ export function interpolateValue(
       }
       return defaultValue;
     }
-    
+
     if (expression in context) {
       const val = context[expression];
       if (val === match) {

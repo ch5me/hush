@@ -1,23 +1,38 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { join } from 'node:path';
-import * as nodeFs from 'node:fs';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { doctorCommand } from '../src/commands/doctor.js';
-import { createFileDocument, createFileIndexEntry, createManifestDocument, createProjectSlug, loadV3Repository } from '../src/index.js';
-import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
-import type { HushContext, HushManifestDocument, LegacyHushConfig } from '../src/types.js';
-import { ensureTestSopsEnv, writeEncryptedYamlFile } from './helpers/sops-test.js';
+import * as nodeFs from "node:fs";
+import { join } from "node:path";
 
-const TEST_DIR = join('/tmp', 'hush-test-doctor-json');
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+
+import { doctorCommand } from "../src/commands/doctor.js";
+import {
+  decrypt,
+  decryptYaml,
+  encrypt,
+  encryptYaml,
+  encryptYamlContent,
+  isSopsInstalled,
+} from "../src/core/sops.js";
+import {
+  createFileDocument,
+  createFileIndexEntry,
+  createManifestDocument,
+  createProjectSlug,
+  loadV3Repository,
+} from "../src/index.js";
+import type { HushContext, HushManifestDocument, LegacyHushConfig } from "../src/types.js";
+import { ensureTestSopsEnv, writeEncryptedYamlFile } from "./helpers/sops-test.js";
+
+const TEST_DIR = join("/tmp", "hush-test-doctor-json");
 
 function normalizeYaml(content: string): string {
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
 
-  while (lines[0] !== undefined && lines[0].trim() === '') {
+  while (lines[0] !== undefined && lines[0].trim() === "") {
     lines.shift();
   }
 
-  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === '') {
+  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === "") {
     lines.pop();
   }
 
@@ -28,7 +43,7 @@ function normalizeYaml(content: string): string {
       return Math.min(smallest, match?.[0].length ?? 0);
     }, Number.POSITIVE_INFINITY);
 
-  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join('\n');
+  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join("\n");
 }
 
 function createContext(root: string) {
@@ -43,12 +58,12 @@ function createContext(root: string) {
 
   const defaultConfig: LegacyHushConfig = {
     sources: {
-      shared: '.hush',
-      development: '.hush.development',
-      production: '.hush.production',
-      local: '.hush.local',
+      shared: ".hush",
+      development: ".hush.development",
+      production: ".hush.production",
+      local: ".hush.local",
     },
-    targets: [{ name: 'root', path: '.', format: 'dotenv' }],
+    targets: [{ name: "root", path: ".", format: "dotenv" }],
   };
 
   const ctx: HushContext = {
@@ -57,7 +72,7 @@ function createContext(root: string) {
       readFileSync: nodeFs.readFileSync,
       writeFileSync: nodeFs.writeFileSync,
       mkdirSync: nodeFs.mkdirSync,
-      readdirSync: nodeFs.readdirSync as HushContext['fs']['readdirSync'],
+      readdirSync: nodeFs.readdirSync as HushContext["fs"]["readdirSync"],
       unlinkSync: nodeFs.unlinkSync,
       rmSync: nodeFs.rmSync,
       statSync: nodeFs.statSync,
@@ -65,8 +80,8 @@ function createContext(root: string) {
     },
     path: { join },
     exec: {
-      spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
-      execSync: vi.fn(() => ''),
+      spawnSync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })),
+      execSync: vi.fn(() => ""),
     },
     logger,
     process: {
@@ -86,19 +101,38 @@ function createContext(root: string) {
     },
     age: {
       ageAvailable: vi.fn(() => true),
-      ageGenerate: vi.fn(() => ({ private: 'private', public: 'public' })),
+      ageGenerate: vi.fn(() => ({ private: "private", public: "public" })),
       keyExists: vi.fn(() => false),
       keySave: vi.fn(),
-      keyPath: vi.fn(() => ''),
+      keyPath: vi.fn(() => ""),
       keyLoad: vi.fn(() => null),
-      agePublicFromPrivate: vi.fn(() => 'public'),
+      agePublicFromPrivate: vi.fn(() => "public"),
     },
     sops: {
-      decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
-      decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),
-      encrypt: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encrypt(inputPath, outputPath, options)),
-      encryptYaml: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYaml(inputPath, outputPath, options)),
-      encryptYamlContent: vi.fn((content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYamlContent(content, outputPath, options)),
+      decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) =>
+        decrypt(filePath, options),
+      ),
+      decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) =>
+        decryptYaml(filePath, options),
+      ),
+      encrypt: vi.fn(
+        (
+          inputPath: string,
+          outputPath: string,
+          options?: { root?: string; keyIdentity?: string },
+        ) => encrypt(inputPath, outputPath, options),
+      ),
+      encryptYaml: vi.fn(
+        (
+          inputPath: string,
+          outputPath: string,
+          options?: { root?: string; keyIdentity?: string },
+        ) => encryptYaml(inputPath, outputPath, options),
+      ),
+      encryptYamlContent: vi.fn(
+        (content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) =>
+          encryptYamlContent(content, outputPath, options),
+      ),
       edit: vi.fn(),
       isSopsInstalled: vi.fn(() => isSopsInstalled()),
     },
@@ -108,24 +142,32 @@ function createContext(root: string) {
 }
 
 function writeRepo(root: string, manifest: string, files: Record<string, string>) {
-  nodeFs.mkdirSync(join(root, '.hush', 'files'), { recursive: true });
+  nodeFs.mkdirSync(join(root, ".hush", "files"), { recursive: true });
 
-  const parsedFiles = Object.values(files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
+  const parsedFiles = Object.values(files).map((content) =>
+    createFileDocument(parseYaml(normalizeYaml(content))),
+  );
   const manifestDocument = createManifestDocument({
     ...(parseYaml(normalizeYaml(manifest)) as Record<string, unknown>),
-    fileIndex: Object.fromEntries(parsedFiles.map((file) => [file.path, createFileIndexEntry(file)])),
+    fileIndex: Object.fromEntries(
+      parsedFiles.map((file) => [file.path, createFileIndexEntry(file)]),
+    ),
   } as HushManifestDocument);
-  writeEncryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'), stringifyYaml(manifestDocument, { indent: 2 }));
+  writeEncryptedYamlFile(
+    root,
+    join(root, ".hush", "manifest.encrypted"),
+    stringifyYaml(manifestDocument, { indent: 2 }),
+  );
 
   for (const [relativePath, content] of Object.entries(files)) {
-    const filePath = join(root, '.hush', 'files', `${relativePath}.encrypted`);
+    const filePath = join(root, ".hush", "files", `${relativePath}.encrypted`);
     writeEncryptedYamlFile(root, filePath, normalizeYaml(content));
   }
 
   return loadV3Repository(root, { keyIdentity: root });
 }
 
-describe('doctor --json', () => {
+describe("doctor --json", () => {
   beforeEach(() => {
     ensureTestSopsEnv();
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
@@ -136,8 +178,8 @@ describe('doctor --json', () => {
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
-  it('emits valid JSON with a checks array', async () => {
-    const root = join(TEST_DIR, 'doctor-json-basic');
+  it("emits valid JSON with a checks array", async () => {
+    const root = join(TEST_DIR, "doctor-json-basic");
     writeRepo(
       root,
       `
@@ -147,7 +189,7 @@ describe('doctor --json', () => {
           roles: [owner]
       `,
       {
-        'env/project/shared': `
+        "env/project/shared": `
           path: env/project/shared
           readers:
             roles: [owner]
@@ -164,18 +206,23 @@ describe('doctor --json', () => {
 
     await doctorCommand(ctx, { startDir: root, json: true });
 
-    const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const envelope = JSON.parse(raw) as { version: number; ok: boolean; command: string; data: { checks: Array<{ name: string; ok: boolean; detail: string }> } };
-    expect(envelope).toMatchObject({ version: 1, ok: true, command: 'doctor' });
+    const raw = logger.log.mock.calls.map(([message]) => String(message)).join("");
+    const envelope = JSON.parse(raw) as {
+      version: number;
+      ok: boolean;
+      command: string;
+      data: { checks: Array<{ name: string; ok: boolean; detail: string }> };
+    };
+    expect(envelope).toMatchObject({ version: 1, ok: true, command: "doctor" });
     const payload = envelope.data;
 
-    expect(payload).toHaveProperty('checks');
+    expect(payload).toHaveProperty("checks");
     expect(Array.isArray(payload.checks)).toBe(true);
     expect(payload.checks.length).toBeGreaterThan(0);
   });
 
-  it('each check has name, ok, detail fields', async () => {
-    const root = join(TEST_DIR, 'doctor-json-fields');
+  it("each check has name, ok, detail fields", async () => {
+    const root = join(TEST_DIR, "doctor-json-fields");
     writeRepo(
       root,
       `
@@ -185,7 +232,7 @@ describe('doctor --json', () => {
           roles: [owner]
       `,
       {
-        'env/project/shared': `
+        "env/project/shared": `
           path: env/project/shared
           readers:
             roles: [owner]
@@ -202,21 +249,23 @@ describe('doctor --json', () => {
 
     await doctorCommand(ctx, { startDir: root, json: true });
 
-    const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = (JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }).data;
+    const raw = logger.log.mock.calls.map(([message]) => String(message)).join("");
+    const payload = (
+      JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }
+    ).data;
 
     for (const check of payload.checks) {
-      expect(check).toHaveProperty('name');
-      expect(check).toHaveProperty('ok');
-      expect(check).toHaveProperty('detail');
-      expect(typeof check.name).toBe('string');
-      expect(typeof check.ok).toBe('boolean');
-      expect(typeof check.detail).toBe('string');
+      expect(check).toHaveProperty("name");
+      expect(check).toHaveProperty("ok");
+      expect(check).toHaveProperty("detail");
+      expect(typeof check.name).toBe("string");
+      expect(typeof check.ok).toBe("boolean");
+      expect(typeof check.detail).toBe("string");
     }
   });
 
-  it('includes repository_found check', async () => {
-    const root = join(TEST_DIR, 'doctor-json-repo-found');
+  it("includes repository_found check", async () => {
+    const root = join(TEST_DIR, "doctor-json-repo-found");
     writeRepo(
       root,
       `
@@ -226,7 +275,7 @@ describe('doctor --json', () => {
           roles: [owner]
       `,
       {
-        'env/project/shared': `
+        "env/project/shared": `
           path: env/project/shared
           readers:
             roles: [owner]
@@ -243,15 +292,17 @@ describe('doctor --json', () => {
 
     await doctorCommand(ctx, { startDir: root, json: true });
 
-    const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = (JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }).data;
+    const raw = logger.log.mock.calls.map(([message]) => String(message)).join("");
+    const payload = (
+      JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }
+    ).data;
 
-    const repoCheck = payload.checks.find((c) => c.name === 'repository_found');
+    const repoCheck = payload.checks.find((c) => c.name === "repository_found");
     expect(repoCheck).toBeDefined();
   });
 
-  it('includes age_key_found check', async () => {
-    const root = join(TEST_DIR, 'doctor-json-key-found');
+  it("includes age_key_found check", async () => {
+    const root = join(TEST_DIR, "doctor-json-key-found");
     writeRepo(
       root,
       `
@@ -261,7 +312,7 @@ describe('doctor --json', () => {
           roles: [owner]
       `,
       {
-        'env/project/shared': `
+        "env/project/shared": `
           path: env/project/shared
           readers:
             roles: [owner]
@@ -278,15 +329,17 @@ describe('doctor --json', () => {
 
     await doctorCommand(ctx, { startDir: root, json: true });
 
-    const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
-    const payload = (JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }).data;
+    const raw = logger.log.mock.calls.map(([message]) => String(message)).join("");
+    const payload = (
+      JSON.parse(raw) as { data: { checks: Array<{ name: string; ok: boolean; detail: string }> } }
+    ).data;
 
-    const keyCheck = payload.checks.find((c) => c.name === 'age_key_found');
+    const keyCheck = payload.checks.find((c) => c.name === "age_key_found");
     expect(keyCheck).toBeDefined();
   });
 
-  it('does not emit human-readable output when --json is set', async () => {
-    const root = join(TEST_DIR, 'doctor-json-no-human');
+  it("does not emit human-readable output when --json is set", async () => {
+    const root = join(TEST_DIR, "doctor-json-no-human");
     writeRepo(
       root,
       `
@@ -296,7 +349,7 @@ describe('doctor --json', () => {
           roles: [owner]
       `,
       {
-        'env/project/shared': `
+        "env/project/shared": `
           path: env/project/shared
           readers:
             roles: [owner]
@@ -313,11 +366,11 @@ describe('doctor --json', () => {
 
     await doctorCommand(ctx, { startDir: root, json: true });
 
-    const raw = logger.log.mock.calls.map(([message]) => String(message)).join('');
+    const raw = logger.log.mock.calls.map(([message]) => String(message)).join("");
 
     // Should be valid JSON, not human-readable output
     expect(() => JSON.parse(raw)).not.toThrow();
     // Should not contain Doctor header
-    expect(raw).not.toContain('Hush Doctor');
+    expect(raw).not.toContain("Hush Doctor");
   });
 });

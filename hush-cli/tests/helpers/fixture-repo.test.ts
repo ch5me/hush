@@ -1,32 +1,34 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import {
   SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV,
   SOPS_PREFLIGHT_TIMEOUT_ENV,
   encryptYamlContent,
   resetSopsPreflightCache,
-} from '../../src/core/sops.js';
+} from "../../src/core/sops.js";
 import {
   FixtureNotDecryptedError,
   TEST_AGE_PUBLIC_KEY,
   ensureEncryptedFixtureRepo,
   ensureTestSopsEnv,
   readDecryptedYamlFile,
-} from './sops-test.js';
+} from "./sops-test.js";
 
 const PLAINTEXT_MANIFEST = [
-  'version: 3',
-  'identities:',
-  '  owner-local:',
-  '    roles:',
-  '      - owner',
-  'fileIndex: {}',
-  '',
-].join('\n');
+  "version: 3",
+  "identities:",
+  "  owner-local:",
+  "    roles:",
+  "      - owner",
+  "fileIndex: {}",
+  "",
+].join("\n");
 
-describe('ensureEncryptedFixtureRepo write guard', () => {
+describe("ensureEncryptedFixtureRepo write guard", () => {
   let fixtureRoot: string;
   let manifestPath: string;
   let fakeBinDir: string;
@@ -36,10 +38,10 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
 
   beforeEach(() => {
     ensureTestSopsEnv();
-    fixtureRoot = mkdtempSync(join(tmpdir(), 'hush-fixture-guard-'));
-    fakeBinDir = mkdtempSync(join(tmpdir(), 'hush-fixture-guard-bin-'));
-    manifestPath = join(fixtureRoot, '.hush', 'manifest.encrypted');
-    mkdirSync(join(fixtureRoot, '.hush'), { recursive: true });
+    fixtureRoot = mkdtempSync(join(tmpdir(), "hush-fixture-guard-"));
+    fakeBinDir = mkdtempSync(join(tmpdir(), "hush-fixture-guard-bin-"));
+    manifestPath = join(fixtureRoot, ".hush", "manifest.encrypted");
+    mkdirSync(join(fixtureRoot, ".hush"), { recursive: true });
     originalPath = process.env.PATH;
     originalPreflightTimeout = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
     originalRetryTimeout = process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
@@ -60,9 +62,9 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
 
   function writeSopsConfig(recipient: string): void {
     writeFileSync(
-      join(fixtureRoot, '.sops.yaml'),
+      join(fixtureRoot, ".sops.yaml"),
       `creation_rules:\n  - encrypted_regex: .*\n    age: ${recipient}\n`,
-      'utf-8',
+      "utf-8",
     );
   }
 
@@ -78,24 +80,24 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
    * budget, so the test passed for the wrong reason.
    */
   function stallSopsOnThisMachine(): void {
-    const fakeSops = join(fakeBinDir, 'sops');
-    writeFileSync(fakeSops, '#!/bin/sh\nsleep 5\n', 'utf-8');
+    const fakeSops = join(fakeBinDir, "sops");
+    writeFileSync(fakeSops, "#!/bin/sh\nsleep 5\n", "utf-8");
     chmodSync(fakeSops, 0o755);
-    process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ''}`;
-    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = '200';
+    process.env.PATH = `${fakeBinDir}${delimiter}${originalPath ?? ""}`;
+    process.env[SOPS_PREFLIGHT_TIMEOUT_ENV] = "200";
     // Both budgets, or the retry waits out the real 20s default and the stub
     // (`sleep 5`) returns first, so no timeout is ever observed.
-    process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = '200';
+    process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV] = "200";
     // The preflight memoizes a runnable verdict process-wide, and this test's
     // own setup (encryptYamlContent above) already proved the real sops
     // runnable. Without this the stub is never consulted at all.
     resetSopsPreflightCache();
   }
 
-  it('throws a typed error naming the fixture instead of persisting undecryptable content', () => {
+  it("throws a typed error naming the fixture instead of persisting undecryptable content", () => {
     writeSopsConfig(TEST_AGE_PUBLIC_KEY);
     encryptYamlContent(PLAINTEXT_MANIFEST, manifestPath, { root: fixtureRoot });
-    const before = readFileSync(manifestPath, 'utf-8');
+    const before = readFileSync(manifestPath, "utf-8");
 
     stallSopsOnThisMachine();
 
@@ -107,34 +109,36 @@ describe('ensureEncryptedFixtureRepo write guard', () => {
     }
 
     expect(thrown).toBeInstanceOf(FixtureNotDecryptedError);
-    expect((thrown as FixtureNotDecryptedError).code).toBe('FIXTURE_NOT_DECRYPTED');
+    expect((thrown as FixtureNotDecryptedError).code).toBe("FIXTURE_NOT_DECRYPTED");
     expect((thrown as FixtureNotDecryptedError).fixturePath).toBe(manifestPath);
     // Names the actual cause rather than surfacing later as an "Invalid Hush namespace" cascade.
-    expect((thrown as FixtureNotDecryptedError).decryptFailure).toContain('SopsPreflightTimeoutError');
+    expect((thrown as FixtureNotDecryptedError).decryptFailure).toContain(
+      "SopsPreflightTimeoutError",
+    );
     // The message must carry the recovery command, which is otherwise undiscoverable.
-    expect((thrown as Error).message).toContain('git checkout -- hush-cli/tests/fixtures');
+    expect((thrown as Error).message).toContain("git checkout -- hush-cli/tests/fixtures");
     expect((thrown as Error).message).toContain(SOPS_PREFLIGHT_TIMEOUT_ENV);
     // Critically: the tracked fixture is untouched.
-    expect(readFileSync(manifestPath, 'utf-8')).toBe(before);
+    expect(readFileSync(manifestPath, "utf-8")).toBe(before);
   });
 
-  it('refuses to re-encrypt a half-corrupted fixture whose values are literal ciphertext', () => {
+  it("refuses to re-encrypt a half-corrupted fixture whose values are literal ciphertext", () => {
     writeSopsConfig(TEST_AGE_PUBLIC_KEY);
     // What an earlier unguarded run persisted: ciphertext values, no sops envelope.
-    const corrupted = 'path: ENC[AES256_GCM,data:sBlvScEbQjDL+BfVkLs=,type:str]\n';
-    writeFileSync(manifestPath, corrupted, 'utf-8');
+    const corrupted = "path: ENC[AES256_GCM,data:sBlvScEbQjDL+BfVkLs=,type:str]\n";
+    writeFileSync(manifestPath, corrupted, "utf-8");
 
     expect(() => ensureEncryptedFixtureRepo(fixtureRoot)).toThrow(FixtureNotDecryptedError);
-    expect(readFileSync(manifestPath, 'utf-8')).toBe(corrupted);
+    expect(readFileSync(manifestPath, "utf-8")).toBe(corrupted);
   });
 
-  it('still encrypts a fixture that is legitimately checked in as plaintext', () => {
+  it("still encrypts a fixture that is legitimately checked in as plaintext", () => {
     writeSopsConfig(TEST_AGE_PUBLIC_KEY);
-    writeFileSync(manifestPath, PLAINTEXT_MANIFEST, 'utf-8');
+    writeFileSync(manifestPath, PLAINTEXT_MANIFEST, "utf-8");
 
     ensureEncryptedFixtureRepo(fixtureRoot);
 
-    expect(readFileSync(manifestPath, 'utf-8')).toContain('ENC[AES256_GCM');
-    expect(readDecryptedYamlFile(fixtureRoot, manifestPath)).toContain('version: 3');
+    expect(readFileSync(manifestPath, "utf-8")).toContain("ENC[AES256_GCM");
+    expect(readDecryptedYamlFile(fixtureRoot, manifestPath)).toContain("version: 3");
   });
 });

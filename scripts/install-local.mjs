@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import {
   chmodSync,
   closeSync,
@@ -16,12 +18,11 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync, spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { assertNode24 } from "./install-local-helpers.mjs";
 
 const scriptPath = realpathSync(fileURLToPath(import.meta.url));
@@ -1907,18 +1908,18 @@ function requireExecutablePath(label, candidate, allowRootOwnedHardlinks = false
   const canonical = realpathSync(candidate);
   const metadata = lstatSync(canonical);
   const linksAreSafe = metadata.nlink === 1 || (allowRootOwnedHardlinks && metadata.uid === 0);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || !linksAreSafe || !(metadata.mode & 0o111)) {
+  if (
+    !metadata.isFile() ||
+    metadata.isSymbolicLink() ||
+    !linksAreSafe ||
+    !(metadata.mode & 0o111)
+  ) {
     throw new Error(`${label} must be a trusted executable regular file: ${canonical}`);
   }
   return canonical;
 }
 
-const systemExecutableDirectories = [
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  "/usr/bin",
-  "/bin",
-];
+const systemExecutableDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 
 export function resolveSystemExecutable(
   label,
@@ -1939,14 +1940,14 @@ export function resolveSystemExecutable(
       try {
         const canonical = canonicalize(candidate);
         const metadata = inspect(canonical);
-        const linksAreSafe = metadata.nlink === 1
-          || (allowRootOwnedHardlinks && metadata.uid === 0);
+        const linksAreSafe =
+          metadata.nlink === 1 || (allowRootOwnedHardlinks && metadata.uid === 0);
         if (
-          metadata.uid !== 0
-          || !metadata.isFile()
-          || metadata.isSymbolicLink()
-          || !linksAreSafe
-          || !(metadata.mode & 0o111)
+          metadata.uid !== 0 ||
+          !metadata.isFile() ||
+          metadata.isSymbolicLink() ||
+          !linksAreSafe ||
+          !(metadata.mode & 0o111)
         ) {
           throw new Error(`${label} must be a root-owned executable regular file: ${canonical}`);
         }
@@ -1974,7 +1975,16 @@ function resolveBunExecutable(expectedVersion) {
   const marker = `${sep}installs${sep}node${sep}`;
   const markerIndex = process.execPath.indexOf(marker);
   if (markerIndex >= 0) {
-    candidates.push(join(process.execPath.slice(0, markerIndex), "installs", "bun", expectedVersion, "bin", "bun"));
+    candidates.push(
+      join(
+        process.execPath.slice(0, markerIndex),
+        "installs",
+        "bun",
+        expectedVersion,
+        "bin",
+        "bun",
+      ),
+    );
   }
 
   const accountHome = userInfo().homedir;
@@ -2011,7 +2021,8 @@ function resolveToolPaths(guarded) {
   }
   const packageManager = readJson(join(root, "package.json")).packageManager;
   const expectedBunVersion = /^bun@(.+)$/.exec(packageManager)?.[1];
-  if (!expectedBunVersion) throw new Error(`Hush installer requires a pinned Bun packageManager: ${packageManager}`);
+  if (!expectedBunVersion)
+    throw new Error(`Hush installer requires a pinned Bun packageManager: ${packageManager}`);
   return {
     bunPath: resolveBunExecutable(expectedBunVersion),
     gitPath: resolveSystemExecutable("Hush installer Git", ["git"], true),
@@ -2035,15 +2046,17 @@ function guardedEnvironment(config) {
   env[pinnedGitEnv] = config.gitPath;
   env.NODE_OPTIONS = "";
   env.NODE_PATH = "";
-  env.PATH = [...new Set([
-    dirname(config.bunPath),
-    dirname(process.execPath),
-    dirname(config.gitPath),
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-  ])].join(":");
+  env.PATH = [
+    ...new Set([
+      dirname(config.bunPath),
+      dirname(process.execPath),
+      dirname(config.gitPath),
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+    ]),
+  ].join(":");
   return env;
 }
 
@@ -2120,9 +2133,11 @@ function assertRuntimeInputs(inputRoot) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
       const metadata = lstatSync(path);
-      if (metadata.isSymbolicLink()) throw new Error(`Hush runtime input symlink is forbidden: ${path}`);
+      if (metadata.isSymbolicLink())
+        throw new Error(`Hush runtime input symlink is forbidden: ${path}`);
       if (metadata.isDirectory()) pending.push(path);
-      else if (!metadata.isFile()) throw new Error(`Hush runtime input type is unsupported: ${path}`);
+      else if (!metadata.isFile())
+        throw new Error(`Hush runtime input type is unsupported: ${path}`);
     }
   }
   return canonicalInputRoot;
@@ -2130,15 +2145,18 @@ function assertRuntimeInputs(inputRoot) {
 
 function collectRuntimeEntries(candidate, hashContents = true) {
   const runtimePath = requireRealDirectory(candidate);
-  const entries = [{
-    path: ".",
-    type: "directory",
-    mode: lstatSync(runtimePath).mode & 0o7777,
-  }];
+  const entries = [
+    {
+      path: ".",
+      type: "directory",
+      mode: lstatSync(runtimePath).mode & 0o7777,
+    },
+  ];
 
   function walk(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-      left.name.localeCompare(right.name))) {
+      left.name.localeCompare(right.name),
+    )) {
       const path = join(directory, entry.name);
       const relativePath = relativeManifestPath(runtimePath, path);
       if (relativePath === manifestName) continue;
@@ -2153,7 +2171,9 @@ function collectRuntimeEntries(candidate, hashContents = true) {
           throw new Error(`Hush runtime symlink is broken: ${relativePath}`);
         }
         if (!isInside(runtimePath, resolvedPath)) {
-          throw new Error(`Hush runtime symlink escapes runtime: ${relativePath} -> ${resolvedPath}`);
+          throw new Error(
+            `Hush runtime symlink escapes runtime: ${relativePath} -> ${resolvedPath}`,
+          );
         }
         entries.push({
           path: relativePath,
@@ -2166,7 +2186,8 @@ function collectRuntimeEntries(candidate, hashContents = true) {
         entries.push({ path: relativePath, type: "directory", mode });
         walk(path);
       } else if (metadata.isFile()) {
-        if (metadata.nlink !== 1) throw new Error(`Hush runtime hardlink is forbidden: ${relativePath}`);
+        if (metadata.nlink !== 1)
+          throw new Error(`Hush runtime hardlink is forbidden: ${relativePath}`);
         entries.push({
           path: relativePath,
           type: "file",
@@ -2192,24 +2213,29 @@ function collectRuntimeEntries(candidate, hashContents = true) {
       continue;
     }
     const prefix = `${entry.resolved}/`;
-    entry.sha256 = sha256(JSON.stringify(
-      stableEntries.filter((candidateEntry) => candidateEntry.path.startsWith(prefix)),
-    ));
+    entry.sha256 = sha256(
+      JSON.stringify(
+        stableEntries.filter((candidateEntry) => candidateEntry.path.startsWith(prefix)),
+      ),
+    );
   }
   return { runtimePath, entries: stableEntries };
 }
 
 function directorySha256(path) {
   const rootPath = requireRealDirectory(path, "Hush build root");
-  const entries = [{
-    path: ".",
-    type: "directory",
-    mode: lstatSync(rootPath).mode & 0o7777,
-  }];
+  const entries = [
+    {
+      path: ".",
+      type: "directory",
+      mode: lstatSync(rootPath).mode & 0o7777,
+    },
+  ];
 
   function walk(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-      left.name.localeCompare(right.name))) {
+      left.name.localeCompare(right.name),
+    )) {
       const entryPath = join(directory, entry.name);
       const relativePath = relativeManifestPath(rootPath, entryPath);
       const metadata = lstatSync(entryPath);
@@ -2267,7 +2293,12 @@ function findPackagePath(runtimePath, resolvedPath) {
 function findInstalledDependency(packagePath, dependencyName, runtimePath) {
   let directory = dirname(packagePath);
   while (isInside(runtimePath, directory)) {
-    const dependencyPackagePath = join(directory, "node_modules", ...dependencyName.split("/"), "package.json");
+    const dependencyPackagePath = join(
+      directory,
+      "node_modules",
+      ...dependencyName.split("/"),
+      "package.json",
+    );
     if (existsSync(dependencyPackagePath)) return dependencyPackagePath;
     if (directory === runtimePath) break;
     directory = dirname(directory);
@@ -2299,7 +2330,10 @@ export function validateRuntimeGraph(candidate, hashContents = false) {
       try {
         resolvedPath = realpathSync(runtimeRequire.resolve(dependency.name));
       } catch {
-        if (dependency.optional && !findInstalledDependency(canonicalPackagePath, dependency.name, runtimePath)) {
+        if (
+          dependency.optional &&
+          !findInstalledDependency(canonicalPackagePath, dependency.name, runtimePath)
+        ) {
           continue;
         }
         throw new Error(
@@ -2313,7 +2347,9 @@ export function validateRuntimeGraph(candidate, hashContents = false) {
       }
       const dependencyPackagePath = findPackagePath(runtimePath, resolvedPath);
       if (!dependencyPackagePath) {
-        throw new Error(`Hush runtime dependency package missing package.json: ${dependency.name} -> ${resolvedPath}`);
+        throw new Error(
+          `Hush runtime dependency package missing package.json: ${dependency.name} -> ${resolvedPath}`,
+        );
       }
       validatePackage(dependencyPackagePath);
     }
@@ -2372,7 +2408,8 @@ function sourceIdentityFromInputs(sourceRoot, inputRoot) {
     encoding: "utf8",
     env,
   }).trim();
-  if (currentCommit !== commit) throw new Error("Hush source commit changed while reading runtime inputs.");
+  if (currentCommit !== commit)
+    throw new Error("Hush source commit changed while reading runtime inputs.");
   return {
     tracked: {
       commit,
@@ -2408,7 +2445,11 @@ export function sourceIdentity(sourceRoot = root) {
   return sourceIdentityFromInputs(sourceRoot, sourceRoot);
 }
 
-export function createRuntimeManifest(candidate, source, entries = collectRuntimeEntries(candidate).entries) {
+export function createRuntimeManifest(
+  candidate,
+  source,
+  entries = collectRuntimeEntries(candidate).entries,
+) {
   return {
     version: 2,
     source,
@@ -2451,7 +2492,10 @@ function validateRuntimeManifest(candidate, source, currentEntries) {
 
   const current = createRuntimeManifest(candidate, source, currentEntries);
   const expectedByPath = new Map(manifest.files.map((entry) => [entry.path, entry]));
-  if (expectedByPath.size !== manifest.files.length || manifest.files.some((entry) => typeof entry.path !== "string")) {
+  if (
+    expectedByPath.size !== manifest.files.length ||
+    manifest.files.some((entry) => typeof entry.path !== "string")
+  ) {
     throw new Error(`Hush runtime manifest invalid: ${manifestPath}`);
   }
   const currentByPath = new Map(current.files.map((entry) => [entry.path, entry]));
@@ -2463,7 +2507,8 @@ function validateRuntimeManifest(candidate, source, currentEntries) {
     }
   }
   for (const path of currentByPath.keys()) {
-    if (!expectedByPath.has(path)) throw new Error(`Hush runtime manifest drift: unexpected ${path}`);
+    if (!expectedByPath.has(path))
+      throw new Error(`Hush runtime manifest drift: unexpected ${path}`);
   }
 }
 
@@ -2503,7 +2548,11 @@ function compileNativeProgram(compiler, source, output, label) {
 }
 
 function compileNativeHelper() {
-  const compiler = resolveSystemExecutable("Hush installer C compiler", ["cc", "clang", "gcc"], true);
+  const compiler = resolveSystemExecutable(
+    "Hush installer C compiler",
+    ["cc", "clang", "gcc"],
+    true,
+  );
   const buildDirectory = realpathSync(mkdtempSync(join(tmpdir(), "hush-install-native-")));
   const helperPath = join(buildDirectory, "hush-install-native");
   const loginHelperPath = join(buildDirectory, "hush-login-native");
@@ -2540,7 +2589,12 @@ function requireNativeHelper(environmentKey, label) {
     throw new Error(`${label} path is missing.`);
   }
   const metadata = lstatSync(helperPath);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || !(metadata.mode & 0o111)) {
+  if (
+    !metadata.isFile() ||
+    metadata.isSymbolicLink() ||
+    metadata.nlink !== 1 ||
+    !(metadata.mode & 0o111)
+  ) {
     throw new Error(`${label} is not an executable single-link regular file.`);
   }
   return helperPath;
@@ -2579,7 +2633,9 @@ function runNative(args, options = {}) {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    const message = String(result.stderr || result.stdout || `native helper exited ${result.status}`).trim();
+    const message = String(
+      result.stderr || result.stdout || `native helper exited ${result.status}`,
+    ).trim();
     const error = new Error(message);
     error.status = result.status;
     throw error;
@@ -2594,7 +2650,8 @@ function runNativeInherited(args) {
     stdio: nativeStdio("inherit", "inherit", "inherit"),
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`Hush guarded command failed with exit ${result.status}.`);
+  if (result.status !== 0)
+    throw new Error(`Hush guarded command failed with exit ${result.status}.`);
 }
 
 function identityArgs(identity) {
@@ -2615,7 +2672,15 @@ function runAtSource(command, args = [], capture = true) {
 }
 
 function runAtRuntime(runtimeParent, name, identity, command, args = [], capture = true) {
-  const nativeArgs = ["run-at", "runtime", runtimeParent, name, ...identityArgs(identity), command, ...args];
+  const nativeArgs = [
+    "run-at",
+    "runtime",
+    runtimeParent,
+    name,
+    ...identityArgs(identity),
+    command,
+    ...args,
+  ];
   return capture ? runNative(nativeArgs) : runNativeInherited(nativeArgs);
 }
 
@@ -2635,7 +2700,9 @@ function readSourceIdentity() {
 function assertSourceCommit(config, expectedCommit) {
   const actualCommit = runAtSource(config.gitPath, ["rev-parse", "HEAD"]).trim();
   if (actualCommit !== expectedCommit) {
-    throw new Error(`Hush source commit changed during install: expected ${expectedCommit}, found ${actualCommit}.`);
+    throw new Error(
+      `Hush source commit changed during install: expected ${expectedCommit}, found ${actualCommit}.`,
+    );
   }
 }
 
@@ -2652,10 +2719,10 @@ function runtimeEntryInfo(runtimeParent, runtimeName) {
   if (output === "missing") return { kind: "missing", identity: undefined };
   const [kind, device, inode, ...extra] = output.split("\t");
   if (
-    extra.length > 0
-    || !["directory", "symlink", "file", "other"].includes(kind)
-    || !/^\d+$/.test(device)
-    || !/^\d+$/.test(inode)
+    extra.length > 0 ||
+    !["directory", "symlink", "file", "other"].includes(kind) ||
+    !/^\d+$/.test(device) ||
+    !/^\d+$/.test(inode)
   ) {
     throw new Error(`Invalid native runtime entry: ${output}`);
   }
@@ -2671,12 +2738,14 @@ function listRuntimeEntries(runtimeParent) {
     const [kind, secondsText, nanosecondsText, device, inode, name] = fields;
     const seconds = Number(secondsText);
     const nanoseconds = Number(nanosecondsText);
-    if (!["R", "S", "P", "X"].includes(kind)
-      || !name
-      || !Number.isFinite(seconds)
-      || !Number.isFinite(nanoseconds)
-      || !/^\d+$/.test(device)
-      || !/^\d+$/.test(inode)) {
+    if (
+      !["R", "S", "P", "X"].includes(kind) ||
+      !name ||
+      !Number.isFinite(seconds) ||
+      !Number.isFinite(nanoseconds) ||
+      !/^\d+$/.test(device) ||
+      !/^\d+$/.test(inode)
+    ) {
       throw new Error(`Invalid native runtime listing: ${line}`);
     }
     return {
@@ -2695,10 +2764,13 @@ function checkRoots(config) {
 function cleanupStaleArtifacts(config, checkOnly) {
   const entries = listRuntimeEntries(config.runtimeParent);
   const unsafe = entries.find((entry) => entry.kind === "X");
-  if (unsafe) throw new Error(`Hush managed runtime entry is symlinked or not a directory: ${unsafe.name}`);
+  if (unsafe)
+    throw new Error(`Hush managed runtime entry is symlinked or not a directory: ${unsafe.name}`);
   const stale = entries.filter((entry) => entry.kind === "S" || entry.kind === "P");
   if (checkOnly && stale.length > 0) {
-    throw new Error(`Hush install has stale unpublished artifacts: ${stale.map((entry) => entry.name).join(", ")}`);
+    throw new Error(
+      `Hush install has stale unpublished artifacts: ${stale.map((entry) => entry.name).join(", ")}`,
+    );
   }
   for (const entry of stale) {
     runNative(["remove-stale", config.runtimeParent, entry.name, ...identityArgs(entry.identity)]);
@@ -2709,7 +2781,9 @@ function cleanupStaleArtifacts(config, checkOnly) {
 function validateLauncher(config, launcher) {
   const actual = runNative(["read-launcher", config.binDir, "hush"]);
   if (actual !== launcher) {
-    throw new Error(`Hush launcher drift: ${config.target}. Re-run \`node scripts/install-local.mjs\`.`);
+    throw new Error(
+      `Hush launcher drift: ${config.target}. Re-run \`node scripts/install-local.mjs\`.`,
+    );
   }
 }
 
@@ -2718,11 +2792,7 @@ function shellQuote(value) {
 }
 
 export function loginShellDetails(account = userInfo()) {
-  const shell = requireExecutablePath(
-    "Hush account login shell",
-    account.shell || "/bin/sh",
-    true,
-  );
+  const shell = requireExecutablePath("Hush account login shell", account.shell || "/bin/sh", true);
   return {
     account,
     shell,
@@ -2776,7 +2846,8 @@ function runLoginProbe(details, args, command, marker) {
       details,
       args,
       sanitizedDiagnostic(
-        result.error?.message || (result.signal ? `signal ${result.signal}` : `exit ${result.status}`),
+        result.error?.message ||
+          (result.signal ? `signal ${result.signal}` : `exit ${result.status}`),
         "unknown shell failure",
       ),
     );
@@ -2787,9 +2858,7 @@ function runLoginProbe(details, args, command, marker) {
   } catch {
     return loginProbeFailure(details, args, "login shell returned invalid UTF-8 metadata");
   }
-  const markerLines = stdout
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith(marker));
+  const markerLines = stdout.split(/\r?\n/).filter((line) => line.startsWith(marker));
   if (markerLines.length !== 1) {
     return loginProbeFailure(details, args, "login shell returned invalid resolution metadata");
   }
@@ -2827,10 +2896,10 @@ function zshStartupPath(zdotdirSet, zdotdir) {
   const metadata = lstatSync(directory, { bigint: true });
   const uid = process.getuid?.();
   if (
-    !metadata.isDirectory()
-    || metadata.isSymbolicLink()
-    || (uid !== undefined && metadata.uid !== BigInt(uid))
-    || (metadata.mode & 0o22n) !== 0n
+    !metadata.isDirectory() ||
+    metadata.isSymbolicLink() ||
+    (uid !== undefined && metadata.uid !== BigInt(uid)) ||
+    (metadata.mode & 0o22n) !== 0n
   ) {
     throw new Error(`ZDOTDIR must be a user-owned non-writable-by-others directory: ${directory}`);
   }
@@ -2868,12 +2937,7 @@ function probeLoginShell(config) {
     parsed = runLoginProbe(details, args, command, marker);
     if (parsed.kind === "failure") return parsed;
   }
-  const {
-    shellKind,
-    zdotdirSet,
-    zdotdir,
-    rawResolved,
-  } = parsed;
+  const { shellKind, zdotdirSet, zdotdir, rawResolved } = parsed;
   let startupPath;
   if (shellKind === "zsh") {
     try {
@@ -2910,15 +2974,11 @@ function probeLoginShell(config) {
   }
 
   const helperPath = assertGuardedDescriptors();
-  const comparison = spawnSync(
-    helperPath,
-    ["same-launcher", config.binDir, "hush", resolved],
-    {
-      encoding: "utf8",
-      env: process.env,
-      stdio: nativeStdio("ignore", "pipe", "pipe"),
-    },
-  );
+  const comparison = spawnSync(helperPath, ["same-launcher", config.binDir, "hush", resolved], {
+    encoding: "utf8",
+    env: process.env,
+    stdio: nativeStdio("ignore", "pipe", "pipe"),
+  });
   if (comparison.error || comparison.signal) {
     return {
       kind: "unusable",
@@ -2938,7 +2998,10 @@ function probeLoginShell(config) {
     return {
       kind: "unusable",
       resolved,
-      reason: sanitizedDiagnostic(comparison.stderr, `launcher comparison exited ${comparison.status}`),
+      reason: sanitizedDiagnostic(
+        comparison.stderr,
+        `launcher comparison exited ${comparison.status}`,
+      ),
       ...common,
     };
   }
@@ -2971,9 +3034,7 @@ function reportLoginShellFailure(config, probe) {
     return;
   }
   if (probe.kind === "unusable") {
-    console.error(
-      `hush: login shell resolved unusable hush path: ${resolved} (${probe.reason}).`,
-    );
+    console.error(`hush: login shell resolved unusable hush path: ${resolved} (${probe.reason}).`);
     return;
   }
   console.error(
@@ -2987,15 +3048,17 @@ function reportLoginShellFailure(config, probe) {
 }
 
 function sameShellStartupState(left, right) {
-  return left.dev === right.dev
-    && left.ino === right.ino
-    && left.uid === right.uid
-    && left.gid === right.gid
-    && left.mode === right.mode
-    && left.nlink === right.nlink
-    && left.size === right.size
-    && left.mtimeNs === right.mtimeNs
-    && left.ctimeNs === right.ctimeNs;
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.uid === right.uid &&
+    left.gid === right.gid &&
+    left.mode === right.mode &&
+    left.nlink === right.nlink &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
+  );
 }
 
 const shellStartupStateFields = [
@@ -3011,12 +3074,15 @@ const shellStartupStateFields = [
 ];
 
 function parseShellStartupState(fields) {
-  if (fields.length !== shellStartupStateFields.length
-    || fields.some((field, index) => {
-      const signed = shellStartupStateFields[index] === "mtimeNs"
-        || shellStartupStateFields[index] === "ctimeNs";
+  if (
+    fields.length !== shellStartupStateFields.length ||
+    fields.some((field, index) => {
+      const signed =
+        shellStartupStateFields[index] === "mtimeNs" ||
+        shellStartupStateFields[index] === "ctimeNs";
       return !(signed ? /^-?\d+$/ : /^\d+$/).test(field);
-    })) {
+    })
+  ) {
     throw new Error("Hush login native helper returned an invalid publication receipt.");
   }
   return Object.fromEntries(
@@ -3042,9 +3108,11 @@ function parseLoginPublicationReceipt(output, expectedOriginal) {
   const published = lines[0].split("\t");
   const original = lines[1].split("\t");
   if (
-    published.shift() !== "published"
-    || original.shift() !== "original"
-    || (expectedOriginal ? original.length !== shellStartupStateFields.length : original.join("\t") !== "-")
+    published.shift() !== "published" ||
+    original.shift() !== "original" ||
+    (expectedOriginal
+      ? original.length !== shellStartupStateFields.length
+      : original.join("\t") !== "-")
   ) {
     throw new Error("Hush login native helper returned an invalid publication receipt.");
   }
@@ -3059,12 +3127,14 @@ function shellStartupStateArgs(state) {
 }
 
 function sameShellDirectoryIdentity(left, right) {
-  return left.dev === right.dev
-    && left.ino === right.ino
-    && left.uid === right.uid
-    && left.gid === right.gid
-    && left.mode === right.mode
-    && left.nlink === right.nlink;
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.uid === right.uid &&
+    left.gid === right.gid &&
+    left.mode === right.mode &&
+    left.nlink === right.nlink
+  );
 }
 
 function readShellStartupFile(path) {
@@ -3076,10 +3146,10 @@ function readShellStartupFile(path) {
   const parentMetadata = lstatSync(parent, { bigint: true });
   const uid = process.getuid?.();
   if (
-    !parentMetadata.isDirectory()
-    || parentMetadata.isSymbolicLink()
-    || (uid !== undefined && parentMetadata.uid !== BigInt(uid))
-    || (parentMetadata.mode & 0o22n) !== 0n
+    !parentMetadata.isDirectory() ||
+    parentMetadata.isSymbolicLink() ||
+    (uid !== undefined && parentMetadata.uid !== BigInt(uid)) ||
+    (parentMetadata.mode & 0o22n) !== 0n
   ) {
     throw new Error(`Hush login startup directory is unsafe: ${parent}`);
   }
@@ -3091,9 +3161,9 @@ function readShellStartupFile(path) {
     const openedParent = fstatSync(parentFd, { bigint: true });
     const finalParent = lstatSync(parent, { bigint: true });
     if (
-      !sameShellDirectoryIdentity(parentMetadata, openedParent)
-      || !sameShellDirectoryIdentity(openedParent, finalParent)
-      || realpathSync(parent) !== parent
+      !sameShellDirectoryIdentity(parentMetadata, openedParent) ||
+      !sameShellDirectoryIdentity(openedParent, finalParent) ||
+      realpathSync(parent) !== parent
     ) {
       throw new Error(`Hush login startup directory changed while opening: ${parent}`);
     }
@@ -3104,8 +3174,8 @@ function readShellStartupFile(path) {
       if (error.code !== "ENOENT") throw error;
       const absentParent = lstatSync(parent, { bigint: true });
       if (
-        !sameShellDirectoryIdentity(openedParent, absentParent)
-        || realpathSync(parent) !== parent
+        !sameShellDirectoryIdentity(openedParent, absentParent) ||
+        realpathSync(parent) !== parent
       ) {
         throw new Error(`Hush login startup directory changed while reading: ${parent}`);
       }
@@ -3131,11 +3201,11 @@ function readShellStartupFile(path) {
       const finalPath = lstatSync(path, { bigint: true });
       const afterParent = lstatSync(parent, { bigint: true });
       if (
-        !sameShellStartupState(pathMetadata, opened)
-        || !sameShellStartupState(opened, afterRead)
-        || !sameShellStartupState(afterRead, finalPath)
-        || !sameShellDirectoryIdentity(openedParent, afterParent)
-        || realpathSync(parent) !== parent
+        !sameShellStartupState(pathMetadata, opened) ||
+        !sameShellStartupState(opened, afterRead) ||
+        !sameShellStartupState(afterRead, finalPath) ||
+        !sameShellDirectoryIdentity(openedParent, afterParent) ||
+        realpathSync(parent) !== parent
       ) {
         throw new Error(`Hush login startup file changed while reading: ${path}`);
       }
@@ -3221,9 +3291,9 @@ function renderLoginPathBlock(content, binDir) {
     const start = starts[0];
     const end = ends[0];
     if (
-      end !== start + 3
-      || lines[start + 1]?.body !== "# Managed by Hush scripts/install-local.mjs."
-      || !isManagedPathExport(lines[start + 2]?.body || "")
+      end !== start + 3 ||
+      lines[start + 1]?.body !== "# Managed by Hush scripts/install-local.mjs." ||
+      !isManagedPathExport(lines[start + 2]?.body || "")
     ) {
       throw new Error("Hush managed login PATH block is malformed; repair it before reinstalling.");
     }
@@ -3263,10 +3333,12 @@ function runLoginNative(args, input, expected, metadataSource) {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(sanitizedDiagnostic(
-      result.stderr || result.stdout,
-      `login native helper exited ${result.status}`,
-    ));
+    throw new Error(
+      sanitizedDiagnostic(
+        result.stderr || result.stdout,
+        `login native helper exited ${result.status}`,
+      ),
+    );
   }
   if (result.stderr?.length) {
     console.error(`hush: ${sanitizedDiagnostic(result.stderr, "login native helper warning")}`);
@@ -3277,9 +3349,10 @@ function runLoginNative(args, input, expected, metadataSource) {
 function preserveShellStartupOriginal(path, original, state, metadataSource, firstRecovery) {
   let lastError;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const recovery = attempt === 0
-      ? firstRecovery
-      : `.hush-login-recovery-${process.pid}-${randomBytes(16).toString("hex")}`;
+    const recovery =
+      attempt === 0
+        ? firstRecovery
+        : `.hush-login-recovery-${process.pid}-${randomBytes(16).toString("hex")}`;
     try {
       runLoginNative(
         [
@@ -3302,21 +3375,15 @@ function preserveShellStartupOriginal(path, original, state, metadataSource, fir
   throw lastError;
 }
 
-function recoverShellStartupReadback(
-  path,
-  expected,
-  content,
-  metadataSource,
-  receipt,
-) {
+function recoverShellStartupReadback(path, expected, content, metadataSource, receipt) {
   let current;
   let recoveryError;
   try {
     current = readShellStartupFile(path);
     if (
-      current.exists
-      && current.content.equals(content)
-      && sameShellStartupState(current.state, receipt.published)
+      current.exists &&
+      current.content.equals(content) &&
+      sameShellStartupState(current.state, receipt.published)
     ) {
       if (expected.exists) {
         writeShellStartupFile(path, current, expected.content, metadataSource, false);
@@ -3394,22 +3461,16 @@ function writeShellStartupFile(
     }
     installed = readShellStartupFile(path);
     if (
-      !installed.exists
-      || !installed.content.equals(content)
-      || !sameShellStartupState(installed.state, receipt.published)
+      !installed.exists ||
+      !installed.content.equals(content) ||
+      !sameShellStartupState(installed.state, receipt.published)
     ) {
       throw new Error(`Hush login startup file read-back failed: ${path}`);
     }
     return installed;
   } catch (error) {
     closeShellStartupFile(installed);
-    const recovered = recoverShellStartupReadback(
-      path,
-      expected,
-      content,
-      metadataSource,
-      receipt,
-    );
+    const recovered = recoverShellStartupReadback(path, expected, content, metadataSource, receipt);
     const reason = sanitizedDiagnostic(error.message, "startup read-back failed");
     if (recovered.kind === "restored") {
       throw new Error(`${reason} Original startup state restored.`);
@@ -3433,13 +3494,7 @@ function writeShellStartupFile(
 function removeShellStartupFile(path, expected) {
   const quarantine = `.hush-login-${process.pid}-${randomBytes(12).toString("hex")}`;
   runLoginNative(
-    [
-      "login-remove",
-      dirname(path),
-      basename(path),
-      quarantine,
-      String(expected.content.length),
-    ],
+    ["login-remove", dirname(path), basename(path), quarantine, String(expected.content.length)],
     expected.content,
     expected,
     undefined,
@@ -3544,7 +3599,8 @@ function pauseForRaceTest(point) {
   if (process.env.HUSH_INSTALL_TEST_PAUSE_AT !== point) return;
   const marker = process.env.HUSH_INSTALL_TEST_PAUSE_MARKER;
   const release = process.env.HUSH_INSTALL_TEST_PAUSE_RELEASE;
-  if (!marker || !release) throw new Error("Hush installer test pause requires marker and release paths.");
+  if (!marker || !release)
+    throw new Error("Hush installer test pause requires marker and release paths.");
   writeFileSync(marker, `${process.pid}\n`, { flag: "wx" });
   const wait = new Int32Array(new SharedArrayBuffer(4));
   while (!existsSync(release)) Atomics.wait(wait, 0, 0, 20);
@@ -3577,14 +3633,13 @@ function resolveManagedConfig(guarded = false) {
     join(homedir(), ".local", "bin"),
   );
   const runtimeName = basename(runtimeRoot);
-  if (
-    runtimeName.startsWith(".hush-stage-")
-    || runtimeName.startsWith(".hush-prune-")
-  ) {
+  if (runtimeName.startsWith(".hush-stage-") || runtimeName.startsWith(".hush-prune-")) {
     throw new Error(`Hush runtime root uses a reserved managed name: ${runtimeRoot}`);
   }
   if (runtimeName !== commit) {
-    throw new Error(`Hush managed runtime root must end with the source commit ${commit}: ${runtimeRoot}`);
+    throw new Error(
+      `Hush managed runtime root must end with the source commit ${commit}: ${runtimeRoot}`,
+    );
   }
   if (pathsOverlap(binDir, root)) {
     throw new Error(`Hush bin root must not overlap the mutable source checkout: ${binDir}`);
@@ -3634,7 +3689,9 @@ function runSourceCheckoutMode(options) {
     },
   );
   if (execution.status !== 0) {
-    throw new Error(`Hush source checkout launcher failed:\n${execution.stderr || execution.stdout}`);
+    throw new Error(
+      `Hush source checkout launcher failed:\n${execution.stderr || execution.stdout}`,
+    );
   }
   console.log(join(root, "hush-cli", "bin", "hush.js"));
   if (!options.checkOnly) {
@@ -3696,32 +3753,38 @@ function installManagedRuntime(config, checkOnly) {
   try {
     if (runtimeEntry.kind === "missing") {
       if (checkOnly) {
-        throw new Error(`Hush runtime missing: ${config.runtimeRoot}. Re-run \`node scripts/install-local.mjs\`.`);
+        throw new Error(
+          `Hush runtime missing: ${config.runtimeRoot}. Re-run \`node scripts/install-local.mjs\`.`,
+        );
       }
       stageName = `.hush-stage-${process.pid}-${randomBytes(8).toString("hex")}`;
       pauseForRaceTest("before-stage");
-      stageIdentity = parseNativeIdentity(runNative([
+      stageIdentity = parseNativeIdentity(
+        runNative(["stage", root, config.runtimeParent, stageName, ...stagedSourcePaths]),
         "stage",
-        root,
-        config.runtimeParent,
-        stageName,
-        ...stagedSourcePaths,
-      ]), "stage");
+      );
       runAtRuntime(config.runtimeParent, stageName, stageIdentity, process.execPath, [
         scriptPath,
         "--internal-staged-identity",
         encodeJson(source),
       ]);
-      runAtRuntime(config.runtimeParent, stageName, stageIdentity, config.bunPath, [
-        "install",
-        "--production",
-        "--frozen-lockfile",
-        "--ignore-scripts",
-        "--backend",
-        "copyfile",
-        "--filter",
-        "@chriscode/hush",
-      ], false);
+      runAtRuntime(
+        config.runtimeParent,
+        stageName,
+        stageIdentity,
+        config.bunPath,
+        [
+          "install",
+          "--production",
+          "--frozen-lockfile",
+          "--ignore-scripts",
+          "--backend",
+          "copyfile",
+          "--filter",
+          "@chriscode/hush",
+        ],
+        false,
+      );
       runAtRuntime(config.runtimeParent, stageName, stageIdentity, process.execPath, [
         scriptPath,
         "--internal-finalize-stage",
@@ -3781,10 +3844,9 @@ exec ${shellQuote(realpathSync(process.execPath))} ${shellQuote(config.runtimeEn
   assertSourceCommit(config, source.tracked.commit);
   checkRoots(config);
   const launcherTemporary = `.hush-launcher-${process.pid}-${randomBytes(8).toString("hex")}`;
-  runNative(
-    ["write-launcher", config.binDir, launcherTemporary, "hush", "755"],
-    { input: launcher },
-  );
+  runNative(["write-launcher", config.binDir, launcherTemporary, "hush", "755"], {
+    input: launcher,
+  });
   validateLauncher(config, launcher);
   checkRoots(config);
 
@@ -3792,7 +3854,8 @@ exec ${shellQuote(realpathSync(process.execPath))} ${shellQuote(config.runtimeEn
   if (/^[0-9a-f]{40}$/.test(activeName)) {
     const entries = listRuntimeEntries(config.runtimeParent);
     const unsafe = entries.find((entry) => entry.kind === "X");
-    if (unsafe) throw new Error(`Hush managed runtime entry is symlinked or not a directory: ${unsafe.name}`);
+    if (unsafe)
+      throw new Error(`Hush managed runtime entry is symlinked or not a directory: ${unsafe.name}`);
     const candidates = entries
       .filter((entry) => entry.kind === "R" && entry.name !== activeName)
       .sort((left, right) => right.modified - left.modified || right.name.localeCompare(left.name));

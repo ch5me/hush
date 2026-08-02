@@ -1,13 +1,15 @@
-import { relative, sep } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import type { HushFileDocument, HushManifestDocument } from './domain.js';
-import { createFileDocument, createManifestDocument } from './domain.js';
-import { stripEncryptedFileExtension } from './paths.js';
+import { relative, sep } from "node:path";
+
+import { parse as parseYaml } from "yaml";
+
+import type { HushFileDocument, HushManifestDocument } from "./domain.js";
+import { createFileDocument, createManifestDocument } from "./domain.js";
+import { stripEncryptedFileExtension } from "./paths.js";
 
 function parseYamlDocument(path: string, content: string): unknown {
   const parsed = parseYaml(content);
 
-  if (parsed === null || parsed === undefined || typeof parsed !== 'object') {
+  if (parsed === null || parsed === undefined || typeof parsed !== "object") {
     throw new Error(`Expected YAML object in ${path}`);
   }
 
@@ -30,7 +32,7 @@ export function parseFileDocument(
 ): HushFileDocument {
   try {
     const document = createFileDocument(parseYamlDocument(path, content) as HushFileDocument);
-    const relativePath = relative(filesRoot, path).split(sep).join('/');
+    const relativePath = relative(filesRoot, path).split(sep).join("/");
     const declaredPath = stripEncryptedFileExtension(relativePath);
 
     if (document.path !== declaredPath) {

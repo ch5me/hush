@@ -14,10 +14,12 @@
  *   tests can point this at a temp directory without touching HOME.
  */
 
-import { join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
-import { parse as parseYaml } from 'yaml';
-import { GLOBAL_STORE_ROOT } from '../store.js';
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { parse as parseYaml } from "yaml";
+
+import { GLOBAL_STORE_ROOT } from "../store.js";
 
 export interface GlobalStoreHintOptions {
   /**
@@ -42,33 +44,35 @@ export interface GlobalStoreHintOptions {
 function readGlobalManifestNames(
   globalRoot: string,
 ): { targetNames: string[]; bundleNames: string[] } | undefined {
-  const manifestPath = join(globalRoot, '.hush', 'manifest.encrypted');
+  const manifestPath = join(globalRoot, ".hush", "manifest.encrypted");
 
   if (!existsSync(manifestPath)) {
     return undefined;
   }
 
   try {
-    const raw = readFileSync(manifestPath, 'utf-8');
+    const raw = readFileSync(manifestPath, "utf-8");
     // SOPS YAML: outer keys are plaintext; leaf ciphertext values look like
     // "ENC[AES256_GCM,...]". We only care about key names, so plain parseYaml
     // is correct and safe here.
     const parsed = parseYaml(raw) as Record<string, unknown> | null;
 
-    if (!parsed || typeof parsed !== 'object') {
+    if (!parsed || typeof parsed !== "object") {
       return undefined;
     }
 
     const targets = parsed.targets;
     const bundles = parsed.bundles;
 
-    const targetNames = targets && typeof targets === 'object' && !Array.isArray(targets)
-      ? Object.keys(targets as Record<string, unknown>)
-      : [];
+    const targetNames =
+      targets && typeof targets === "object" && !Array.isArray(targets)
+        ? Object.keys(targets as Record<string, unknown>)
+        : [];
 
-    const bundleNames = bundles && typeof bundles === 'object' && !Array.isArray(bundles)
-      ? Object.keys(bundles as Record<string, unknown>)
-      : [];
+    const bundleNames =
+      bundles && typeof bundles === "object" && !Array.isArray(bundles)
+        ? Object.keys(bundles as Record<string, unknown>)
+        : [];
 
     return { targetNames, bundleNames };
   } catch {
@@ -94,7 +98,7 @@ function readGlobalManifestNames(
  */
 export function globalStoreHint(
   missingName: string,
-  kind: 'target' | 'key',
+  kind: "target" | "key",
   resolvedRoot: string,
   options: GlobalStoreHintOptions = {},
 ): string | undefined {
@@ -102,8 +106,8 @@ export function globalStoreHint(
 
   // Don't hint if the resolved store IS already the global store.
   // Normalize both paths to avoid trailing-slash mismatches.
-  const normalizedResolved = resolvedRoot.replace(/\/+$/, '');
-  const normalizedGlobal = globalRoot.replace(/\/+$/, '');
+  const normalizedResolved = resolvedRoot.replace(/\/+$/, "");
+  const normalizedGlobal = globalRoot.replace(/\/+$/, "");
   if (normalizedResolved === normalizedGlobal) {
     return undefined;
   }
@@ -126,18 +130,21 @@ export function globalStoreHint(
     return undefined;
   }
 
-  const homeDir = process.env.HOME ?? '';
-  const displayGlobal = homeDir && globalRoot.startsWith(homeDir)
-    ? `~/${globalRoot.slice(homeDir.length + 1)}`
-    : globalRoot;
+  const homeDir = process.env.HOME ?? "";
+  const displayGlobal =
+    homeDir && globalRoot.startsWith(homeDir)
+      ? `~/${globalRoot.slice(homeDir.length + 1)}`
+      : globalRoot;
 
   // Choose a relevant bundle example: prefer a bundle that matches the name, or use first.
-  const matchingBundle = bundleNames.includes(missingName) ? missingName : (bundleNames[0] ?? 'project');
+  const matchingBundle = bundleNames.includes(missingName)
+    ? missingName
+    : (bundleNames[0] ?? "project");
 
   return (
-    `${kind} '${missingName}' not found in this store (${normalizedResolved}). `
-    + `It exists in the global store ${displayGlobal} — compose it explicitly: `
-    + `\`hush import add --source-root ${displayGlobal} --bundle ${matchingBundle}\` (persistent), `
-    + `or run one-off with \`hush --root ${displayGlobal} <cmd>\`.`
+    `${kind} '${missingName}' not found in this store (${normalizedResolved}). ` +
+    `It exists in the global store ${displayGlobal} — compose it explicitly: ` +
+    `\`hush import add --source-root ${displayGlobal} --bundle ${matchingBundle}\` (persistent), ` +
+    `or run one-off with \`hush --root ${displayGlobal} <cmd>\`.`
   );
 }

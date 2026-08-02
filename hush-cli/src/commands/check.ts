@@ -1,37 +1,45 @@
-import { join } from 'node:path';
-import pc from 'picocolors';
-import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
-import { loadV3Repository } from '../v3/repository.js';
-import type { CheckFileResult, CheckOptions, CheckResult, HushContext, PlaintextFileResult } from '../types.js';
-import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from './v3-command-helpers.js';
-import { writeJsonError, writeJsonSuccess } from '../lib/command-output.js';
+import { join } from "node:path";
+
+import pc from "picocolors";
+
+import { findProjectRoot, isV3RepositoryRoot } from "../config/loader.js";
+import { writeJsonError, writeJsonSuccess } from "../lib/command-output.js";
+import type {
+  CheckFileResult,
+  CheckOptions,
+  CheckResult,
+  HushContext,
+  PlaintextFileResult,
+} from "../types.js";
+import { loadV3Repository } from "../v3/repository.js";
+import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from "./v3-command-helpers.js";
 
 const LEFTOVER_ARTIFACT_NAMES = new Set([
-  'hush.yaml',
-  'hush.yml',
-  '.env',
-  '.env.development',
-  '.env.production',
-  '.env.local',
-  '.env.staging',
-  '.env.test',
-  '.dev.vars',
-  '.hush',
-  '.hush.development',
-  '.hush.production',
-  '.hush.local',
-  '.hush.encrypted',
-  '.hush.development.encrypted',
-  '.hush.production.encrypted',
-  '.hush.local.encrypted',
+  "hush.yaml",
+  "hush.yml",
+  ".env",
+  ".env.development",
+  ".env.production",
+  ".env.local",
+  ".env.staging",
+  ".env.test",
+  ".dev.vars",
+  ".hush",
+  ".hush.development",
+  ".hush.production",
+  ".hush.local",
+  ".hush.encrypted",
+  ".hush.development.encrypted",
+  ".hush.production.encrypted",
+  ".hush.local.encrypted",
 ]);
 
-const SKIP_SCAN_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt']);
+const SKIP_SCAN_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".nuxt"]);
 
 function scanForLeftoverArtifacts(ctx: HushContext, root: string): PlaintextFileResult[] {
   const findings: PlaintextFileResult[] = [];
 
-  function walk(currentDir: string, relativeDir = ''): void {
+  function walk(currentDir: string, relativeDir = ""): void {
     let entries: string[] = [];
 
     try {
@@ -82,10 +90,12 @@ function scanForLeftoverArtifacts(ctx: HushContext, root: string): PlaintextFile
   return findings.sort((left, right) => left.file.localeCompare(right.file));
 }
 
-function buildRepositoryFileResults(repository: ReturnType<typeof loadV3Repository>): CheckFileResult[] {
+function buildRepositoryFileResults(
+  repository: ReturnType<typeof loadV3Repository>,
+): CheckFileResult[] {
   return [
     {
-      source: 'manifest',
+      source: "manifest",
       encrypted: repository.manifestPath,
       inSync: true,
       added: [],
@@ -109,91 +119,110 @@ export async function check(ctx: HushContext, options: CheckOptions): Promise<Ch
   if (!isV3RepositoryRoot(options.store.root)) {
     const projectInfo = findProjectRoot(options.store.root);
     return {
-      status: 'error',
-      files: [{
-        source: 'repository',
-        encrypted: projectInfo?.repositoryKind === 'legacy-v2'
-          ? `Legacy hush.yaml repo detected at ${projectInfo.configPath}. Run hush migrate --from v2 first.`
-          : `Missing Hush repository at ${options.store.root}.`,
-        inSync: false,
-        added: [],
-        removed: [],
-        changed: [],
-        error: 'DECRYPT_FAILED',
-      }],
+      status: "error",
+      files: [
+        {
+          source: "repository",
+          encrypted:
+            projectInfo?.repositoryKind === "legacy-v2"
+              ? `Legacy hush.yaml repo detected at ${projectInfo.configPath}. Run hush migrate --from v2 first.`
+              : `Missing Hush repository at ${options.store.root}.`,
+          inSync: false,
+          added: [],
+          removed: [],
+          changed: [],
+          error: "DECRYPT_FAILED",
+        },
+      ],
     };
   }
 
   try {
-    const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
-    const plaintextFiles = options.allowPlaintext ? [] : scanForLeftoverArtifacts(ctx, options.store.root);
+    const repository = loadV3Repository(options.store.root, {
+      keyIdentity: options.store.keyIdentity,
+    });
+    const plaintextFiles = options.allowPlaintext
+      ? []
+      : scanForLeftoverArtifacts(ctx, options.store.root);
 
     return {
-      status: plaintextFiles.length > 0 ? 'plaintext' : 'ok',
+      status: plaintextFiles.length > 0 ? "plaintext" : "ok",
       files: buildRepositoryFileResults(repository),
       plaintextFiles: plaintextFiles.length > 0 ? plaintextFiles : undefined,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
-      status: 'error',
-      files: [{
-        source: 'repository',
-        encrypted: message,
-        inSync: false,
-        added: [],
-        removed: [],
-        changed: [],
-        error: 'DECRYPT_FAILED',
-      }],
+      status: "error",
+      files: [
+        {
+          source: "repository",
+          encrypted: message,
+          inSync: false,
+          added: [],
+          removed: [],
+          changed: [],
+          error: "DECRYPT_FAILED",
+        },
+      ],
     };
   }
 }
 
 function formatTextOutput(result: CheckResult): string {
   const lines: string[] = [];
-  lines.push('Checking repository integrity...\n');
+  lines.push("Checking repository integrity...\n");
 
   if (result.plaintextFiles && result.plaintextFiles.length > 0) {
-    lines.push(pc.red(pc.bold('⚠ LEFTOVER PLAINTEXT OR LEGACY ARTIFACTS DETECTED')));
-    lines.push('');
-    lines.push(pc.red('The following artifacts should be removed or migrated:'));
+    lines.push(pc.red(pc.bold("⚠ LEFTOVER PLAINTEXT OR LEGACY ARTIFACTS DETECTED")));
+    lines.push("");
+    lines.push(pc.red("The following artifacts should be removed or migrated:"));
     for (const artifact of result.plaintextFiles) {
       if (artifact.file === DEFAULT_PERSISTED_OUTPUT_DIRNAME) {
         lines.push(pc.red(`  • ${artifact.file}  (materialized plaintext output)`));
-        lines.push(pc.dim(`    Run \`hush materialize --cleanup\` or delete the directory; ensure it is gitignored.`));
+        lines.push(
+          pc.dim(
+            `    Run \`hush materialize --cleanup\` or delete the directory; ensure it is gitignored.`,
+          ),
+        );
       } else {
         lines.push(pc.red(`  • ${artifact.file}`));
       }
     }
-    lines.push('');
-    lines.push(pc.yellow('These files or directories break the encrypted-at-rest repository model.'));
-    lines.push(pc.dim('Delete them, migrate them, or use --allow-plaintext only when you intentionally need persisted output.'));
-    lines.push('');
+    lines.push("");
+    lines.push(
+      pc.yellow("These files or directories break the encrypted-at-rest repository model."),
+    );
+    lines.push(
+      pc.dim(
+        "Delete them, migrate them, or use --allow-plaintext only when you intentionally need persisted output.",
+      ),
+    );
+    lines.push("");
   }
 
   for (const file of result.files) {
-    if (file.source === 'repository' && file.error === 'DECRYPT_FAILED') {
-      lines.push(pc.red('Repository validation failed:'));
+    if (file.source === "repository" && file.error === "DECRYPT_FAILED") {
+      lines.push(pc.red("Repository validation failed:"));
       lines.push(pc.red(`  ${file.encrypted}`));
-      lines.push('');
+      lines.push("");
       continue;
     }
 
-    lines.push(`${file.source} ${pc.dim('->')} ${file.encrypted}`);
-    lines.push(pc.green('  ✓ Valid'));
-    lines.push('');
+    lines.push(`${file.source} ${pc.dim("->")} ${file.encrypted}`);
+    lines.push(pc.green("  ✓ Valid"));
+    lines.push("");
   }
 
-  if (result.status === 'error') {
-    lines.push(pc.red('✗ Repository integrity check failed'));
-  } else if (result.status === 'plaintext') {
-    lines.push(pc.yellow('✗ Repository valid, but leftover plaintext/legacy artifacts remain'));
+  if (result.status === "error") {
+    lines.push(pc.red("✗ Repository integrity check failed"));
+  } else if (result.status === "plaintext") {
+    lines.push(pc.yellow("✗ Repository valid, but leftover plaintext/legacy artifacts remain"));
   } else {
-    lines.push(pc.green('✓ Repository is valid and free of leftover plaintext artifacts'));
+    lines.push(pc.green("✓ Repository is valid and free of leftover plaintext artifacts"));
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 export async function checkCommand(ctx: HushContext, options: CheckOptions): Promise<void> {
@@ -201,25 +230,27 @@ export async function checkCommand(ctx: HushContext, options: CheckOptions): Pro
 
   if (!options.quiet) {
     if (options.json) {
-      if (result.status === 'error') {
-        writeJsonError(ctx, 'check', {
-          code: 'REPOSITORY_CHECK_FAILED',
-          message: result.files.find((file) => file.error)?.encrypted ?? 'Repository integrity check failed',
+      if (result.status === "error") {
+        writeJsonError(ctx, "check", {
+          code: "REPOSITORY_CHECK_FAILED",
+          message:
+            result.files.find((file) => file.error)?.encrypted ??
+            "Repository integrity check failed",
           details: result,
         });
       } else {
-        writeJsonSuccess(ctx, 'check', result);
+        writeJsonSuccess(ctx, "check", result);
       }
     } else {
       ctx.logger.log(formatTextOutput(result));
     }
   }
 
-  if (result.status === 'plaintext' && !options.warn) {
+  if (result.status === "plaintext" && !options.warn) {
     ctx.process.exit(4);
   }
 
-  if (result.status === 'error') {
+  if (result.status === "error") {
     ctx.process.exit(3);
   }
 

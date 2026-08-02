@@ -1,48 +1,43 @@
-import { defineConfig } from 'astro/config';
-import starlight from '@astrojs/starlight';
+import starlight from "@astrojs/starlight";
+import { defineConfig } from "astro/config";
 
 export default defineConfig({
-  site: 'https://hush.ch5.me',
+  site: "https://hush.ch5.me",
   integrations: [
     starlight({
-      title: 'Hush',
-      description: 'SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.',
-      customCss: [
-        './src/styles/theme.css',
-        './src/styles/terminal.css',
-      ],
+      title: "Hush",
+      description: "SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.",
+      customCss: ["./src/styles/theme.css", "./src/styles/terminal.css"],
       head: [
         {
-          tag: 'meta',
+          tag: "meta",
           attrs: {
-            name: 'theme-color',
-            content: '#0a0a0c',
+            name: "theme-color",
+            content: "#0a0a0c",
           },
         },
       ],
       sidebar: [
         {
-          label: 'Start Here',
+          label: "Start Here",
+          items: [{ label: "Getting Started", slug: "getting-started" }],
+        },
+        {
+          label: "Guides",
           items: [
-            { label: 'Getting Started', slug: 'getting-started' },
+            { label: "Configuration", slug: "guides/configuration" },
+            { label: "Monorepo Patterns", slug: "guides/monorepos" },
+            { label: "AI-Native Workflow", slug: "guides/ai-native" },
+            { label: "Agent Automation", slug: "guides/agent-automation" },
+            { label: "Threat Model", slug: "guides/threat-model" },
           ],
         },
         {
-          label: 'Guides',
+          label: "Reference",
           items: [
-            { label: 'Configuration', slug: 'guides/configuration' },
-            { label: 'Monorepo Patterns', slug: 'guides/monorepos' },
-            { label: 'AI-Native Workflow', slug: 'guides/ai-native' },
-            { label: 'Agent Automation', slug: 'guides/agent-automation' },
-            { label: 'Threat Model', slug: 'guides/threat-model' },
-          ],
-        },
-        {
-          label: 'Reference',
-          items: [
-            { label: 'Commands', slug: 'reference/commands' },
-            { label: 'Output Formats', slug: 'reference/formats' },
-            { label: 'File Reference', slug: 'reference/files' },
+            { label: "Commands", slug: "reference/commands" },
+            { label: "Output Formats", slug: "reference/formats" },
+            { label: "File Reference", slug: "reference/files" },
           ],
         },
       ],

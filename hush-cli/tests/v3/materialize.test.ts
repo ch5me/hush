@@ -1,7 +1,18 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { dirname, join } from 'node:path';
-import * as nodeFs from 'node:fs';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import * as nodeFs from "node:fs";
+import { dirname, join } from "node:path";
+
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+
+import { materializeCommand } from "../../src/commands/materialize.js";
+import {
+  decrypt,
+  decryptYaml,
+  encrypt,
+  encryptYaml,
+  encryptYamlContent,
+  isSopsInstalled,
+} from "../../src/core/sops.js";
 import {
   createFileDocument,
   createFileIndexEntry,
@@ -12,16 +23,23 @@ import {
   materializeV3Target,
   setActiveIdentity,
   withMaterializedTarget,
-} from '../../src/index.js';
-import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../../src/core/sops.js';
-import { materializeCommand } from '../../src/commands/materialize.js';
-import type { HushContext, HushManifestDocument, LegacyHushConfig, StoreContext } from '../../src/types.js';
-import { ensureTestSopsConfig, ensureTestSopsEnv, writeEncryptedYamlFile } from '../helpers/sops-test.js';
+} from "../../src/index.js";
+import type {
+  HushContext,
+  HushManifestDocument,
+  LegacyHushConfig,
+  StoreContext,
+} from "../../src/types.js";
+import {
+  ensureTestSopsConfig,
+  ensureTestSopsEnv,
+  writeEncryptedYamlFile,
+} from "../helpers/sops-test.js";
 
-const TEST_DIR = join('/tmp', 'hush-test-v3-materialize');
+const TEST_DIR = join("/tmp", "hush-test-v3-materialize");
 
 function createSignalProcess() {
-  const listeners = new Map<'SIGINT' | 'SIGTERM', Set<() => void>>();
+  const listeners = new Map<"SIGINT" | "SIGTERM", Set<() => void>>();
 
   return {
     process: {
@@ -32,16 +50,16 @@ function createSignalProcess() {
       env: {},
       stdin: process.stdin,
       stdout: process.stdout,
-      on: (event: 'SIGINT' | 'SIGTERM', listener: () => void) => {
+      on: (event: "SIGINT" | "SIGTERM", listener: () => void) => {
         const existing = listeners.get(event) ?? new Set<() => void>();
         existing.add(listener);
         listeners.set(event, existing);
       },
-      removeListener: (event: 'SIGINT' | 'SIGTERM', listener: () => void) => {
+      removeListener: (event: "SIGINT" | "SIGTERM", listener: () => void) => {
         listeners.get(event)?.delete(listener);
       },
     },
-    emit(event: 'SIGINT' | 'SIGTERM') {
+    emit(event: "SIGINT" | "SIGTERM") {
       for (const listener of listeners.get(event) ?? []) {
         listener();
       }
@@ -49,17 +67,17 @@ function createSignalProcess() {
   };
 }
 
-function createContext(): { ctx: HushContext; emitSignal: (signal: 'SIGINT' | 'SIGTERM') => void } {
+function createContext(): { ctx: HushContext; emitSignal: (signal: "SIGINT" | "SIGTERM") => void } {
   ensureTestSopsEnv();
 
-const defaultConfig: LegacyHushConfig = {
+  const defaultConfig: LegacyHushConfig = {
     sources: {
-      shared: '.hush',
-      development: '.hush.development',
-      production: '.hush.production',
-      local: '.hush.local',
+      shared: ".hush",
+      development: ".hush.development",
+      production: ".hush.production",
+      local: ".hush.local",
     },
-    targets: [{ name: 'root', path: '.', format: 'dotenv' }],
+    targets: [{ name: "root", path: ".", format: "dotenv" }],
   };
   const signalProcess = createSignalProcess();
 
@@ -81,8 +99,8 @@ const defaultConfig: LegacyHushConfig = {
         join,
       },
       exec: {
-        spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
-        execSync: vi.fn(() => ''),
+        spawnSync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })),
+        execSync: vi.fn(() => ""),
       },
       logger: {
         log: vi.fn(),
@@ -97,19 +115,41 @@ const defaultConfig: LegacyHushConfig = {
       },
       age: {
         ageAvailable: vi.fn(() => true),
-        ageGenerate: vi.fn(() => ({ private: 'private', public: 'public' })),
+        ageGenerate: vi.fn(() => ({ private: "private", public: "public" })),
         keyExists: vi.fn(() => false),
         keySave: vi.fn(),
-        keyPath: vi.fn(() => ''),
+        keyPath: vi.fn(() => ""),
         keyLoad: vi.fn(() => null),
-        agePublicFromPrivate: vi.fn(() => 'public'),
+        agePublicFromPrivate: vi.fn(() => "public"),
       },
-    sops: {
-        decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
-        decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),
-        encrypt: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encrypt(inputPath, outputPath, options)),
-        encryptYaml: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYaml(inputPath, outputPath, options)),
-        encryptYamlContent: vi.fn((content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYamlContent(content, outputPath, options)),
+      sops: {
+        decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) =>
+          decrypt(filePath, options),
+        ),
+        decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) =>
+          decryptYaml(filePath, options),
+        ),
+        encrypt: vi.fn(
+          (
+            inputPath: string,
+            outputPath: string,
+            options?: { root?: string; keyIdentity?: string },
+          ) => encrypt(inputPath, outputPath, options),
+        ),
+        encryptYaml: vi.fn(
+          (
+            inputPath: string,
+            outputPath: string,
+            options?: { root?: string; keyIdentity?: string },
+          ) => encryptYaml(inputPath, outputPath, options),
+        ),
+        encryptYamlContent: vi.fn(
+          (
+            content: string,
+            outputPath: string,
+            options?: { root?: string; keyIdentity?: string },
+          ) => encryptYamlContent(content, outputPath, options),
+        ),
         edit: vi.fn(),
         isSopsInstalled: vi.fn(() => isSopsInstalled()),
       },
@@ -119,32 +159,32 @@ const defaultConfig: LegacyHushConfig = {
 }
 
 function createStore(root: string): StoreContext {
-  const stateRoot = join(TEST_DIR, '.machine-state');
+  const stateRoot = join(TEST_DIR, ".machine-state");
   const projectSlug = createProjectSlug(root);
-  const projectStateRoot = join(stateRoot, 'projects', projectSlug);
+  const projectStateRoot = join(stateRoot, "projects", projectSlug);
 
   return {
-    mode: 'project',
+    mode: "project",
     root,
-    configPath: join(root, 'hush.yaml'),
+    configPath: join(root, "hush.yaml"),
     keyIdentity: root,
     displayLabel: root,
     projectSlug,
     stateRoot,
     projectStateRoot,
-    activeIdentityPath: join(projectStateRoot, 'active-identity.json'),
-    auditLogPath: join(projectStateRoot, 'audit.jsonl'),
+    activeIdentityPath: join(projectStateRoot, "active-identity.json"),
+    auditLogPath: join(projectStateRoot, "audit.jsonl"),
   };
 }
 
 function normalizeYaml(content: string): string {
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
 
-  while (lines[0] !== undefined && lines[0].trim() === '') {
+  while (lines[0] !== undefined && lines[0].trim() === "") {
     lines.shift();
   }
 
-  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === '') {
+  while (lines.at(-1) !== undefined && lines.at(-1)?.trim() === "") {
     lines.pop();
   }
 
@@ -156,23 +196,31 @@ function normalizeYaml(content: string): string {
       return Math.min(smallest, current);
     }, Number.POSITIVE_INFINITY);
 
-  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join('\n');
+  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join("\n");
 }
 
 function writeRepo(root: string, manifest: string, files: Record<string, string>) {
   nodeFs.mkdirSync(root, { recursive: true });
   ensureTestSopsConfig(root);
-  nodeFs.mkdirSync(join(root, '.hush', 'files'), { recursive: true });
-  const parsedFiles = Object.values(files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
+  nodeFs.mkdirSync(join(root, ".hush", "files"), { recursive: true });
+  const parsedFiles = Object.values(files).map((content) =>
+    createFileDocument(parseYaml(normalizeYaml(content))),
+  );
   const manifestDocument = createManifestDocument({
     ...(parseYaml(normalizeYaml(manifest)) as Record<string, unknown>),
-    fileIndex: Object.fromEntries(parsedFiles.map((file) => [file.path, createFileIndexEntry(file)])),
+    fileIndex: Object.fromEntries(
+      parsedFiles.map((file) => [file.path, createFileIndexEntry(file)]),
+    ),
   } as HushManifestDocument);
-  nodeFs.mkdirSync(join(root, '.hush'), { recursive: true });
-  writeEncryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'), stringifyYaml(manifestDocument, { indent: 2 }));
+  nodeFs.mkdirSync(join(root, ".hush"), { recursive: true });
+  writeEncryptedYamlFile(
+    root,
+    join(root, ".hush", "manifest.encrypted"),
+    stringifyYaml(manifestDocument, { indent: 2 }),
+  );
 
   for (const [relativePath, content] of Object.entries(files)) {
-    const filePath = join(root, '.hush', 'files', `${relativePath}.encrypted`);
+    const filePath = join(root, ".hush", "files", `${relativePath}.encrypted`);
     nodeFs.mkdirSync(dirname(filePath), { recursive: true });
     writeEncryptedYamlFile(root, filePath, normalizeYaml(content));
   }
@@ -180,20 +228,25 @@ function writeRepo(root: string, manifest: string, files: Record<string, string>
   return loadV3Repository(root, { keyIdentity: root });
 }
 
-function setIdentity(ctx: HushContext, store: StoreContext, repository: ReturnType<typeof loadV3Repository>, identity: string): void {
+function setIdentity(
+  ctx: HushContext,
+  store: StoreContext,
+  repository: ReturnType<typeof loadV3Repository>,
+  identity: string,
+): void {
   setActiveIdentity(ctx, {
     store,
     identity,
     identities: repository.manifest.identities,
-    command: { name: 'config', args: ['active-identity', identity] },
+    command: { name: "config", args: ["active-identity", identity] },
   });
 }
 
 function readAuditTypes(store: StoreContext): string[] {
   return nodeFs
-    .readFileSync(store.auditLogPath!, 'utf-8')
+    .readFileSync(store.auditLogPath!, "utf-8")
     .trim()
-    .split('\n')
+    .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line).type);
 }
@@ -208,10 +261,10 @@ afterAll(() => {
   nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
-describe.sequential('v3 materialization runtime', () => {
-  it('materializes env outputs in memory and audits success', () => {
+describe.sequential("v3 materialization runtime", () => {
+  it("materializes env outputs in memory and audits success", () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'memory-target');
+    const root = join(TEST_DIR, "memory-target");
     const repository = writeRepo(
       root,
       `
@@ -229,7 +282,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: dotenv
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -247,31 +300,35 @@ describe.sequential('v3 materialization runtime', () => {
     );
     const store = createStore(root);
 
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
-    const result = withMaterializedTarget(ctx, {
-      store,
-      repository,
-      targetName: 'app-env',
-      command: { name: 'run', args: ['--', 'bun', 'dev'] },
-    }, (materialization) => ({
-      env: materialization.env,
-      targetArtifact: materialization.targetArtifact,
-      stagedArtifacts: materialization.stagedArtifacts,
-    }));
+    const result = withMaterializedTarget(
+      ctx,
+      {
+        store,
+        repository,
+        targetName: "app-env",
+        command: { name: "run", args: ["--", "bun", "dev"] },
+      },
+      (materialization) => ({
+        env: materialization.env,
+        targetArtifact: materialization.targetArtifact,
+        stagedArtifacts: materialization.stagedArtifacts,
+      }),
+    );
 
     expect(result.env).toEqual({
-      API_URL: 'https://example.com',
-      FEATURE_FLAG: 'true',
+      API_URL: "https://example.com",
+      FEATURE_FLAG: "true",
     });
-    expect(result.targetArtifact?.content).toContain('API_URL=https://example.com');
+    expect(result.targetArtifact?.content).toContain("API_URL=https://example.com");
     expect(result.stagedArtifacts).toEqual([]);
-    expect(readAuditTypes(store)).toContain('materialize');
+    expect(readAuditTypes(store)).toContain("materialize");
   });
 
-  it('shapes file and binary artifact descriptors through shared emitters', () => {
+  it("shapes file and binary artifact descriptors through shared emitters", () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'artifact-target');
+    const root = join(TEST_DIR, "artifact-target");
     const repository = writeRepo(
       root,
       `
@@ -290,7 +347,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: json
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -301,7 +358,7 @@ describe.sequential('v3 materialization runtime', () => {
               value: https://example.com
               sensitive: false
         `,
-        'artifacts/app/runtime': `
+        "artifacts/app/runtime": `
           path: artifacts/app/runtime
           readers:
             roles: [owner]
@@ -323,29 +380,39 @@ describe.sequential('v3 materialization runtime', () => {
     );
     const store = createStore(root);
 
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
     const materialization = materializeV3Target(ctx, {
       store,
       repository,
-      targetName: 'runtime-files',
-      command: { name: 'export', args: ['runtime-files'] },
+      targetName: "runtime-files",
+      command: { name: "export", args: ["runtime-files"] },
     });
 
     expect(materialization.targetArtifact?.content).toContain('"API_URL": "https://example.com"');
     expect(materialization.artifacts).toHaveLength(2);
-    expect(materialization.artifacts[0]).toMatchObject({ kind: 'binary', logicalPath: 'artifacts/app/runtime/client-cert' });
-    expect(materialization.artifacts[1]).toMatchObject({ kind: 'file', logicalPath: 'artifacts/app/runtime/env-file' });
-    const envFile = materialization.artifacts.find((artifact) => artifact.logicalPath === 'artifacts/app/runtime/env-file');
-    expect(envFile && 'content' in envFile ? envFile.content : '').toContain('API_URL=https://example.com');
+    expect(materialization.artifacts[0]).toMatchObject({
+      kind: "binary",
+      logicalPath: "artifacts/app/runtime/client-cert",
+    });
+    expect(materialization.artifacts[1]).toMatchObject({
+      kind: "file",
+      logicalPath: "artifacts/app/runtime/env-file",
+    });
+    const envFile = materialization.artifacts.find(
+      (artifact) => artifact.logicalPath === "artifacts/app/runtime/env-file",
+    );
+    expect(envFile && "content" in envFile ? envFile.content : "").toContain(
+      "API_URL=https://example.com",
+    );
 
     materialization.cleanup();
   });
 
-  it('materializes bundle artifacts and respects filename, subpath, and materializeAs metadata', () => {
+  it("materializes bundle artifacts and respects filename, subpath, and materializeAs metadata", () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'bundle-artifacts');
-    const outputRoot = join(TEST_DIR, 'bundle-output');
+    const root = join(TEST_DIR, "bundle-artifacts");
+    const outputRoot = join(TEST_DIR, "bundle-output");
     const repository = writeRepo(
       root,
       `
@@ -360,7 +427,7 @@ describe.sequential('v3 materialization runtime', () => {
             - path: artifacts/app/signing
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -371,7 +438,7 @@ describe.sequential('v3 materialization runtime', () => {
               value: super-secret
               sensitive: true
         `,
-        'artifacts/app/signing': `
+        "artifacts/app/signing": `
           path: artifacts/app/signing
           readers:
             roles: [owner]
@@ -397,39 +464,41 @@ describe.sequential('v3 materialization runtime', () => {
     );
     const store = createStore(root);
 
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
     const materialization = materializeV3Bundle(ctx, {
       store,
       repository,
-      bundleName: 'signing',
-      mode: 'persisted',
+      bundleName: "signing",
+      mode: "persisted",
       outputRoot,
     });
 
     expect(materialization.artifacts).toHaveLength(2);
     expect(materialization.artifacts[0]).toMatchObject({
-      logicalPath: 'artifacts/app/signing/certificate',
-      suggestedName: 'certificate.p12',
-      relativePath: 'apple/fitbot/certificate.p12',
+      logicalPath: "artifacts/app/signing/certificate",
+      suggestedName: "certificate.p12",
+      relativePath: "apple/fitbot/certificate.p12",
     });
     expect(materialization.artifacts[1]).toMatchObject({
-      logicalPath: 'artifacts/app/signing/profile',
-      suggestedName: 'app.mobileprovision',
-      relativePath: 'apple/profiles/app.mobileprovision',
+      logicalPath: "artifacts/app/signing/profile",
+      suggestedName: "app.mobileprovision",
+      relativePath: "apple/profiles/app.mobileprovision",
     });
     expect(materialization.stagedArtifacts.map((artifact) => artifact.path)).toEqual([
-      join(outputRoot, 'apple', 'fitbot', 'certificate.p12'),
-      join(outputRoot, 'apple', 'profiles', 'app.mobileprovision'),
+      join(outputRoot, "apple", "fitbot", "certificate.p12"),
+      join(outputRoot, "apple", "profiles", "app.mobileprovision"),
     ]);
-    expect(nodeFs.readFileSync(join(outputRoot, 'apple', 'profiles', 'app.mobileprovision'), 'utf-8')).toContain('uuid: 123');
+    expect(
+      nodeFs.readFileSync(join(outputRoot, "apple", "profiles", "app.mobileprovision"), "utf-8"),
+    ).toContain("uuid: 123");
     materialization.cleanup();
   });
 
-  it('only persists outputs when explicitly requested', () => {
+  it("only persists outputs when explicitly requested", () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'persist-target');
-    const outputRoot = join(TEST_DIR, 'persisted-output');
+    const root = join(TEST_DIR, "persist-target");
+    const outputRoot = join(TEST_DIR, "persisted-output");
     const repository = writeRepo(
       root,
       `
@@ -447,7 +516,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: yaml
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -462,13 +531,13 @@ describe.sequential('v3 materialization runtime', () => {
     );
     const store = createStore(root);
 
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
     const memoryOnly = materializeV3Target(ctx, {
       store,
       repository,
-      targetName: 'app-env',
-      mode: 'memory',
+      targetName: "app-env",
+      mode: "memory",
     });
     expect(memoryOnly.stagedArtifacts).toEqual([]);
     memoryOnly.cleanup();
@@ -476,8 +545,8 @@ describe.sequential('v3 materialization runtime', () => {
     const persisted = materializeV3Target(ctx, {
       store,
       repository,
-      targetName: 'app-env',
-      mode: 'persisted',
+      targetName: "app-env",
+      mode: "persisted",
       outputRoot,
     });
 
@@ -487,9 +556,9 @@ describe.sequential('v3 materialization runtime', () => {
     expect(nodeFs.existsSync(persisted.stagedArtifacts[0]!.path)).toBe(true);
   });
 
-  it('cleans staged artifacts on child-process failure and audits failure', () => {
+  it("cleans staged artifacts on child-process failure and audits failure", () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'child-failure-target');
+    const root = join(TEST_DIR, "child-failure-target");
     const repository = writeRepo(
       root,
       `
@@ -507,7 +576,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: dotenv
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -522,32 +591,44 @@ describe.sequential('v3 materialization runtime', () => {
     );
     const store = createStore(root);
 
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
-    let stagedPath = '';
+    let stagedPath = "";
 
     expect(() =>
-      withMaterializedTarget(ctx, {
-        store,
-        repository,
-        targetName: 'app-env',
-        mode: 'staged',
-        command: { name: 'run', args: ['--', 'false'] },
-      }, (materialization) => {
-        stagedPath = materialization.stagedArtifacts[0]!.path;
-        expect(nodeFs.existsSync(stagedPath)).toBe(true);
-        throw new Error('child process failed');
-      }),
-    ).toThrow('child process failed');
+      withMaterializedTarget(
+        ctx,
+        {
+          store,
+          repository,
+          targetName: "app-env",
+          mode: "staged",
+          command: { name: "run", args: ["--", "false"] },
+        },
+        (materialization) => {
+          stagedPath = materialization.stagedArtifacts[0]!.path;
+          expect(nodeFs.existsSync(stagedPath)).toBe(true);
+          throw new Error("child process failed");
+        },
+      ),
+    ).toThrow("child process failed");
 
     expect(nodeFs.existsSync(stagedPath)).toBe(false);
-    const audits = nodeFs.readFileSync(store.auditLogPath!, 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
-    expect(audits.at(-1)).toMatchObject({ type: 'materialize', success: false, reason: 'child process failed' });
+    const audits = nodeFs
+      .readFileSync(store.auditLogPath!, "utf-8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(audits.at(-1)).toMatchObject({
+      type: "materialize",
+      success: false,
+      reason: "child process failed",
+    });
   }, 60000);
 
-  it('cleans staged artifacts on simulated SIGINT and SIGTERM', () => {
+  it("cleans staged artifacts on simulated SIGINT and SIGTERM", () => {
     const { ctx, emitSignal } = createContext();
-    const root = join(TEST_DIR, 'signal-target');
+    const root = join(TEST_DIR, "signal-target");
     const repository = writeRepo(
       root,
       `
@@ -565,7 +646,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: shell
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -580,32 +661,36 @@ describe.sequential('v3 materialization runtime', () => {
     );
     const store = createStore(root);
 
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      let stagedPath = '';
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      let stagedPath = "";
 
       expect(() =>
-        withMaterializedTarget(ctx, {
-          store,
-          repository,
-          targetName: 'app-env',
-          mode: 'staged',
-          command: { name: 'run', args: ['--', 'bun', 'dev'] },
-        }, (materialization) => {
-          stagedPath = materialization.stagedArtifacts[0]!.path;
-          expect(nodeFs.existsSync(stagedPath)).toBe(true);
-          emitSignal(signal);
-        }),
+        withMaterializedTarget(
+          ctx,
+          {
+            store,
+            repository,
+            targetName: "app-env",
+            mode: "staged",
+            command: { name: "run", args: ["--", "bun", "dev"] },
+          },
+          (materialization) => {
+            stagedPath = materialization.stagedArtifacts[0]!.path;
+            expect(nodeFs.existsSync(stagedPath)).toBe(true);
+            emitSignal(signal);
+          },
+        ),
       ).toThrow(`Materialization interrupted by ${signal}`);
 
       expect(nodeFs.existsSync(stagedPath)).toBe(false);
     }
   });
 
-  it('emits shell-export syntax for shell-safe env exports', async () => {
+  it("emits shell-export syntax for shell-safe env exports", async () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'shell-export-target');
+    const root = join(TEST_DIR, "shell-export-target");
     const repository = writeRepo(
       root,
       `
@@ -623,7 +708,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: dotenv
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -644,27 +729,29 @@ describe.sequential('v3 materialization runtime', () => {
       },
     );
     const store = createStore(root);
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
     await materializeCommand(ctx, {
       store,
-      target: 'app-env',
+      target: "app-env",
       json: false,
-      format: 'shell-export',
+      format: "shell-export",
       cleanup: false,
     });
 
     expect(ctx.logger.log).toHaveBeenCalledTimes(1);
-    expect(ctx.logger.log).toHaveBeenCalledWith([
-      'export INLINE="has \\"quotes\\" and $dollar"',
-      "export PEM=$'-----BEGIN KEY-----\\nline1\\nline2\\n-----END KEY-----\\n'",
-    ].join('\n'));
+    expect(ctx.logger.log).toHaveBeenCalledWith(
+      [
+        'export INLINE="has \\"quotes\\" and $dollar"',
+        "export PEM=$'-----BEGIN KEY-----\\nline1\\nline2\\n-----END KEY-----\\n'",
+      ].join("\n"),
+    );
   });
 
-  it('uses compact json paths by default when requested', async () => {
+  it("uses compact json paths by default when requested", async () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'compact-json-target');
-    const outputRoot = join(TEST_DIR, 'compact-json-output');
+    const root = join(TEST_DIR, "compact-json-target");
+    const outputRoot = join(TEST_DIR, "compact-json-output");
     const repository = writeRepo(
       root,
       `
@@ -683,7 +770,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: json
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -694,7 +781,7 @@ describe.sequential('v3 materialization runtime', () => {
               value: https://example.com
               sensitive: false
         `,
-        'artifacts/app/runtime': `
+        "artifacts/app/runtime": `
           path: artifacts/app/runtime
           readers:
             roles: [owner]
@@ -709,42 +796,42 @@ describe.sequential('v3 materialization runtime', () => {
       },
     );
     const store = createStore(root);
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
     await materializeCommand(ctx, {
       store,
-      target: 'runtime-files',
+      target: "runtime-files",
       json: true,
       compactJson: true,
       outputRoot,
       cleanup: false,
     });
 
-    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}').data;
-    expect(payload.status).toBe('materialized');
+    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? "{}").data;
+    expect(payload.status).toBe("materialized");
     expect(payload.repositoryRoot).toBeUndefined();
     expect(payload.files).toBeUndefined();
     expect(payload.logicalPaths).toBeUndefined();
     expect(payload.targetArtifact).toMatchObject({
-      logicalPath: 'targets/runtime-files',
-      path: join(outputRoot, 'targets', 'runtime-files.json'),
-      relativePath: 'targets/runtime-files.json',
-      source: 'target',
+      logicalPath: "targets/runtime-files",
+      path: join(outputRoot, "targets", "runtime-files.json"),
+      relativePath: "targets/runtime-files.json",
+      source: "target",
     });
     expect(payload.targetArtifact.provenance).toBeUndefined();
     expect(payload.artifacts[0]).toMatchObject({
-      logicalPath: 'artifacts/app/runtime/env-file',
-      path: join(outputRoot, 'artifacts', 'app', 'runtime', 'env-file.env'),
-      relativePath: 'artifacts/app/runtime/env-file.env',
-      source: 'artifact',
+      logicalPath: "artifacts/app/runtime/env-file",
+      path: join(outputRoot, "artifacts", "app", "runtime", "env-file.env"),
+      relativePath: "artifacts/app/runtime/env-file.env",
+      source: "artifact",
     });
     expect(payload.artifacts[0].resolvedFrom).toBeUndefined();
   });
 
-  it('adds provenance to json only when include-provenance is set', async () => {
+  it("adds provenance to json only when include-provenance is set", async () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'include-provenance-target');
-    const outputRoot = join(TEST_DIR, 'include-provenance-output');
+    const root = join(TEST_DIR, "include-provenance-target");
+    const outputRoot = join(TEST_DIR, "include-provenance-output");
     const repository = writeRepo(
       root,
       `
@@ -762,7 +849,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: json
       `,
       {
-        'env/app/shared': `
+        "env/app/shared": `
           path: env/app/shared
           readers:
             roles: [owner]
@@ -776,28 +863,28 @@ describe.sequential('v3 materialization runtime', () => {
       },
     );
     const store = createStore(root);
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
     await materializeCommand(ctx, {
       store,
-      target: 'runtime-files',
+      target: "runtime-files",
       json: true,
       includeProvenance: true,
       outputRoot,
       cleanup: false,
     });
 
-    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? '{}').data;
+    const payload = JSON.parse(vi.mocked(ctx.logger.log).mock.calls.at(-1)?.[0] ?? "{}").data;
     expect(payload.repositoryRoot).toBe(root);
-    expect(payload.files).toEqual(['env/app/shared']);
-    expect(payload.logicalPaths).toEqual(['env/apps/api/env/API_URL']);
+    expect(payload.files).toEqual(["env/app/shared"]);
+    expect(payload.logicalPaths).toEqual(["env/apps/api/env/API_URL"]);
     expect(payload.targetArtifact.provenance).toBeDefined();
-    expect(payload.targetArtifact.resolvedFrom).toEqual(['env/app/shared']);
+    expect(payload.targetArtifact.resolvedFrom).toEqual(["env/app/shared"]);
   });
 
-  it('hardens staged plaintext with private temp root and restrictive permissions', () => {
+  it("hardens staged plaintext with private temp root and restrictive permissions", () => {
     const { ctx } = createContext();
-    const root = join(TEST_DIR, 'perm-target');
+    const root = join(TEST_DIR, "perm-target");
     const repository = writeRepo(
       root,
       `
@@ -815,7 +902,7 @@ describe.sequential('v3 materialization runtime', () => {
           format: json
       `,
       {
-        'artifacts/app/runtime': `
+        "artifacts/app/runtime": `
           path: artifacts/app/runtime
           readers:
             roles: [owner]
@@ -837,24 +924,25 @@ describe.sequential('v3 materialization runtime', () => {
     );
     const store = createStore(root);
 
-    setIdentity(ctx, store, repository, 'developer-local');
+    setIdentity(ctx, store, repository, "developer-local");
 
     const materialization = materializeV3Target(ctx, {
       store,
       repository,
-      targetName: 'runtime-files',
-      mode: 'staged',
+      targetName: "runtime-files",
+      mode: "staged",
     });
 
     const firstArtifact = materialization.stagedArtifacts[0]!;
-    const tempRoot = firstArtifact.path
-      .split('/')
-      .slice(0, -firstArtifact.logicalPath.split('/').filter(Boolean).length)
-      .join('/') || '/';
+    const tempRoot =
+      firstArtifact.path
+        .split("/")
+        .slice(0, -firstArtifact.logicalPath.split("/").filter(Boolean).length)
+        .join("/") || "/";
     const modeMask = 0o777;
 
     for (const artifact of materialization.stagedArtifacts) {
-      const dir = artifact.path.split('/').slice(0, -1).join('/');
+      const dir = artifact.path.split("/").slice(0, -1).join("/");
       const dirStat = nodeFs.statSync(dir);
       const fileStat = nodeFs.statSync(artifact.path);
       const dirMode = dirStat.mode & modeMask;

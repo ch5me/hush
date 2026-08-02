@@ -1,15 +1,25 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
-import * as nodeFs from 'node:fs';
-import { loadLegacyV2Inventory } from '../../src/v3/legacy-v2.js';
-import { createFileDocument } from '../../src/index.js';
-import { loadV3Repository, persistV3FileDocument, persistV3ManifestDocument } from '../../src/v3/repository.js';
-import { ensureEncryptedFixtureRepo, ensureTestSopsConfig, writeEncryptedYamlFile } from '../helpers/sops-test.js';
+import * as nodeFs from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const TESTS_DIR = fileURLToPath(new URL('..', import.meta.url));
-const FIXTURES_DIR = join(TESTS_DIR, 'fixtures');
-const TMP_DIR = join(TESTS_DIR, 'tmp-v3-repository-tests');
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { createFileDocument } from "../../src/index.js";
+import { loadLegacyV2Inventory } from "../../src/v3/legacy-v2.js";
+import {
+  loadV3Repository,
+  persistV3FileDocument,
+  persistV3ManifestDocument,
+} from "../../src/v3/repository.js";
+import {
+  ensureEncryptedFixtureRepo,
+  ensureTestSopsConfig,
+  writeEncryptedYamlFile,
+} from "../helpers/sops-test.js";
+
+const TESTS_DIR = fileURLToPath(new URL("..", import.meta.url));
+const FIXTURES_DIR = join(TESTS_DIR, "fixtures");
+const TMP_DIR = join(TESTS_DIR, "tmp-v3-repository-tests");
 
 function resetTempDir(): void {
   nodeFs.rmSync(TMP_DIR, { recursive: true, force: true });
@@ -20,119 +30,127 @@ afterEach(() => {
   nodeFs.rmSync(TMP_DIR, { recursive: true, force: true });
 });
 
-describe('loadV3Repository', () => {
-  it('loads an encrypted v3 repository fixture as the runtime authority', () => {
-    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+describe("loadV3Repository", () => {
+  it("loads an encrypted v3 repository fixture as the runtime authority", () => {
+    const fixtureRoot = join(FIXTURES_DIR, "v3/already-migrated-repo");
     ensureEncryptedFixtureRepo(fixtureRoot);
     const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
 
-    expect(repository.kind).toBe('v3');
-    expect(repository.manifest.identities.ci.roles).toContain('ci');
-    expect(repository.filesByPath['artifacts/api/runtime']?.logicalPaths).toContain('artifacts/api/runtime/env-file');
-    expect(repository.loadFile('artifacts/api/runtime').entries['artifacts/api/runtime/env-file']).toBeDefined();
-    expect(repository.fileSystemPaths['env/app/shared']).toContain('.hush/files/env/app/shared.encrypted');
+    expect(repository.kind).toBe("v3");
+    expect(repository.manifest.identities.ci.roles).toContain("ci");
+    expect(repository.filesByPath["artifacts/api/runtime"]?.logicalPaths).toContain(
+      "artifacts/api/runtime/env-file",
+    );
+    expect(
+      repository.loadFile("artifacts/api/runtime").entries["artifacts/api/runtime/env-file"],
+    ).toBeDefined();
+    expect(repository.fileSystemPaths["env/app/shared"]).toContain(
+      ".hush/files/env/app/shared.encrypted",
+    );
   });
 
-  it('fails clearly when the manifest is missing', () => {
+  it("fails clearly when the manifest is missing", () => {
     resetTempDir();
     ensureTestSopsConfig(TMP_DIR);
-    nodeFs.mkdirSync(join(TMP_DIR, '.hush/files/env/app'), { recursive: true });
+    nodeFs.mkdirSync(join(TMP_DIR, ".hush/files/env/app"), { recursive: true });
     writeEncryptedYamlFile(
       TMP_DIR,
-      join(TMP_DIR, '.hush/files/env/app/shared.encrypted'),
+      join(TMP_DIR, ".hush/files/env/app/shared.encrypted"),
       [
-        'path: env/app/shared',
-        'readers:',
-        '  roles: [owner]',
-        '  identities: [dev]',
-        'sensitive: false',
-        'entries:',
-        '  env/apps/web/env/NEXT_PUBLIC_API_URL:',
-        '    value: https://example.com',
-        '    sensitive: false',
-      ].join('\n'),
+        "path: env/app/shared",
+        "readers:",
+        "  roles: [owner]",
+        "  identities: [dev]",
+        "sensitive: false",
+        "entries:",
+        "  env/apps/web/env/NEXT_PUBLIC_API_URL:",
+        "    value: https://example.com",
+        "    sensitive: false",
+      ].join("\n"),
     );
 
     expect(() => loadV3Repository(TMP_DIR)).toThrowError(/Missing v3 manifest/i);
     expect(() => loadV3Repository(TMP_DIR)).toThrowError(/hush bootstrap/i);
   });
 
-  it('defers file doc validation until the file is actually loaded', () => {
+  it("defers file doc validation until the file is actually loaded", () => {
     resetTempDir();
     ensureTestSopsConfig(TMP_DIR);
-    nodeFs.mkdirSync(join(TMP_DIR, '.hush/files/env/app'), { recursive: true });
+    nodeFs.mkdirSync(join(TMP_DIR, ".hush/files/env/app"), { recursive: true });
     writeEncryptedYamlFile(
       TMP_DIR,
-      join(TMP_DIR, '.hush/manifest.encrypted'),
+      join(TMP_DIR, ".hush/manifest.encrypted"),
       [
-        'version: 3',
-        'identities:',
-        '  dev:',
-        '    roles: [owner]',
-        'fileIndex:',
-        '  env/app/shared:',
-        '    path: env/app/shared',
-        '    readers:',
-        '      roles: [owner]',
-        '      identities: [dev]',
-        '    sensitive: false',
-        '    logicalPaths:',
-        '      - env/apps/web/env/NEXT_PUBLIC_API_URL',
-        'bundles:',
-        '  app:',
-        '    files:',
-        '      - path: env/app/shared',
-      ].join('\n'),
+        "version: 3",
+        "identities:",
+        "  dev:",
+        "    roles: [owner]",
+        "fileIndex:",
+        "  env/app/shared:",
+        "    path: env/app/shared",
+        "    readers:",
+        "      roles: [owner]",
+        "      identities: [dev]",
+        "    sensitive: false",
+        "    logicalPaths:",
+        "      - env/apps/web/env/NEXT_PUBLIC_API_URL",
+        "bundles:",
+        "  app:",
+        "    files:",
+        "      - path: env/app/shared",
+      ].join("\n"),
     );
     writeEncryptedYamlFile(
       TMP_DIR,
-      join(TMP_DIR, '.hush/files/env/app/shared.encrypted'),
+      join(TMP_DIR, ".hush/files/env/app/shared.encrypted"),
       [
-        'path: env/app/other',
-        'readers:',
-        '  roles: [owner]',
-        '  identities: [dev]',
-        'sensitive: false',
-        'entries:',
-        '  env/apps/web/env/NEXT_PUBLIC_API_URL:',
-        '    value: https://example.com',
-        '    sensitive: false',
-      ].join('\n'),
+        "path: env/app/other",
+        "readers:",
+        "  roles: [owner]",
+        "  identities: [dev]",
+        "sensitive: false",
+        "entries:",
+        "  env/apps/web/env/NEXT_PUBLIC_API_URL:",
+        "    value: https://example.com",
+        "    sensitive: false",
+      ].join("\n"),
     );
 
     const repository = loadV3Repository(TMP_DIR);
 
-    expect(() => repository.loadFile('env/app/shared')).toThrowError(/Invalid v3 file document/i);
-    expect(() => repository.loadFile('env/app/shared')).toThrowError(/does not match repository location/i);
+    expect(() => repository.loadFile("env/app/shared")).toThrowError(/Invalid v3 file document/i);
+    expect(() => repository.loadFile("env/app/shared")).toThrowError(
+      /does not match repository location/i,
+    );
   });
 });
 
-describe('loadLegacyV2Inventory', () => {
-  it('extracts migration inventory from current hush.yaml repositories', () => {
-    const projectRoot = join(FIXTURES_DIR, 'monorepo');
-    const inventory = loadLegacyV2Inventory(projectRoot, join(projectRoot, 'hush.yaml'));
+describe("loadLegacyV2Inventory", () => {
+  it("extracts migration inventory from current hush.yaml repositories", () => {
+    const projectRoot = join(FIXTURES_DIR, "monorepo");
+    const inventory = loadLegacyV2Inventory(projectRoot, join(projectRoot, "hush.yaml"));
 
-    expect(inventory.kind).toBe('legacy-v2');
+    expect(inventory.kind).toBe("legacy-v2");
     expect(inventory.sources.map((source) => source.name)).toEqual([
-      'shared',
-      'development',
-      'production',
-      'local',
+      "shared",
+      "development",
+      "production",
+      "local",
     ]);
-    expect(inventory.targets.map((target) => target.name)).toEqual(['root', 'app', 'api']);
-    expect(inventory.config.targets[1]?.include).toContain('EXPO_PUBLIC_*');
+    expect(inventory.targets.map((target) => target.name)).toEqual(["root", "app", "api"]);
+    expect(inventory.config.targets[1]?.include).toContain("EXPO_PUBLIC_*");
   });
 });
 
-describe('persistV3ManifestDocument', () => {
-  it('writes a valid manifest to manifest.encrypted and updates repository.manifest', () => {
-    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+describe("persistV3ManifestDocument", () => {
+  it("writes a valid manifest to manifest.encrypted and updates repository.manifest", () => {
+    const fixtureRoot = join(FIXTURES_DIR, "v3/already-migrated-repo");
     ensureEncryptedFixtureRepo(fixtureRoot);
     const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
 
     const nextManifest = {
       ...repository.manifest,
-      metadata: { updatedAt: '2026-01-01' },
+      metadata: { updatedAt: "2026-01-01" },
     };
 
     const mockCtx = {
@@ -150,19 +168,19 @@ describe('persistV3ManifestDocument', () => {
 
     expect(mockCtx.sops.encryptYamlContent).toHaveBeenCalledOnce();
     const [content, manifestPath] = mockCtx.sops.encryptYamlContent.mock.calls[0]!;
-    expect(manifestPath).toContain('manifest.encrypted');
-    expect(result.metadata?.updatedAt).toBe('2026-01-01');
-    expect(repository.manifest.metadata?.updatedAt).toBe('2026-01-01');
+    expect(manifestPath).toContain("manifest.encrypted");
+    expect(result.metadata?.updatedAt).toBe("2026-01-01");
+    expect(repository.manifest.metadata?.updatedAt).toBe("2026-01-01");
   });
 
-  it('throws before disk write when manifest is invalid (wrong version)', () => {
-    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+  it("throws before disk write when manifest is invalid (wrong version)", () => {
+    const fixtureRoot = join(FIXTURES_DIR, "v3/already-migrated-repo");
     ensureEncryptedFixtureRepo(fixtureRoot);
     const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
 
     const invalidManifest = {
       ...repository.manifest,
-      version: '999', // invalid version
+      version: "999", // invalid version
     };
 
     const encryptSpy = vi.fn();
@@ -184,14 +202,14 @@ describe('persistV3ManifestDocument', () => {
     expect(encryptSpy).not.toHaveBeenCalled();
   });
 
-  it('throws before disk write when manifest references a non-declared active identity', () => {
-    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+  it("throws before disk write when manifest references a non-declared active identity", () => {
+    const fixtureRoot = join(FIXTURES_DIR, "v3/already-migrated-repo");
     ensureEncryptedFixtureRepo(fixtureRoot);
     const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
 
     const invalidManifest = {
       ...repository.manifest,
-      activeIdentity: 'non-existent-identity',
+      activeIdentity: "non-existent-identity",
     };
 
     const encryptSpy = vi.fn();
@@ -213,15 +231,15 @@ describe('persistV3ManifestDocument', () => {
     expect(encryptSpy).not.toHaveBeenCalled();
   });
 
-  it('throws before disk write when manifest has an empty bundle name', () => {
-    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+  it("throws before disk write when manifest has an empty bundle name", () => {
+    const fixtureRoot = join(FIXTURES_DIR, "v3/already-migrated-repo");
     ensureEncryptedFixtureRepo(fixtureRoot);
     const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
 
     const invalidManifest = {
       ...repository.manifest,
       bundles: {
-        '': {
+        "": {
           files: [],
         },
       },
@@ -246,11 +264,11 @@ describe('persistV3ManifestDocument', () => {
     expect(encryptSpy).not.toHaveBeenCalled();
   });
 
-  it('refreshes the in-memory file cache after file writes', () => {
-    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+  it("refreshes the in-memory file cache after file writes", () => {
+    const fixtureRoot = join(FIXTURES_DIR, "v3/already-migrated-repo");
     ensureEncryptedFixtureRepo(fixtureRoot);
     const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
-    const initial = repository.loadFile('env/app/shared');
+    const initial = repository.loadFile("env/app/shared");
 
     const nextDocument = createFileDocument({
       ...initial,
@@ -267,25 +285,25 @@ describe('persistV3ManifestDocument', () => {
       mockCtx,
       { root: fixtureRoot, keyIdentity: fixtureRoot },
       repository,
-      repository.fileSystemPaths['env/app/shared']!,
+      repository.fileSystemPaths["env/app/shared"]!,
       nextDocument,
     );
 
-    expect(repository.loadFile('env/app/shared').entries).toEqual({});
+    expect(repository.loadFile("env/app/shared").entries).toEqual({});
   });
 
-  it('restores the encrypted file when the manifest write fails', () => {
+  it("restores the encrypted file when the manifest write fails", () => {
     resetTempDir();
-    const filePath = join(TMP_DIR, 'shared.encrypted');
-    const manifestPath = join(TMP_DIR, 'manifest.encrypted');
-    nodeFs.writeFileSync(filePath, 'old-file');
-    nodeFs.writeFileSync(manifestPath, 'old-manifest');
+    const filePath = join(TMP_DIR, "shared.encrypted");
+    const manifestPath = join(TMP_DIR, "manifest.encrypted");
+    nodeFs.writeFileSync(filePath, "old-file");
+    nodeFs.writeFileSync(manifestPath, "old-manifest");
     const document = createFileDocument({
-      path: 'env/app/shared',
-      readers: { roles: ['owner'], identities: [] },
+      path: "env/app/shared",
+      readers: { roles: ["owner"], identities: [] },
       entries: {},
     });
-    const manifest = { version: 3 as const, identities: { dev: { roles: ['owner' as const] } } };
+    const manifest = { version: 3 as const, identities: { dev: { roles: ["owner" as const] } } };
     const repository = {
       manifestPath,
       manifest,
@@ -294,15 +312,18 @@ describe('persistV3ManifestDocument', () => {
       files: [],
     } as unknown as Parameters<typeof persistV3FileDocument>[2];
     const encryptYamlContent = vi.fn((_content: string, outputPath: string) => {
-      nodeFs.writeFileSync(outputPath, 'new-ciphertext');
-      if (outputPath === manifestPath) throw new Error('synthetic manifest failure');
+      nodeFs.writeFileSync(outputPath, "new-ciphertext");
+      if (outputPath === manifestPath) throw new Error("synthetic manifest failure");
     });
-    const ctx = { sops: { encryptYamlContent } } as unknown as Parameters<typeof persistV3FileDocument>[0];
+    const ctx = { sops: { encryptYamlContent } } as unknown as Parameters<
+      typeof persistV3FileDocument
+    >[0];
 
-    expect(() => persistV3FileDocument(ctx, { root: TMP_DIR }, repository, filePath, document))
-      .toThrow(/synthetic manifest failure/);
-    expect(nodeFs.readFileSync(filePath, 'utf8')).toBe('old-file');
-    expect(nodeFs.readFileSync(manifestPath, 'utf8')).toBe('old-manifest');
+    expect(() =>
+      persistV3FileDocument(ctx, { root: TMP_DIR }, repository, filePath, document),
+    ).toThrow(/synthetic manifest failure/);
+    expect(nodeFs.readFileSync(filePath, "utf8")).toBe("old-file");
+    expect(nodeFs.readFileSync(manifestPath, "utf8")).toBe("old-manifest");
     expect(repository.filesByPath).toEqual({});
   });
 });

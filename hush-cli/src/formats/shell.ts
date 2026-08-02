@@ -1,4 +1,4 @@
-import type { EnvVar } from '../types.js';
+import type { EnvVar } from "../types.js";
 
 function escapeShellValue(value: string): string {
   if (/^[a-zA-Z0-9_\-./]+$/.test(value)) {
@@ -8,7 +8,5 @@ function escapeShellValue(value: string): string {
 }
 
 export function formatShell(vars: EnvVar[]): string {
-  return vars
-    .map(({ key, value }) => `export ${key}=${escapeShellValue(value)}`)
-    .join('\n') + '\n';
+  return vars.map(({ key, value }) => `export ${key}=${escapeShellValue(value)}`).join("\n") + "\n";
 }

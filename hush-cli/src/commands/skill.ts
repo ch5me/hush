@@ -1,10 +1,12 @@
-import { createInterface } from 'node:readline';
-import { homedir } from 'node:os';
-import pc from 'picocolors';
-import type { HushContext, SkillOptions } from '../types.js';
+import { homedir } from "node:os";
+import { createInterface } from "node:readline";
+
+import pc from "picocolors";
+
+import type { HushContext, SkillOptions } from "../types.js";
 
 const SKILL_FILES = {
-  'SKILL.md': `---
+  "SKILL.md": `---
 name: hush-secrets
 description: Manage secrets safely with the Hush v3 CLI. Use when working with encrypted config, environment variables, API keys, credentials, or migrating a legacy hush.yaml repo. NEVER read .hush/** directly.
 allowed-tools: Bash(hush inspect:*), Bash(hush has:*), Bash(hush set:*), Bash(hush run:*), Bash(hush config:*), Bash(hush doctor:*), Bash(hush status:*), Bash(hush check:*), Bash(hush verify-target:*), Bash(hush project:*), Bash(hush resolve:*), Bash(hush trace:*), Bash(hush diff:*), Bash(hush export-example:*), Bash(hush bootstrap:*), Bash(npx @chriscode/hush inspect:*), Bash(npx @chriscode/hush has:*), Bash(npx @chriscode/hush set:*), Bash(npx @chriscode/hush run:*), Bash(npx @chriscode/hush config:*), Bash(npx @chriscode/hush doctor:*), Bash(npx @chriscode/hush status:*), Bash(npx @chriscode/hush check:*), Bash(npx @chriscode/hush verify-target:*), Bash(npx @chriscode/hush project:*), Bash(npx @chriscode/hush resolve:*), Bash(npx @chriscode/hush trace:*), Bash(npx @chriscode/hush diff:*), Bash(npx @chriscode/hush export-example:*), Bash(npx @chriscode/hush bootstrap:*), Read, Grep, Glob
@@ -231,7 +233,7 @@ npx @chriscode/hush target remove api-production
 See [SETUP.md](SETUP.md), [REFERENCE.md](REFERENCE.md), and [examples/workflows.md](examples/workflows.md).
 `,
 
-  'SETUP.md': `# Hush v3 setup
+  "SETUP.md": `# Hush v3 setup
 
 ## New repository
 
@@ -304,7 +306,7 @@ npx @chriscode/hush inspect --global
 \`\`\`
 `,
 
-  'REFERENCE.md': `# Hush v3 command reference
+  "REFERENCE.md": `# Hush v3 command reference
 
 ## Current model
 
@@ -571,7 +573,7 @@ Legacy helper for source-file repos. Not part of the normal v3 repository workfl
 Deprecated alias for \`hush bootstrap\`.
 `,
 
-  'examples/workflows.md': `# Hush workflows
+  "examples/workflows.md": `# Hush workflows
 
 ## Bootstrap a repo
 
@@ -643,13 +645,13 @@ npx @chriscode/hush export-example
 `,
 };
 
-type InstallLocation = 'global' | 'local';
+type InstallLocation = "global" | "local";
 
 function getSkillPath(ctx: HushContext, location: InstallLocation, root: string): string {
-  if (location === 'global') {
-    return ctx.path.join(homedir(), '.claude', 'skills', 'hush-secrets');
+  if (location === "global") {
+    return ctx.path.join(homedir(), ".claude", "skills", "hush-secrets");
   }
-  return ctx.path.join(root, '.claude', 'skills', 'hush-secrets');
+  return ctx.path.join(root, ".claude", "skills", "hush-secrets");
 }
 
 async function promptForLocation(ctx: HushContext): Promise<InstallLocation> {
@@ -659,19 +661,19 @@ async function promptForLocation(ctx: HushContext): Promise<InstallLocation> {
   });
 
   return new Promise((resolve) => {
-    ctx.logger.log(pc.bold('\nWhere would you like to install the Claude skill?\n'));
-    ctx.logger.log(`  ${pc.cyan('1)')} ${pc.bold('Global')} ${pc.dim('(~/.claude/skills/)')}`);
-    ctx.logger.log('     Works across all your projects. Recommended for personal use.\n');
-    ctx.logger.log(`  ${pc.cyan('2)')} ${pc.bold('Local')} ${pc.dim('(.claude/skills/)')}`);
-    ctx.logger.log('     Bundled with this project. Recommended for teams.\n');
+    ctx.logger.log(pc.bold("\nWhere would you like to install the Claude skill?\n"));
+    ctx.logger.log(`  ${pc.cyan("1)")} ${pc.bold("Global")} ${pc.dim("(~/.claude/skills/)")}`);
+    ctx.logger.log("     Works across all your projects. Recommended for personal use.\n");
+    ctx.logger.log(`  ${pc.cyan("2)")} ${pc.bold("Local")} ${pc.dim("(.claude/skills/)")}`);
+    ctx.logger.log("     Bundled with this project. Recommended for teams.\n");
 
-    rl.question(`${pc.bold('Choice')} ${pc.dim('[1/2]')}: `, (answer: string) => {
+    rl.question(`${pc.bold("Choice")} ${pc.dim("[1/2]")}: `, (answer: string) => {
       rl.close();
       const choice = answer.trim();
-      if (choice === '2' || choice.toLowerCase() === 'local') {
-        resolve('local');
+      if (choice === "2" || choice.toLowerCase() === "local") {
+        resolve("local");
       } else {
-        resolve('global');
+        resolve("global");
       }
     });
   });
@@ -679,11 +681,11 @@ async function promptForLocation(ctx: HushContext): Promise<InstallLocation> {
 
 function writeSkillFiles(ctx: HushContext, skillPath: string): void {
   ctx.fs.mkdirSync(skillPath, { recursive: true });
-  ctx.fs.mkdirSync(ctx.path.join(skillPath, 'examples'), { recursive: true });
+  ctx.fs.mkdirSync(ctx.path.join(skillPath, "examples"), { recursive: true });
 
   for (const [filename, content] of Object.entries(SKILL_FILES)) {
     const filePath = ctx.path.join(skillPath, filename);
-    ctx.fs.writeFileSync(filePath, content, 'utf-8');
+    ctx.fs.writeFileSync(filePath, content, "utf-8");
   }
 }
 
@@ -693,19 +695,19 @@ export async function skillCommand(ctx: HushContext, options: SkillOptions): Pro
   let location: InstallLocation;
 
   if (isGlobal) {
-    location = 'global';
+    location = "global";
   } else if (isLocal) {
-    location = 'local';
+    location = "local";
   } else {
     location = await promptForLocation(ctx);
   }
 
   const skillPath = getSkillPath(ctx, location, ctx.process.cwd());
 
-  const alreadyInstalled = ctx.fs.existsSync(ctx.path.join(skillPath, 'SKILL.md'));
+  const alreadyInstalled = ctx.fs.existsSync(ctx.path.join(skillPath, "SKILL.md"));
   if (alreadyInstalled) {
     ctx.logger.log(pc.yellow(`\nSkill already installed at: ${skillPath}`));
-    ctx.logger.log(pc.dim('To reinstall, delete the directory first.\n'));
+    ctx.logger.log(pc.dim("To reinstall, delete the directory first.\n"));
     return;
   }
 
@@ -713,20 +715,22 @@ export async function skillCommand(ctx: HushContext, options: SkillOptions): Pro
 
   writeSkillFiles(ctx, skillPath);
 
-  ctx.logger.log(pc.green('\n✓ Skill installed successfully!\n'));
+  ctx.logger.log(pc.green("\n✓ Skill installed successfully!\n"));
 
-  if (location === 'global') {
-    ctx.logger.log(pc.dim('The skill is now active for all projects using Claude Code.\n'));
+  if (location === "global") {
+    ctx.logger.log(pc.dim("The skill is now active for all projects using Claude Code.\n"));
   } else {
-    ctx.logger.log(pc.dim('The skill is now bundled with this project.'));
-    ctx.logger.log(pc.dim('Commit the .claude/ directory to share with your team.\n'));
-    ctx.logger.log(pc.bold('Suggested:'));
-    ctx.logger.log('  git add .claude/');
+    ctx.logger.log(pc.dim("The skill is now bundled with this project."));
+    ctx.logger.log(pc.dim("Commit the .claude/ directory to share with your team.\n"));
+    ctx.logger.log(pc.bold("Suggested:"));
+    ctx.logger.log("  git add .claude/");
     ctx.logger.log('  git commit -m "chore: add Hush Claude skill"\n');
   }
 
-  ctx.logger.log(pc.bold('What the skill does:'));
-  ctx.logger.log(`  • Teaches AI to use ${pc.cyan('hush inspect')} instead of reading secret files`);
-  ctx.logger.log('  • Keeps the current .hush/ v3 repository model front and center');
-  ctx.logger.log(`  • Guides AI through ${pc.cyan('hush migrate --from v2')} for legacy repos\n`);
+  ctx.logger.log(pc.bold("What the skill does:"));
+  ctx.logger.log(
+    `  • Teaches AI to use ${pc.cyan("hush inspect")} instead of reading secret files`,
+  );
+  ctx.logger.log("  • Keeps the current .hush/ v3 repository model front and center");
+  ctx.logger.log(`  • Guides AI through ${pc.cyan("hush migrate --from v2")} for legacy repos\n`);
 }

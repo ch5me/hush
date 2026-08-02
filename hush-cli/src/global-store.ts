@@ -1,6 +1,7 @@
-import { stringify as yamlStringify } from 'yaml';
-import { dirname } from 'node:path';
-import type { HushContext, StoreContext } from './types.js';
+import { dirname } from "node:path";
+
+import { stringify as yamlStringify } from "yaml";
+
 import {
   V3_SCHEMA_VERSION,
   createFileDocument,
@@ -11,13 +12,14 @@ import {
   getV3ManifestPath,
   loadV3Repository,
   setActiveIdentity,
-} from './index.js';
+} from "./index.js";
+import type { HushContext, StoreContext } from "./types.js";
 
-const DEFAULT_ACTIVE_IDENTITY = 'owner-local';
+const DEFAULT_ACTIVE_IDENTITY = "owner-local";
 
 function buildSopsConfig(publicKey: string): string {
   return yamlStringify({
-    creation_rules: [{ encrypted_regex: '.*', age: publicKey }],
+    creation_rules: [{ encrypted_regex: ".*", age: publicKey }],
   });
 }
 
@@ -36,62 +38,80 @@ function ensureGlobalManifest(ctx: HushContext, store: StoreContext): void {
     return;
   }
 
-  writeYaml(ctx, store, manifestPath, createManifestDocument({
-    version: V3_SCHEMA_VERSION,
-    identities: {
-      'owner-local': { roles: ['owner'], description: 'Default owner identity for the global store' },
-      'member-local': { roles: ['member'], description: 'Default member identity for the global store' },
-      ci: { roles: ['ci'], description: 'Default automation identity for the global store' },
-    },
-    fileIndex: {
-      'env/project/shared': createFileIndexEntry(createFileDocument({
-        path: 'env/project/shared',
-        readers: {
-          roles: ['owner', 'member', 'ci'],
-          identities: [],
+  writeYaml(
+    ctx,
+    store,
+    manifestPath,
+    createManifestDocument({
+      version: V3_SCHEMA_VERSION,
+      identities: {
+        "owner-local": {
+          roles: ["owner"],
+          description: "Default owner identity for the global store",
         },
-        sensitive: true,
-        entries: {},
-      })),
-    },
-    bundles: {
-      project: {
-        files: [{ path: 'env/project/shared' }],
+        "member-local": {
+          roles: ["member"],
+          description: "Default member identity for the global store",
+        },
+        ci: { roles: ["ci"], description: "Default automation identity for the global store" },
       },
-    },
-    targets: {
-      runtime: {
-        bundle: 'project',
-        format: 'dotenv',
-        mode: 'process',
+      fileIndex: {
+        "env/project/shared": createFileIndexEntry(
+          createFileDocument({
+            path: "env/project/shared",
+            readers: {
+              roles: ["owner", "member", "ci"],
+              identities: [],
+            },
+            sensitive: true,
+            entries: {},
+          }),
+        ),
       },
-      example: {
-        bundle: 'project',
-        format: 'dotenv',
-        mode: 'example',
+      bundles: {
+        project: {
+          files: [{ path: "env/project/shared" }],
+        },
       },
-    },
-    metadata: {
-      project: store.keyIdentity ?? 'hush-global',
-    },
-  }));
+      targets: {
+        runtime: {
+          bundle: "project",
+          format: "dotenv",
+          mode: "process",
+        },
+        example: {
+          bundle: "project",
+          format: "dotenv",
+          mode: "example",
+        },
+      },
+      metadata: {
+        project: store.keyIdentity ?? "hush-global",
+      },
+    }),
+  );
 }
 
 function ensureGlobalSharedFile(ctx: HushContext, store: StoreContext): void {
-  const filePath = getV3EncryptedFilePath(store.root, 'env/project/shared');
+  const filePath = getV3EncryptedFilePath(store.root, "env/project/shared");
   if (ctx.fs.existsSync(filePath)) {
     return;
   }
 
-  writeYaml(ctx, store, filePath, createFileDocument({
-    path: 'env/project/shared',
-    readers: {
-      roles: ['owner', 'member', 'ci'],
-      identities: [],
-    },
-    sensitive: true,
-    entries: {},
-  }));
+  writeYaml(
+    ctx,
+    store,
+    filePath,
+    createFileDocument({
+      path: "env/project/shared",
+      readers: {
+        roles: ["owner", "member", "ci"],
+        identities: [],
+      },
+      sensitive: true,
+      entries: {},
+    }),
+  );
 }
 
 function ensureGlobalActiveIdentity(ctx: HushContext, store: StoreContext): void {
@@ -106,7 +126,7 @@ function ensureGlobalActiveIdentity(ctx: HushContext, store: StoreContext): void
     store,
     identity: DEFAULT_ACTIVE_IDENTITY,
     identities: repository.manifest.identities,
-    command: { name: 'bootstrap', args: ['--global'] },
+    command: { name: "bootstrap", args: ["--global"] },
   });
 }
 
@@ -115,7 +135,7 @@ export function ensureGlobalStoreBootstrap(
   store: StoreContext,
   publicKey?: string,
 ): { hasKey: boolean } {
-  if (store.mode !== 'global') {
+  if (store.mode !== "global") {
     return { hasKey: false };
   }
 
@@ -130,9 +150,9 @@ export function ensureGlobalStoreBootstrap(
       : null;
 
   if (key) {
-    const sopsPath = ctx.path.join(store.root, '.sops.yaml');
+    const sopsPath = ctx.path.join(store.root, ".sops.yaml");
     if (!ctx.fs.existsSync(sopsPath)) {
-      ctx.fs.writeFileSync(sopsPath, buildSopsConfig(key.public), 'utf-8');
+      ctx.fs.writeFileSync(sopsPath, buildSopsConfig(key.public), "utf-8");
     }
   }
 

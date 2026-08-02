@@ -1,4 +1,4 @@
-import type { EnvVar } from '../types.js';
+import type { EnvVar } from "../types.js";
 
 export function mergeVars(...varArrays: EnvVar[][]): EnvVar[] {
   const merged = new Map<string, string>();

@@ -1,5 +1,10 @@
-import { type HushBundleName, type HushFileIndexEntry, type HushImportName, type HushProvenanceImportRecord } from './domain.js';
-import type { HushV3Repository } from '../types.js';
+import type { HushV3Repository } from "../types.js";
+import {
+  type HushBundleName,
+  type HushFileIndexEntry,
+  type HushImportName,
+  type HushProvenanceImportRecord,
+} from "./domain.js";
 
 export interface HushSelectedFileCandidate {
   file: HushFileIndexEntry;
@@ -33,23 +38,27 @@ interface BundleTraversalContext {
 function toBundleLookupCandidates(repository: HushV3Repository, reference: string): string[] {
   const candidates = new Set<string>([reference]);
 
-  if (reference.startsWith('bundles/')) {
-    candidates.add(reference.slice('bundles/'.length));
+  if (reference.startsWith("bundles/")) {
+    candidates.add(reference.slice("bundles/".length));
   }
 
-  const lastSegment = reference.split('/').filter(Boolean).pop();
+  const lastSegment = reference.split("/").filter(Boolean).pop();
   if (lastSegment) {
     candidates.add(lastSegment);
   }
 
-  return Array.from(candidates).filter((candidate) => candidate in (repository.manifest.bundles ?? {}));
+  return Array.from(candidates).filter(
+    (candidate) => candidate in (repository.manifest.bundles ?? {}),
+  );
 }
 
 function requireBundleDefinition(repository: HushV3Repository, bundleName: string) {
   const bundle = repository.manifest.bundles?.[bundleName];
 
   if (!bundle) {
-    throw new Error(`Bundle "${bundleName}" is not declared in repository ${repository.projectRoot}`);
+    throw new Error(
+      `Bundle "${bundleName}" is not declared in repository ${repository.projectRoot}`,
+    );
   }
 
   return bundle;
@@ -63,13 +72,17 @@ function requireImportedRepository(
   const importDefinition = repository.manifest.imports?.[importName];
 
   if (!importDefinition) {
-    throw new Error(`Import "${importName}" is not declared in repository ${repository.projectRoot}`);
+    throw new Error(
+      `Import "${importName}" is not declared in repository ${repository.projectRoot}`,
+    );
   }
 
   const importedRepository = importedRepositories[importName];
 
   if (!importedRepository) {
-    throw new Error(`Import "${importName}" requires an imported repository object during resolution`);
+    throw new Error(
+      `Import "${importName}" requires an imported repository object during resolution`,
+    );
   }
 
   return {
@@ -78,17 +91,27 @@ function requireImportedRepository(
   };
 }
 
-function assertPullAllowed(repository: HushV3Repository, importName: HushImportName, kind: 'bundle' | 'file', reference: string): void {
+function assertPullAllowed(
+  repository: HushV3Repository,
+  importName: HushImportName,
+  kind: "bundle" | "file",
+  reference: string,
+): void {
   const importDefinition = repository.manifest.imports?.[importName];
 
   if (!importDefinition) {
-    throw new Error(`Import "${importName}" is not declared in repository ${repository.projectRoot}`);
+    throw new Error(
+      `Import "${importName}" is not declared in repository ${repository.projectRoot}`,
+    );
   }
 
-  const allowed = kind === 'bundle' ? importDefinition.pull.bundles ?? [] : importDefinition.pull.files ?? [];
+  const allowed =
+    kind === "bundle" ? (importDefinition.pull.bundles ?? []) : (importDefinition.pull.files ?? []);
 
   if (!allowed.includes(reference)) {
-    throw new Error(`Import "${importName}" cannot pull ${kind} "${reference}" because it is not declared in imports.pull.${kind}s`);
+    throw new Error(
+      `Import "${importName}" cannot pull ${kind} "${reference}" because it is not declared in imports.pull.${kind}s`,
+    );
   }
 }
 
@@ -108,11 +131,13 @@ function fileCandidateFromIndex(
   };
 }
 
-function collectBundleCandidatesInternal(context: BundleTraversalContext): HushSelectedFileCandidate[] {
+function collectBundleCandidatesInternal(
+  context: BundleTraversalContext,
+): HushSelectedFileCandidate[] {
   const visitKey = `${context.repository.projectRoot}::${context.bundleName}`;
 
   if (context.stack.includes(visitKey)) {
-    throw new Error(`Bundle import cycle detected: ${[...context.stack, visitKey].join(' -> ')}`);
+    throw new Error(`Bundle import cycle detected: ${[...context.stack, visitKey].join(" -> ")}`);
   }
 
   const bundle = requireBundleDefinition(context.repository, context.bundleName);
@@ -124,7 +149,13 @@ function collectBundleCandidatesInternal(context: BundleTraversalContext): HushS
       throw new Error(`Bundle "${context.bundleName}" references missing file "${fileRef.path}"`);
     }
 
-    return fileCandidateFromIndex(file, context.repository, context.precedence, context.bundleName, context.importRecord);
+    return fileCandidateFromIndex(
+      file,
+      context.repository,
+      context.precedence,
+      context.bundleName,
+      context.importRecord,
+    );
   });
 
   const importedEntries = (bundle.imports ?? []).flatMap((bundleImport) => {
@@ -136,7 +167,7 @@ function collectBundleCandidatesInternal(context: BundleTraversalContext): HushS
       );
 
       if (bundleImport.bundle) {
-        assertPullAllowed(context.repository, bundleImport.project, 'bundle', bundleImport.bundle);
+        assertPullAllowed(context.repository, bundleImport.project, "bundle", bundleImport.bundle);
         const bundleCandidates = toBundleLookupCandidates(importedRepository, bundleImport.bundle);
 
         if (bundleCandidates.length === 0) {
@@ -159,7 +190,7 @@ function collectBundleCandidatesInternal(context: BundleTraversalContext): HushS
       }
 
       if (bundleImport.file) {
-        assertPullAllowed(context.repository, bundleImport.project, 'file', bundleImport.file);
+        assertPullAllowed(context.repository, bundleImport.project, "file", bundleImport.file);
         const importedFile = importedRepository.filesByPath[bundleImport.file];
 
         if (!importedFile) {
@@ -168,10 +199,16 @@ function collectBundleCandidatesInternal(context: BundleTraversalContext): HushS
           );
         }
 
-        return fileCandidateFromIndex(importedFile, importedRepository, context.precedence, context.bundleName, {
-          project: projectName,
-          file: bundleImport.file,
-        });
+        return fileCandidateFromIndex(
+          importedFile,
+          importedRepository,
+          context.precedence,
+          context.bundleName,
+          {
+            project: projectName,
+            file: bundleImport.file,
+          },
+        );
       }
 
       return [];
@@ -181,7 +218,9 @@ function collectBundleCandidatesInternal(context: BundleTraversalContext): HushS
       const bundleCandidates = toBundleLookupCandidates(context.repository, bundleImport.bundle);
 
       if (bundleCandidates.length === 0) {
-        throw new Error(`Bundle "${context.bundleName}" imports missing local bundle "${bundleImport.bundle}"`);
+        throw new Error(
+          `Bundle "${context.bundleName}" imports missing local bundle "${bundleImport.bundle}"`,
+        );
       }
 
       return collectBundleCandidatesInternal({
@@ -198,10 +237,18 @@ function collectBundleCandidatesInternal(context: BundleTraversalContext): HushS
       const importedFile = context.repository.filesByPath[bundleImport.file];
 
       if (!importedFile) {
-        throw new Error(`Bundle "${context.bundleName}" imports missing local file "${bundleImport.file}"`);
+        throw new Error(
+          `Bundle "${context.bundleName}" imports missing local file "${bundleImport.file}"`,
+        );
       }
 
-      return fileCandidateFromIndex(importedFile, context.repository, context.precedence, context.bundleName, context.importRecord);
+      return fileCandidateFromIndex(
+        importedFile,
+        context.repository,
+        context.precedence,
+        context.bundleName,
+        context.importRecord,
+      );
     }
 
     return [];
@@ -215,11 +262,17 @@ function collectBundleCandidatesInternal(context: BundleTraversalContext): HushS
   }
 
   return combined.filter((candidate) =>
-    selectors.some((selector) => candidate.file.logicalPaths.some((path) => path === selector || path.startsWith(`${selector}/`))),
+    selectors.some((selector) =>
+      candidate.file.logicalPaths.some(
+        (path) => path === selector || path.startsWith(`${selector}/`),
+      ),
+    ),
   );
 }
 
-export function collectBundleCandidates(options: CollectBundleCandidatesOptions): HushSelectedFileCandidate[] {
+export function collectBundleCandidates(
+  options: CollectBundleCandidatesOptions,
+): HushSelectedFileCandidate[] {
   const bundle = requireBundleDefinition(options.repository, options.bundleName);
   const importedRepositories = options.importedRepositories ?? {};
   const localCandidates = (bundle.files ?? []).flatMap((fileRef) => {
@@ -229,7 +282,12 @@ export function collectBundleCandidates(options: CollectBundleCandidatesOptions)
       throw new Error(`Bundle "${options.bundleName}" references missing file "${fileRef.path}"`);
     }
 
-    return fileCandidateFromIndex(file, options.repository, options.localPrecedence, options.bundleName);
+    return fileCandidateFromIndex(
+      file,
+      options.repository,
+      options.localPrecedence,
+      options.bundleName,
+    );
   });
 
   const importedCandidates = (bundle.imports ?? []).flatMap((bundleImport) => {
@@ -241,7 +299,7 @@ export function collectBundleCandidates(options: CollectBundleCandidatesOptions)
       );
 
       if (bundleImport.bundle) {
-        assertPullAllowed(options.repository, bundleImport.project, 'bundle', bundleImport.bundle);
+        assertPullAllowed(options.repository, bundleImport.project, "bundle", bundleImport.bundle);
         const bundleCandidates = toBundleLookupCandidates(importedRepository, bundleImport.bundle);
 
         if (bundleCandidates.length === 0) {
@@ -264,7 +322,7 @@ export function collectBundleCandidates(options: CollectBundleCandidatesOptions)
       }
 
       if (bundleImport.file) {
-        assertPullAllowed(options.repository, bundleImport.project, 'file', bundleImport.file);
+        assertPullAllowed(options.repository, bundleImport.project, "file", bundleImport.file);
         const importedFile = importedRepository.filesByPath[bundleImport.file];
 
         if (!importedFile) {
@@ -273,10 +331,16 @@ export function collectBundleCandidates(options: CollectBundleCandidatesOptions)
           );
         }
 
-        return fileCandidateFromIndex(importedFile, importedRepository, options.importedPrecedence, options.bundleName, {
-          project: projectName,
-          file: bundleImport.file,
-        });
+        return fileCandidateFromIndex(
+          importedFile,
+          importedRepository,
+          options.importedPrecedence,
+          options.bundleName,
+          {
+            project: projectName,
+            file: bundleImport.file,
+          },
+        );
       }
 
       return [];
@@ -286,7 +350,9 @@ export function collectBundleCandidates(options: CollectBundleCandidatesOptions)
       const bundleCandidates = toBundleLookupCandidates(options.repository, bundleImport.bundle);
 
       if (bundleCandidates.length === 0) {
-        throw new Error(`Bundle "${options.bundleName}" imports missing local bundle "${bundleImport.bundle}"`);
+        throw new Error(
+          `Bundle "${options.bundleName}" imports missing local bundle "${bundleImport.bundle}"`,
+        );
       }
 
       return collectBundleCandidatesInternal({
@@ -302,10 +368,17 @@ export function collectBundleCandidates(options: CollectBundleCandidatesOptions)
       const importedFile = options.repository.filesByPath[bundleImport.file];
 
       if (!importedFile) {
-        throw new Error(`Bundle "${options.bundleName}" imports missing local file "${bundleImport.file}"`);
+        throw new Error(
+          `Bundle "${options.bundleName}" imports missing local file "${bundleImport.file}"`,
+        );
       }
 
-      return fileCandidateFromIndex(importedFile, options.repository, options.importedPrecedence, options.bundleName);
+      return fileCandidateFromIndex(
+        importedFile,
+        options.repository,
+        options.importedPrecedence,
+        options.bundleName,
+      );
     }
 
     return [];
@@ -319,7 +392,11 @@ export function collectBundleCandidates(options: CollectBundleCandidatesOptions)
   }
 
   return combined.filter((candidate) =>
-    selectors.some((selector) => candidate.file.logicalPaths.some((path) => path === selector || path.startsWith(`${selector}/`))),
+    selectors.some((selector) =>
+      candidate.file.logicalPaths.some(
+        (path) => path === selector || path.startsWith(`${selector}/`),
+      ),
+    ),
   );
 }
 
@@ -327,15 +404,16 @@ export function collectAllRepositoryPaths(
   repository: HushV3Repository,
   importedRepositories: HushImportRepositoryMap,
 ): Record<string, { readableFiles: Set<string>; unreadableFiles: Set<string> }> {
-  const pathState: Record<string, { readableFiles: Set<string>; unreadableFiles: Set<string> }> = {};
+  const pathState: Record<string, { readableFiles: Set<string>; unreadableFiles: Set<string> }> =
+    {};
 
   for (const candidateRepository of [repository, ...Object.values(importedRepositories)]) {
     for (const file of Object.values(candidateRepository.filesByPath)) {
       for (const logicalPath of file.logicalPaths) {
-      pathState[logicalPath] ??= {
-        readableFiles: new Set<string>(),
-        unreadableFiles: new Set<string>(),
-      };
+        pathState[logicalPath] ??= {
+          readableFiles: new Set<string>(),
+          unreadableFiles: new Set<string>(),
+        };
       }
     }
   }

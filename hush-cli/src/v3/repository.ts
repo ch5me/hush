@@ -1,13 +1,19 @@
-import { join } from 'node:path';
-import { fs } from '../lib/fs.js';
-import type { HushFileDocument, HushFilePath, HushManifestDocument } from './domain.js';
-import type { HushContext, HushV3Repository, StoreContext } from '../types.js';
-import { createFileIndexEntry, createManifestDocument, upsertManifestFileIndexEntry } from './domain.js';
-import { parseFileDocument, parseManifestDocument } from './manifest.js';
-import { getV3FilesRoot, getV3ManifestPath, stripEncryptedFileExtension } from './paths.js';
-import { HUSH_V3_ENCRYPTED_FILE_EXTENSION } from './schema.js';
-import { decryptYaml } from '../core/sops.js';
-import { stringify as stringifyYaml } from 'yaml';
+import { join } from "node:path";
+
+import { stringify as stringifyYaml } from "yaml";
+
+import { decryptYaml } from "../core/sops.js";
+import { fs } from "../lib/fs.js";
+import type { HushContext, HushV3Repository, StoreContext } from "../types.js";
+import type { HushFileDocument, HushFilePath, HushManifestDocument } from "./domain.js";
+import {
+  createFileIndexEntry,
+  createManifestDocument,
+  upsertManifestFileIndexEntry,
+} from "./domain.js";
+import { parseFileDocument, parseManifestDocument } from "./manifest.js";
+import { getV3FilesRoot, getV3ManifestPath, stripEncryptedFileExtension } from "./paths.js";
+import { HUSH_V3_ENCRYPTED_FILE_EXTENSION } from "./schema.js";
 
 interface LoadV3RepositoryOptions {
   keyIdentity?: string;
@@ -59,18 +65,28 @@ function validateTargetReferences(manifest: HushManifestDocument): void {
 }
 
 function getRepositoryFilePath(filesRoot: string, fileSystemPath: string): HushFilePath {
-  return stripEncryptedFileExtension(fileSystemPath.slice(filesRoot.length + 1).split('/').join('/'));
+  return stripEncryptedFileExtension(
+    fileSystemPath
+      .slice(filesRoot.length + 1)
+      .split("/")
+      .join("/"),
+  );
 }
 
 function validateFileIndex(
   manifest: HushManifestDocument,
   filesRoot: string,
   discoveredFiles: string[],
-): { fileIndexByPath: Record<HushFilePath, HushV3Repository['filesByPath'][string]>; fileSystemPaths: Record<HushFilePath, string> } {
+): {
+  fileIndexByPath: Record<HushFilePath, HushV3Repository["filesByPath"][string]>;
+  fileSystemPaths: Record<HushFilePath, string>;
+} {
   const manifestFileIndex = manifest.fileIndex ?? {};
-  const fileIndexByPath: Record<HushFilePath, HushV3Repository['filesByPath'][string]> = {};
+  const fileIndexByPath: Record<HushFilePath, HushV3Repository["filesByPath"][string]> = {};
   const fileSystemPaths: Record<HushFilePath, string> = {};
-  const discoveredPaths = discoveredFiles.map((filePath) => getRepositoryFilePath(filesRoot, filePath)).sort();
+  const discoveredPaths = discoveredFiles
+    .map((filePath) => getRepositoryFilePath(filesRoot, filePath))
+    .sort();
   const indexedPaths = Object.keys(manifestFileIndex).sort();
 
   for (const indexedPath of indexedPaths) {
@@ -93,7 +109,12 @@ function validateFileIndex(
   return { fileIndexByPath, fileSystemPaths };
 }
 
-function loadRepositoryFile(root: string, filesRoot: string, filePath: string, keyIdentity: string | undefined): HushFileDocument {
+function loadRepositoryFile(
+  root: string,
+  filesRoot: string,
+  filePath: string,
+  keyIdentity: string | undefined,
+): HushFileDocument {
   const content = decryptYaml(filePath, { root, keyIdentity });
   return parseFileDocument(filePath, content, filesRoot);
 }
@@ -158,7 +179,11 @@ export function persistV3FileDocuments(
 
   let nextManifest = repository.manifest;
   for (const { document } of writes) {
-    nextManifest = upsertManifestFileIndexEntry(nextManifest, document.path, createFileIndexEntry(document));
+    nextManifest = upsertManifestFileIndexEntry(
+      nextManifest,
+      document.path,
+      createFileIndexEntry(document),
+    );
   }
 
   try {
@@ -168,10 +193,14 @@ export function persistV3FileDocuments(
         keyIdentity: store.keyIdentity,
       });
     }
-    ctx.sops.encryptYamlContent(stringifyYaml(nextManifest, { indent: 2 }), repository.manifestPath, {
-      root: store.root,
-      keyIdentity: store.keyIdentity,
-    });
+    ctx.sops.encryptYamlContent(
+      stringifyYaml(nextManifest, { indent: 2 }),
+      repository.manifestPath,
+      {
+        root: store.root,
+        keyIdentity: store.keyIdentity,
+      },
+    );
   } catch (error) {
     for (const [filePath, snapshot] of snapshots) restoreFile(filePath, snapshot);
     throw error;
@@ -218,7 +247,10 @@ export function removeV3FileDocument(
   return nextManifest;
 }
 
-export function loadV3Repository(root: string, options?: LoadV3RepositoryOptions): HushV3Repository {
+export function loadV3Repository(
+  root: string,
+  options?: LoadV3RepositoryOptions,
+): HushV3Repository {
   const manifestPath = getV3ManifestPath(root);
 
   if (!fs.existsSync(manifestPath)) {
@@ -230,14 +262,18 @@ export function loadV3Repository(root: string, options?: LoadV3RepositoryOptions
   const filesRoot = getV3FilesRoot(root);
   const manifestContent = decryptYaml(manifestPath, { root, keyIdentity: options?.keyIdentity });
   const manifest = parseManifestDocument(manifestPath, manifestContent);
-  const { fileIndexByPath, fileSystemPaths } = validateFileIndex(manifest, filesRoot, walkEncryptedFiles(filesRoot));
+  const { fileIndexByPath, fileSystemPaths } = validateFileIndex(
+    manifest,
+    filesRoot,
+    walkEncryptedFiles(filesRoot),
+  );
   const fileCache = new Map<HushFilePath, HushFileDocument>();
 
   validateBundleFileReferences(manifest, fileIndexByPath);
   validateTargetReferences(manifest);
 
   return {
-    kind: 'v3',
+    kind: "v3",
     projectRoot: root,
     manifestPath,
     filesRoot,

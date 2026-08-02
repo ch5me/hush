@@ -1,14 +1,32 @@
-import type { HushAuditCommandContext } from './audit.js';
-import { appendAuditEvent } from './audit.js';
-import { createProvenanceRecord, isIdentityAllowed, type HushBundleName, type HushFileEntry, type HushFileIndexEntry, type HushIdentityName, type HushLogicalPath, type HushTargetName } from './domain.js';
-import { getNamespaceFromPath } from './schema.js';
-import { requireActiveIdentity } from './identity.js';
-import type { HushContext, HushV3Repository, StoreContext } from '../types.js';
-import { collectMachineLocalCandidates, formatDuplicateKeyHint } from '../commands/v3-command-helpers.js';
-import { interpolateCandidates } from './interpolation.js';
-import { collectAllRepositoryPaths, collectBundleCandidates } from './imports.js';
-import type { HushImportRepositoryMap, HushSelectedFileCandidate } from './imports.js';
-import type { HushBundleConflictDetail, HushBundleResolution, HushResolvedNode, HushSelectedEntryCandidate, HushTargetResolution } from './provenance.js';
+import {
+  collectMachineLocalCandidates,
+  formatDuplicateKeyHint,
+} from "../commands/v3-command-helpers.js";
+import type { HushContext, HushV3Repository, StoreContext } from "../types.js";
+import type { HushAuditCommandContext } from "./audit.js";
+import { appendAuditEvent } from "./audit.js";
+import {
+  createProvenanceRecord,
+  isIdentityAllowed,
+  type HushBundleName,
+  type HushFileEntry,
+  type HushFileIndexEntry,
+  type HushIdentityName,
+  type HushLogicalPath,
+  type HushTargetName,
+} from "./domain.js";
+import { requireActiveIdentity } from "./identity.js";
+import { collectAllRepositoryPaths, collectBundleCandidates } from "./imports.js";
+import type { HushImportRepositoryMap, HushSelectedFileCandidate } from "./imports.js";
+import { interpolateCandidates } from "./interpolation.js";
+import type {
+  HushBundleConflictDetail,
+  HushBundleResolution,
+  HushResolvedNode,
+  HushSelectedEntryCandidate,
+  HushTargetResolution,
+} from "./provenance.js";
+import { getNamespaceFromPath } from "./schema.js";
 
 /**
  * Whether the machine-local override store (`user/local`) participates in this
@@ -25,7 +43,7 @@ import type { HushBundleConflictDetail, HushBundleResolution, HushResolvedNode, 
  * `exclude` for anything describing committed repository content — otherwise
  * one developer's machine state leaks into a shared artifact.
  */
-export type MachineLocalParticipation = 'include' | 'exclude';
+export type MachineLocalParticipation = "include" | "exclude";
 
 export interface ResolveV3Options {
   store: StoreContext;
@@ -33,7 +51,7 @@ export interface ResolveV3Options {
   importedRepositories?: HushImportRepositoryMap;
   activeIdentity?: HushIdentityName;
   command?: HushAuditCommandContext;
-  importPrecedence?: 'local' | 'imported';
+  importPrecedence?: "local" | "imported";
   machineLocal: MachineLocalParticipation;
 }
 
@@ -50,7 +68,7 @@ export class HushResolutionConflictError extends Error {
 
   constructor(message: string, conflicts: HushBundleConflictDetail[]) {
     super(message);
-    this.name = 'HushResolutionConflictError';
+    this.name = "HushResolutionConflictError";
     this.conflicts = conflicts;
   }
 }
@@ -59,13 +77,19 @@ function getIdentityRoles(repository: HushV3Repository, identity: HushIdentityNa
   const record = repository.manifest.identities[identity];
 
   if (!record) {
-    throw new Error(`Identity "${identity}" is not declared in repository ${repository.projectRoot}`);
+    throw new Error(
+      `Identity "${identity}" is not declared in repository ${repository.projectRoot}`,
+    );
   }
 
   return record.roles;
 }
 
-function canReadFile(file: HushFileIndexEntry, identity: HushIdentityName, roles: readonly string[]): boolean {
+function canReadFile(
+  file: HushFileIndexEntry,
+  identity: HushIdentityName,
+  roles: readonly string[],
+): boolean {
   if (file.readers.identities.includes(identity)) {
     return true;
   }
@@ -73,8 +97,11 @@ function canReadFile(file: HushFileIndexEntry, identity: HushIdentityName, roles
   return roles.some((role) => isIdentityAllowed(file.readers, identity, role as never));
 }
 
-function getPrecedence(importPrecedence: 'local' | 'imported' | undefined): { local: number; imported: number } {
-  return importPrecedence === 'imported'
+function getPrecedence(importPrecedence: "local" | "imported" | undefined): {
+  local: number;
+  imported: number;
+} {
+  return importPrecedence === "imported"
     ? { local: 100, imported: 200 }
     : { local: 200, imported: 100 };
 }
@@ -135,7 +162,9 @@ function partitionReadableCandidates(
   };
 }
 
-function materializeReadableCandidates(candidates: HushSelectedFileCandidate[]): HushSelectedEntryCandidate[] {
+function materializeReadableCandidates(
+  candidates: HushSelectedFileCandidate[],
+): HushSelectedEntryCandidate[] {
   return candidates.flatMap((candidate) => {
     const file = candidate.repository.loadFile(candidate.file.path);
 
@@ -203,7 +232,7 @@ function splitResolvedNodes(nodes: Record<string, HushResolvedNode>): {
   const artifacts: Record<string, HushResolvedNode> = {};
 
   for (const [path, node] of Object.entries(nodes)) {
-    if ('type' in node.entry) {
+    if ("type" in node.entry) {
       artifacts[path] = node;
       continue;
     }
@@ -223,11 +252,16 @@ function resolveIdentity(ctx: HushContext, options: ResolveV3Options): HushIdent
     return options.activeIdentity;
   }
 
-  return requireActiveIdentity(ctx, options.store, options.repository.manifest.identities, options.command);
+  return requireActiveIdentity(
+    ctx,
+    options.store,
+    options.repository.manifest.identities,
+    options.command,
+  );
 }
 
 function formatConflictHint(conflict: HushBundleConflictDetail, target: string): string {
-  const key = conflict.path.split('/').filter(Boolean).at(-1) ?? conflict.path;
+  const key = conflict.path.split("/").filter(Boolean).at(-1) ?? conflict.path;
   const files = conflict.contenders.map((contender) => contender.filePath);
   return formatDuplicateKeyHint(key, files, target);
 }
@@ -246,13 +280,18 @@ function createBundleResolution(
     bundle: bundleName,
     values,
     artifacts,
-    files: Array.from(new Set(Object.values(resolvedNodes).flatMap((node) => node.resolvedFrom))).sort(),
+    files: Array.from(
+      new Set(Object.values(resolvedNodes).flatMap((node) => node.resolvedFrom)),
+    ).sort(),
     unreadableFiles,
     conflicts,
   };
 }
 
-export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOptions): HushBundleResolution {
+export function resolveV3Bundle(
+  ctx: HushContext,
+  options: ResolveV3BundleOptions,
+): HushBundleResolution {
   const importedRepositories = options.importedRepositories ?? {};
   const identity = resolveIdentity(ctx, options);
   const precedence = getPrecedence(options.importPrecedence);
@@ -273,17 +312,17 @@ export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOption
 
   if (unreadableFiles.length > 0) {
     appendAuditEvent(ctx, options.store, {
-      type: 'access_denied',
+      type: "access_denied",
       activeIdentity: identity,
       success: false,
       command: options.command,
       bundle: options.bundleName,
       files: unreadableFiles,
-      reason: `Bundle "${options.bundleName}" requires unreadable file(s): ${unreadableFiles.join(', ')}`,
+      reason: `Bundle "${options.bundleName}" requires unreadable file(s): ${unreadableFiles.join(", ")}`,
     });
 
     throw new Error(
-      `Bundle "${options.bundleName}" requires unreadable file(s) for identity "${identity}": ${unreadableFiles.join(', ')}`,
+      `Bundle "${options.bundleName}" requires unreadable file(s) for identity "${identity}": ${unreadableFiles.join(", ")}`,
     );
   }
 
@@ -297,7 +336,7 @@ export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOption
 
   for (const importProject of importProjects) {
     appendAuditEvent(ctx, options.store, {
-      type: 'import_resolution',
+      type: "import_resolution",
       activeIdentity: identity,
       success: true,
       command: options.command,
@@ -310,9 +349,8 @@ export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOption
   // repository file may claim, so they can never contend for a logical path
   // with a repository entry and never reach the conflict branch below. They
   // override at the environment-key layer instead, in `collectEnvVars`.
-  const machineLocalCandidates = options.machineLocal === 'include'
-    ? collectMachineLocalCandidates(ctx, options.store)
-    : [];
+  const machineLocalCandidates =
+    options.machineLocal === "include" ? collectMachineLocalCandidates(ctx, options.store) : [];
   const { selected, conflicts } = selectWinningCandidates([
     ...materializeReadableCandidates(readableCandidates),
     ...machineLocalCandidates,
@@ -320,10 +358,10 @@ export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOption
 
   if (conflicts.length > 0) {
     const [firstConflict] = conflicts;
-    const hint = firstConflict ? ` ${formatConflictHint(firstConflict, options.bundleName)}` : '';
+    const hint = firstConflict ? ` ${formatConflictHint(firstConflict, options.bundleName)}` : "";
 
     throw new HushResolutionConflictError(
-      `Bundle "${options.bundleName}" contains equal-precedence logical path conflicts: ${conflicts.map((conflict) => conflict.path).join(', ')}.${hint}`,
+      `Bundle "${options.bundleName}" contains equal-precedence logical path conflicts: ${conflicts.map((conflict) => conflict.path).join(", ")}.${hint}`,
       conflicts,
     );
   }
@@ -333,14 +371,25 @@ export function resolveV3Bundle(ctx: HushContext, options: ResolveV3BundleOption
     globalPathState,
   });
 
-  return createBundleResolution(resolvedNodes, identity, options.bundleName, unreadableFiles, conflicts);
+  return createBundleResolution(
+    resolvedNodes,
+    identity,
+    options.bundleName,
+    unreadableFiles,
+    conflicts,
+  );
 }
 
-export function resolveV3Target(ctx: HushContext, options: ResolveV3TargetOptions): HushTargetResolution {
+export function resolveV3Target(
+  ctx: HushContext,
+  options: ResolveV3TargetOptions,
+): HushTargetResolution {
   const target = options.repository.manifest.targets?.[options.targetName];
 
   if (!target) {
-    throw new Error(`Target "${options.targetName}" is not declared in repository ${options.repository.projectRoot}`);
+    throw new Error(
+      `Target "${options.targetName}" is not declared in repository ${options.repository.projectRoot}`,
+    );
   }
 
   if (!target.bundle) {

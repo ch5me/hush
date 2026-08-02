@@ -1,19 +1,20 @@
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { missingBinaryError } from '../lib/install-hints.js';
-import { fs } from '../lib/fs.js';
-import { join } from 'node:path';
-import { tmpdir, homedir } from 'node:os';
-import { findKeysByPublicKey, keyExists, keyPath, type AgeKeyReference } from '../lib/age.js';
-import { findProjectRoot } from '../config/loader.js';
-import { getProjectIdentifier } from '../project.js';
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
+import { join } from "node:path";
+
+import { findProjectRoot } from "../config/loader.js";
+import { findKeysByPublicKey, keyExists, keyPath, type AgeKeyReference } from "../lib/age.js";
+import { fs } from "../lib/fs.js";
+import { missingBinaryError } from "../lib/install-hints.js";
+import { getProjectIdentifier } from "../project.js";
 
 interface SopsOptions {
   root?: string;
   keyIdentity?: string;
 }
 
-type SopsFileFormat = 'dotenv' | 'yaml';
+type SopsFileFormat = "dotenv" | "yaml";
 
 export interface ResolvedAgeKeySource {
   projectRoot?: string;
@@ -31,17 +32,25 @@ function getSopsConfigRecipients(options?: SopsOptions): string[] {
   }
 
   try {
-    const configContent = fs.readFileSync(configPath, 'utf-8') as string;
-    return [...configContent.matchAll(/age:\s*([^\n]+)/g)]
-      .flatMap((match) => (match[1] ?? '').match(/age1[a-z0-9]+/g) ?? []);
+    const configContent = fs.readFileSync(configPath, "utf-8") as string;
+    return [...configContent.matchAll(/age:\s*([^\n]+)/g)].flatMap(
+      (match) => (match[1] ?? "").match(/age1[a-z0-9]+/g) ?? [],
+    );
   } catch {
     return [];
   }
 }
 
-function resolveMatchingProjectKey(options?: SopsOptions): { match?: AgeKeyReference; ambiguous?: AgeKeyReference[] } {
-  const candidates = uniquePaths(getSopsConfigRecipients(options)).flatMap((recipient) => findKeysByPublicKey(recipient));
-  const uniqueMatches = new Map(candidates.map((candidate) => [`${candidate.project}:${candidate.path}`, candidate]));
+function resolveMatchingProjectKey(options?: SopsOptions): {
+  match?: AgeKeyReference;
+  ambiguous?: AgeKeyReference[];
+} {
+  const candidates = uniquePaths(getSopsConfigRecipients(options)).flatMap((recipient) =>
+    findKeysByPublicKey(recipient),
+  );
+  const uniqueMatches = new Map(
+    candidates.map((candidate) => [`${candidate.project}:${candidate.path}`, candidate]),
+  );
   const matches = [...uniqueMatches.values()];
 
   if (matches.length <= 1) {
@@ -52,20 +61,20 @@ function resolveMatchingProjectKey(options?: SopsOptions): { match?: AgeKeyRefer
 }
 
 function getStandardSopsAgeKeyFile(): string {
-  if (process.platform === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'sops', 'age', 'keys.txt');
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "sops", "age", "keys.txt");
   }
 
-  const configRoot = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-  return join(configRoot, 'sops', 'age', 'keys.txt');
+  const configRoot = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  return join(configRoot, "sops", "age", "keys.txt");
 }
 
 function getCompatConfigSopsAgeKeyFile(): string {
-  return join(homedir(), '.config', 'sops', 'age', 'keys.txt');
+  return join(homedir(), ".config", "sops", "age", "keys.txt");
 }
 
 function getLegacySopsAgeKeyFile(): string {
-  return join(homedir(), '.config', 'sops', 'age', 'key.txt');
+  return join(homedir(), ".config", "sops", "age", "key.txt");
 }
 
 function getSopsConfigFile(options?: SopsOptions): string | undefined {
@@ -73,7 +82,7 @@ function getSopsConfigFile(options?: SopsOptions): string | undefined {
     return undefined;
   }
 
-  const configPath = join(options.root, '.sops.yaml');
+  const configPath = join(options.root, ".sops.yaml");
   return fs.existsSync(configPath) ? configPath : undefined;
 }
 
@@ -83,14 +92,14 @@ function uniquePaths(paths: Array<string | undefined>): string[] {
 
 function formatKeyPathForDisplay(path: string): string {
   const home = homedir();
-  return path.startsWith(`${home}/`) ? path.replace(home, '~') : path;
+  return path.startsWith(`${home}/`) ? path.replace(home, "~") : path;
 }
 
 export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource {
   const explicitKeyFile = process.env.SOPS_AGE_KEY_FILE;
   if (explicitKeyFile) {
     return {
-      selectedKeySource: 'env:SOPS_AGE_KEY_FILE',
+      selectedKeySource: "env:SOPS_AGE_KEY_FILE",
       selectedKeyPath: explicitKeyFile,
       attemptedKeyPaths: [explicitKeyFile],
     };
@@ -98,14 +107,14 @@ export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource
 
   if (process.env.SOPS_AGE_KEY_CMD) {
     return {
-      selectedKeySource: 'env:SOPS_AGE_KEY_CMD',
+      selectedKeySource: "env:SOPS_AGE_KEY_CMD",
       attemptedKeyPaths: [],
     };
   }
 
   if (process.env.SOPS_AGE_KEY) {
     return {
-      selectedKeySource: 'env:SOPS_AGE_KEY',
+      selectedKeySource: "env:SOPS_AGE_KEY",
       attemptedKeyPaths: [],
     };
   }
@@ -135,7 +144,7 @@ export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource
       projectRoot,
       detectedProjectIdentifier,
       resolvedKeyIdentity,
-      selectedKeySource: 'project-key',
+      selectedKeySource: "project-key",
       selectedKeyPath: projectKeyPath,
       attemptedKeyPaths,
     };
@@ -146,7 +155,7 @@ export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource
       projectRoot,
       detectedProjectIdentifier,
       resolvedKeyIdentity,
-      selectedKeySource: 'project-key-ambiguous',
+      selectedKeySource: "project-key-ambiguous",
       attemptedKeyPaths,
     };
   }
@@ -156,7 +165,7 @@ export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource
       projectRoot,
       detectedProjectIdentifier,
       resolvedKeyIdentity: matchedLocalKey.project,
-      selectedKeySource: 'project-key-match',
+      selectedKeySource: "project-key-match",
       selectedKeyPath: matchedLocalKey.path,
       attemptedKeyPaths,
     };
@@ -168,11 +177,12 @@ export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource
         projectRoot,
         detectedProjectIdentifier,
         resolvedKeyIdentity,
-        selectedKeySource: defaultPath === standardKeyPath
-          ? 'default-keyring'
-          : defaultPath === compatConfigKeyPath
-            ? 'compat-keyring'
-            : 'legacy-default-keyring',
+        selectedKeySource:
+          defaultPath === standardKeyPath
+            ? "default-keyring"
+            : defaultPath === compatConfigKeyPath
+              ? "compat-keyring"
+              : "legacy-default-keyring",
         selectedKeyPath: defaultPath,
         attemptedKeyPaths,
       };
@@ -200,7 +210,7 @@ function getAgeKeyFile(options?: SopsOptions): string | undefined {
 function baseSopsEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    SOPS_DISABLE_VERSION_CHECK: process.env.SOPS_DISABLE_VERSION_CHECK ?? '1',
+    SOPS_DISABLE_VERSION_CHECK: process.env.SOPS_DISABLE_VERSION_CHECK ?? "1",
   };
 }
 
@@ -217,8 +227,11 @@ function getSopsEnv(options?: SopsOptions): NodeJS.ProcessEnv {
   return env;
 }
 
-function buildDecryptionFailureMessage(errorOutput: string, resolution: ResolvedAgeKeySource): string {
-  const lines = ['SOPS decryption failed: No matching age key found.'];
+function buildDecryptionFailureMessage(
+  errorOutput: string,
+  resolution: ResolvedAgeKeySource,
+): string {
+  const lines = ["SOPS decryption failed: No matching age key found."];
 
   if (resolution.projectRoot) {
     lines.push(`Project root: ${resolution.projectRoot}`);
@@ -241,20 +254,22 @@ function buildDecryptionFailureMessage(errorOutput: string, resolution: Resolved
   }
 
   if (resolution.attemptedKeyPaths.length > 0) {
-    lines.push('Attempted key paths:');
+    lines.push("Attempted key paths:");
     for (const path of resolution.attemptedKeyPaths) {
       lines.push(`  - ${formatKeyPathForDisplay(path)}`);
     }
   }
 
-  lines.push('You can also provide a key explicitly with SOPS_AGE_KEY_FILE, SOPS_AGE_KEY_CMD, or SOPS_AGE_KEY.');
+  lines.push(
+    "You can also provide a key explicitly with SOPS_AGE_KEY_FILE, SOPS_AGE_KEY_CMD, or SOPS_AGE_KEY.",
+  );
 
   const trimmedErrorOutput = errorOutput.trim();
   if (trimmedErrorOutput.length > 0) {
-    lines.push('', 'SOPS output:', trimmedErrorOutput);
+    lines.push("", "SOPS output:", trimmedErrorOutput);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 // The `sops --version` preflight must never block a hush caller indefinitely.
@@ -262,7 +277,7 @@ function buildDecryptionFailureMessage(errorOutput: string, resolution: Resolved
 // anyway as defense-in-depth against any other external stall.
 export const DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS = 2000;
 
-export const SOPS_PREFLIGHT_TIMEOUT_ENV = 'HUSH_SOPS_PREFLIGHT_TIMEOUT_MS';
+export const SOPS_PREFLIGHT_TIMEOUT_ENV = "HUSH_SOPS_PREFLIGHT_TIMEOUT_MS";
 
 /**
  * Second-attempt budget, used ONLY after the fast budget above already timed
@@ -289,29 +304,29 @@ export const SOPS_PREFLIGHT_RETRY_TIMEOUT_MS = 20_000;
  */
 export function getSopsPreflightTimeoutMs(): number {
   const raw = process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
-  if (raw === undefined || raw.trim() === '') {
+  if (raw === undefined || raw.trim() === "") {
     return DEFAULT_SOPS_PREFLIGHT_TIMEOUT_MS;
   }
 
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(
-      `Invalid ${SOPS_PREFLIGHT_TIMEOUT_ENV}=${raw}: expected a positive integer number of milliseconds.`
+      `Invalid ${SOPS_PREFLIGHT_TIMEOUT_ENV}=${raw}: expected a positive integer number of milliseconds.`,
     );
   }
 
   return parsed;
 }
 
-export const SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV = 'HUSH_SOPS_PREFLIGHT_RETRY_TIMEOUT_MS';
+export const SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV = "HUSH_SOPS_PREFLIGHT_RETRY_TIMEOUT_MS";
 
 export function getSopsPreflightRetryTimeoutMs(): number {
   const raw = process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
-  if (raw !== undefined && raw.trim() !== '') {
+  if (raw !== undefined && raw.trim() !== "") {
     const parsed = Number(raw);
     if (!Number.isSafeInteger(parsed) || parsed <= 0) {
       throw new Error(
-        `Invalid ${SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV}=${raw}: expected a positive integer number of milliseconds.`
+        `Invalid ${SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV}=${raw}: expected a positive integer number of milliseconds.`,
       );
     }
     return parsed;
@@ -331,19 +346,22 @@ export function getSopsPreflightRetryTimeoutMs(): number {
  * masquerading as "not installed".
  */
 export class SopsPreflightTimeoutError extends Error {
-  readonly code = 'SOPS_PREFLIGHT_TIMEOUT';
+  readonly code = "SOPS_PREFLIGHT_TIMEOUT";
 
-  constructor(readonly timeoutMs: number, readonly attempts: number = 1) {
+  constructor(
+    readonly timeoutMs: number,
+    readonly attempts: number = 1,
+  ) {
     super(
       `sops preflight ("sops --version") did not return within ${timeoutMs}ms` +
-        `${attempts > 1 ? ` on any of ${attempts} attempts` : ''}. ` +
-        'This usually means sops is blocked on a network call (its GitHub update ' +
-        'check) behind a captive portal or filtered TLS to github.com. hush sets ' +
-        'SOPS_DISABLE_VERSION_CHECK=1 to prevent this; if it persists, check network ' +
-        'egress or reinstall/upgrade sops. On a heavily loaded machine sops can also ' +
-        `simply be slow to start: raise the budget with ${SOPS_PREFLIGHT_TIMEOUT_ENV}.`
+        `${attempts > 1 ? ` on any of ${attempts} attempts` : ""}. ` +
+        "This usually means sops is blocked on a network call (its GitHub update " +
+        "check) behind a captive portal or filtered TLS to github.com. hush sets " +
+        "SOPS_DISABLE_VERSION_CHECK=1 to prevent this; if it persists, check network " +
+        "egress or reinstall/upgrade sops. On a heavily loaded machine sops can also " +
+        `simply be slow to start: raise the budget with ${SOPS_PREFLIGHT_TIMEOUT_ENV}.`,
     );
-    this.name = 'SopsPreflightTimeoutError';
+    this.name = "SopsPreflightTimeoutError";
   }
 }
 
@@ -366,15 +384,15 @@ export function resetSopsPreflightCache(): void {
 }
 
 function runSopsPreflight(timeoutMs: number): ReturnType<typeof spawnSync> {
-  return spawnSync('sops', ['--version'], {
-    stdio: 'ignore',
+  return spawnSync("sops", ["--version"], {
+    stdio: "ignore",
     timeout: timeoutMs,
     env: baseSopsEnv(),
   });
 }
 
 function timedOut(result: ReturnType<typeof spawnSync>): boolean {
-  return (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+  return (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
 }
 
 export function isSopsInstalled(): boolean {
@@ -417,27 +435,31 @@ export function isAgeKeyConfigured(): boolean {
   return Boolean(resolution.selectedKeySource || resolution.selectedKeyPath);
 }
 
-function decryptWithFormat(filePath: string, format: SopsFileFormat, options?: SopsOptions): string {
+function decryptWithFormat(
+  filePath: string,
+  format: SopsFileFormat,
+  options?: SopsOptions,
+): string {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Encrypted file not found: ${filePath}`);
   }
 
   if (!isSopsInstalled()) {
-    throw missingBinaryError('sops');
+    throw missingBinaryError("sops");
   }
 
   const result = spawnSync(
-    'sops',
-    ['--input-type', format, '--output-type', format, '--decrypt', filePath],
+    "sops",
+    ["--input-type", format, "--output-type", format, "--decrypt", filePath],
     {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
       env: getSopsEnv(options),
-    }
+    },
   );
 
   if (result.status !== 0) {
-    const errorOutput = (result.stderr || result.stdout || '').toString();
+    const errorOutput = (result.stderr || result.stdout || "").toString();
     if (/no identity matched|failed to load age identities/i.test(errorOutput)) {
       throw new Error(buildDecryptionFailureMessage(errorOutput, resolveAgeKeySource(options)));
     }
@@ -448,42 +470,50 @@ function decryptWithFormat(filePath: string, format: SopsFileFormat, options?: S
 }
 
 export function decrypt(filePath: string, options?: SopsOptions): string {
-  return decryptWithFormat(filePath, 'dotenv', options);
+  return decryptWithFormat(filePath, "dotenv", options);
 }
 
 export function decryptYaml(filePath: string, options?: SopsOptions): string {
-  return decryptWithFormat(filePath, 'yaml', options);
+  return decryptWithFormat(filePath, "yaml", options);
 }
 
-function encryptWithFormat(inputPath: string, outputPath: string, format: SopsFileFormat, options?: SopsOptions): void {
+function encryptWithFormat(
+  inputPath: string,
+  outputPath: string,
+  format: SopsFileFormat,
+  options?: SopsOptions,
+): void {
   if (!fs.existsSync(inputPath)) {
     throw new Error(`Input file not found: ${inputPath}`);
   }
 
   if (!isSopsInstalled()) {
-    throw missingBinaryError('sops');
+    throw missingBinaryError("sops");
   }
 
   try {
     const configPath = getSopsConfigFile(options);
     const args = [
-      '--input-type', format,
-      '--output-type', format,
-      '--encrypt',
-      '--filename-override', outputPath,
-      ...(configPath ? ['--config', configPath] : []),
+      "--input-type",
+      format,
+      "--output-type",
+      format,
+      "--encrypt",
+      "--filename-override",
+      outputPath,
+      ...(configPath ? ["--config", configPath] : []),
       inputPath,
     ];
-    const result = spawnSync('sops', args, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
+    const result = spawnSync("sops", args, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
       env: getSopsEnv(options),
     });
     if (result.status !== 0) {
       throw { stderr: result.stderr || result.stdout || `exit code ${result.status}` };
     }
     const encrypted = result.stdout;
-    writeFileSync(outputPath, encrypted, 'utf-8');
+    writeFileSync(outputPath, encrypted, "utf-8");
   } catch (error) {
     const err = error as { stderr?: string; message?: string };
     throw new Error(`SOPS encryption failed: ${err.stderr || err.message}`);
@@ -491,35 +521,48 @@ function encryptWithFormat(inputPath: string, outputPath: string, format: SopsFi
 }
 
 export function encrypt(inputPath: string, outputPath: string, options?: SopsOptions): void {
-  encryptWithFormat(inputPath, outputPath, 'dotenv', options);
+  encryptWithFormat(inputPath, outputPath, "dotenv", options);
 }
 
 export function encryptYaml(inputPath: string, outputPath: string, options?: SopsOptions): void {
-  encryptWithFormat(inputPath, outputPath, 'yaml', options);
+  encryptWithFormat(inputPath, outputPath, "yaml", options);
 }
 
-export function withPrivatePlaintextTempFile<T>(format: SopsFileFormat, content: string, action: (tempFilePath: string) => T): T {
-  const extension = format === 'yaml' ? 'yaml' : 'env';
-  const tempDir = mkdtempSync(join(tmpdir(), 'hush-sops-'));
+export function withPrivatePlaintextTempFile<T>(
+  format: SopsFileFormat,
+  content: string,
+  action: (tempFilePath: string) => T,
+): T {
+  const extension = format === "yaml" ? "yaml" : "env";
+  const tempDir = mkdtempSync(join(tmpdir(), "hush-sops-"));
   const tempFile = join(tempDir, `staged.${extension}`);
 
   try {
     chmodSync(tempDir, 0o700);
-    writeFileSync(tempFile, content, { encoding: 'utf-8', mode: 0o600 });
+    writeFileSync(tempFile, content, { encoding: "utf-8", mode: 0o600 });
     return action(tempFile);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
-function writeEncryptedContent(content: string, outputPath: string, format: SopsFileFormat, options?: SopsOptions): void {
+function writeEncryptedContent(
+  content: string,
+  outputPath: string,
+  format: SopsFileFormat,
+  options?: SopsOptions,
+): void {
   withPrivatePlaintextTempFile(format, content, (tempFile) => {
     encryptWithFormat(tempFile, outputPath, format, options);
   });
 }
 
-export function encryptYamlContent(content: string, outputPath: string, options?: SopsOptions): void {
-  writeEncryptedContent(content, outputPath, 'yaml', options);
+export function encryptYamlContent(
+  content: string,
+  outputPath: string,
+  options?: SopsOptions,
+): void {
+  writeEncryptedContent(content, outputPath, "yaml", options);
 }
 
 export function edit(filePath: string, options?: SopsOptions): void {
@@ -528,19 +571,19 @@ export function edit(filePath: string, options?: SopsOptions): void {
   }
 
   if (!isSopsInstalled()) {
-    throw missingBinaryError('sops');
+    throw missingBinaryError("sops");
   }
 
   const configPath = getSopsConfigFile(options);
-  const configArgs = configPath ? ['--config', configPath] : [];
+  const configArgs = configPath ? ["--config", configPath] : [];
 
   const result = spawnSync(
-    'sops',
-    [...configArgs, '--input-type', 'dotenv', '--output-type', 'dotenv', filePath],
+    "sops",
+    [...configArgs, "--input-type", "dotenv", "--output-type", "dotenv", filePath],
     {
-      stdio: 'inherit',
+      stdio: "inherit",
       env: getSopsEnv(options),
-    }
+    },
   );
 
   if (result.status !== 0) {
@@ -550,19 +593,19 @@ export function edit(filePath: string, options?: SopsOptions): void {
 
 export function setKey(filePath: string, key: string, value: string, options?: SopsOptions): void {
   if (!isSopsInstalled()) {
-    throw missingBinaryError('sops');
+    throw missingBinaryError("sops");
   }
 
-  let content = '';
-  
+  let content = "";
+
   if (fs.existsSync(filePath)) {
     content = decrypt(filePath, options);
   }
 
-  const lines = content.split('\n').filter(line => line.trim() !== '');
-  
+  const lines = content.split("\n").filter((line) => line.trim() !== "");
+
   let found = false;
-  const updatedLines = lines.map(line => {
+  const updatedLines = lines.map((line) => {
     const match = line.match(/^([^=]+)=/);
     if (match && match[1] === key) {
       found = true;
@@ -575,26 +618,31 @@ export function setKey(filePath: string, key: string, value: string, options?: S
     updatedLines.push(`${key}=${value}`);
   }
 
-  const newContent = updatedLines.join('\n') + '\n';
+  const newContent = updatedLines.join("\n") + "\n";
 
-  withPrivatePlaintextTempFile('dotenv', newContent, (tempFile) => {
+  withPrivatePlaintextTempFile("dotenv", newContent, (tempFile) => {
     const configPath = getSopsConfigFile(options);
     const args = [
-      '--input-type', 'dotenv',
-      '--output-type', 'dotenv',
-      '--encrypt',
-      '--filename-override', filePath,
-      ...(configPath ? ['--config', configPath] : []),
+      "--input-type",
+      "dotenv",
+      "--output-type",
+      "dotenv",
+      "--encrypt",
+      "--filename-override",
+      filePath,
+      ...(configPath ? ["--config", configPath] : []),
       tempFile,
     ];
-    const result = spawnSync('sops', args, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
+    const result = spawnSync("sops", args, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
       env: getSopsEnv(options),
     });
     if (result.status !== 0) {
-      throw new Error(`SOPS encryption failed: ${result.stderr || result.stdout || `exit code ${result.status}`}`);
+      throw new Error(
+        `SOPS encryption failed: ${result.stderr || result.stdout || `exit code ${result.status}`}`,
+      );
     }
-    writeFileSync(filePath, result.stdout, 'utf-8');
+    writeFileSync(filePath, result.stdout, "utf-8");
   });
 }

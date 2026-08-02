@@ -1,12 +1,14 @@
-import { join } from 'node:path';
-import pc from 'picocolors';
-import { stringify as yamlStringify } from 'yaml';
-import { HushContext, StoreContext } from '../types.js';
-import { keysList } from '../lib/age.js';
-import { getProjectIdentifier } from '../project.js';
-import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
-import { ensureGlobalStoreBootstrap } from '../global-store.js';
-import { missingBinaryError } from '../lib/install-hints.js';
+import { join } from "node:path";
+
+import pc from "picocolors";
+import { stringify as yamlStringify } from "yaml";
+
+import { ensureGlobalStoreBootstrap } from "../global-store.js";
+import { keysList } from "../lib/age.js";
+import { missingBinaryError } from "../lib/install-hints.js";
+import { getProjectIdentifier } from "../project.js";
+import { GLOBAL_STORE_KEY_IDENTITY } from "../store.js";
+import { HushContext, StoreContext } from "../types.js";
 
 export interface KeysOptions {
   store: StoreContext;
@@ -23,12 +25,12 @@ export interface KeysOptions {
 }
 
 function getProject(ctx: HushContext, store: StoreContext): string {
-  if (store.mode === 'global') {
+  if (store.mode === "global") {
     return GLOBAL_STORE_KEY_IDENTITY;
   }
 
   const discovered = ctx.config.findProjectRoot(store.root);
-  if (discovered?.repositoryKind === 'legacy-v2') {
+  if (discovered?.repositoryKind === "legacy-v2") {
     const config = ctx.config.loadConfig(discovered.projectRoot);
     if (config.project) {
       return config.project;
@@ -40,8 +42,10 @@ function getProject(ctx: HushContext, store: StoreContext): string {
     return project;
   }
 
-  ctx.logger.error(pc.red('No project identifier found.'));
-  ctx.logger.error(pc.dim('Add "project: my-project" to hush.yaml or a Git repository field to package.json'));
+  ctx.logger.error(pc.red("No project identifier found."));
+  ctx.logger.error(
+    pc.dim('Add "project: my-project" to hush.yaml or a Git repository field to package.json'),
+  );
   ctx.process.exit(1);
 }
 
@@ -62,16 +66,16 @@ interface VercelEnvListResponse {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function extractVercelErrorMessage(body: unknown, status: number): string {
   if (isRecord(body)) {
     const error = body.error;
-    if (isRecord(error) && typeof error.message === 'string') {
+    if (isRecord(error) && typeof error.message === "string") {
       return error.message;
     }
-    if (typeof body.message === 'string') {
+    if (typeof body.message === "string") {
       return body.message;
     }
   }
@@ -84,18 +88,18 @@ async function fetchVercelEnvVars(
   teamId: string | undefined,
   token: string,
 ): Promise<VercelEnvEntry[]> {
-  const params = new URLSearchParams({ decrypt: 'true' });
+  const params = new URLSearchParams({ decrypt: "true" });
   if (teamId) {
-    params.set('teamId', teamId);
+    params.set("teamId", teamId);
   }
   const url = `https://api.vercel.com/v10/projects/${encodeURIComponent(projectId)}/env?${params.toString()}`;
 
   const fetchImpl = ctx.network?.fetch ?? fetch;
   const response = await fetchImpl(url, {
-    method: 'GET',
+    method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
+      Accept: "application/json",
     },
   });
 
@@ -115,11 +119,9 @@ async function fetchVercelEnvVars(
 }
 
 function resolveVercelKeyRecoveryToken(ctx: HushContext, token?: string): string {
-  const resolved = token?.trim() || ctx.process.env.VERCEL_TOKEN?.trim() || '';
+  const resolved = token?.trim() || ctx.process.env.VERCEL_TOKEN?.trim() || "";
   if (!resolved) {
-    throw new Error(
-      'Vercel token required. Pass --token or export VERCEL_TOKEN.',
-    );
+    throw new Error("Vercel token required. Pass --token or export VERCEL_TOKEN.");
   }
   return resolved;
 }
@@ -140,19 +142,19 @@ export async function keysRecoverFromVercel(
   ctx.logger.log(pc.blue(`Fetching env vars from Vercel project ${pc.cyan(options.project)}...`));
 
   const envVars = await fetchVercelEnvVars(ctx, options.project, options.team, token);
-  const sopsEntry = envVars.find((entry) => entry.key === 'SOPS_AGE_KEY');
+  const sopsEntry = envVars.find((entry) => entry.key === "SOPS_AGE_KEY");
 
   if (!sopsEntry) {
     throw new Error(
       `SOPS_AGE_KEY not found in Vercel project "${options.project}". ` +
-      'Ensure the project has a SOPS_AGE_KEY env var containing the age private key.',
+        "Ensure the project has a SOPS_AGE_KEY env var containing the age private key.",
     );
   }
 
-  const privateKey = sopsEntry.value?.trim() ?? '';
-  if (!privateKey.startsWith('AGE-SECRET-KEY-')) {
+  const privateKey = sopsEntry.value?.trim() ?? "";
+  if (!privateKey.startsWith("AGE-SECRET-KEY-")) {
     throw new Error(
-      'SOPS_AGE_KEY value does not look like an age private key (expected AGE-SECRET-KEY-... prefix).',
+      "SOPS_AGE_KEY value does not look like an age private key (expected AGE-SECRET-KEY-... prefix).",
     );
   }
 
@@ -161,7 +163,9 @@ export async function keysRecoverFromVercel(
   ctx.logger.log(pc.dim(`Derived public key: ${publicKey}`));
 
   if (ctx.age.keyExists(options.project_name) && !options.force) {
-    ctx.logger.error(pc.yellow(`Key already exists for "${options.project_name}". Use --force to overwrite.`));
+    ctx.logger.error(
+      pc.yellow(`Key already exists for "${options.project_name}". Use --force to overwrite.`),
+    );
     throw new Error(`Key already exists for "${options.project_name}".`);
   }
 
@@ -175,29 +179,33 @@ export async function keysRecoverFromVercel(
 export async function keysCommand(ctx: HushContext, options: KeysOptions): Promise<void> {
   const { store, subcommand, force } = options;
   const root = store.root;
-  
+
   switch (subcommand) {
-    case 'setup': {
+    case "setup": {
       const project = getProject(ctx, store);
       ctx.logger.log(pc.blue(`Setting up keys for ${pc.cyan(project)}...`));
-      
+
       if (ctx.age.keyExists(project)) {
-        ctx.logger.log(pc.green('Key already exists locally.'));
+        ctx.logger.log(pc.green("Key already exists locally."));
         return;
       }
-      
+
       ctx.logger.log(pc.yellow(`No local key found for ${project}.`));
-      ctx.logger.log(pc.dim(`Run "hush keys generate" to create one, or copy an age key into ${ctx.age.keyPath(project)}.`));
+      ctx.logger.log(
+        pc.dim(
+          `Run "hush keys generate" to create one, or copy an age key into ${ctx.age.keyPath(project)}.`,
+        ),
+      );
       break;
     }
-    
-    case 'generate': {
+
+    case "generate": {
       if (!ctx.age.ageAvailable()) {
-        throw missingBinaryError('age');
+        throw missingBinaryError("age");
       }
 
       const project = getProject(ctx, store);
-      
+
       if (ctx.age.keyExists(project) && !force) {
         ctx.logger.error(pc.yellow(`Key exists for ${project}. Use --force to overwrite.`));
         ctx.process.exit(1);
@@ -209,43 +217,50 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
       ctx.logger.log(pc.green(`Saved to ${ctx.age.keyPath(project)}`));
       ctx.logger.log(pc.dim(`Public: ${key.public}`));
 
-      if (store.mode === 'global') {
+      if (store.mode === "global") {
         ensureGlobalStoreBootstrap(ctx, store, key.public);
-        ctx.logger.log(pc.green('Bootstrapped ~/.hush'));
+        ctx.logger.log(pc.green("Bootstrapped ~/.hush"));
       }
-      
-      if (store.mode === 'global') {
+
+      if (store.mode === "global") {
         break;
       }
 
-      const sopsPath = join(root, '.sops.yaml');
+      const sopsPath = join(root, ".sops.yaml");
       if (!ctx.fs.existsSync(sopsPath)) {
         if (!ctx.fs.existsSync(root)) {
           ctx.fs.mkdirSync(root, { recursive: true });
         }
-        ctx.fs.writeFileSync(sopsPath, yamlStringify({ creation_rules: [{ encrypted_regex: '.*', age: key.public }] }));
-        ctx.logger.log(pc.green('Created .sops.yaml'));
+        ctx.fs.writeFileSync(
+          sopsPath,
+          yamlStringify({ creation_rules: [{ encrypted_regex: ".*", age: key.public }] }),
+        );
+        ctx.logger.log(pc.green("Created .sops.yaml"));
       } else {
-        ctx.logger.log(pc.yellow('.sops.yaml exists. Add this public key:'));
+        ctx.logger.log(pc.yellow(".sops.yaml exists. Add this public key:"));
         ctx.logger.log(`  ${key.public}`);
       }
       break;
     }
-    
-    case 'pull': {
+
+    case "pull": {
       // `hush keys pull --from vercel` — recover the age key from a Vercel project env var.
       const from = options.from?.trim().toLowerCase();
 
-      if (from !== 'vercel') {
+      if (from !== "vercel") {
         ctx.logger.error(pc.red(`hush keys pull requires --from <platform>. Supported: vercel`));
-        ctx.logger.log(pc.dim('Example: hush keys pull --from vercel --project prj_123 [--team team_456]'));
-        ctx.logger.log(pc.dim('Export VERCEL_TOKEN or pass --token.'));
+        ctx.logger.log(
+          pc.dim("Example: hush keys pull --from vercel --project prj_123 [--team team_456]"),
+        );
+        ctx.logger.log(pc.dim("Export VERCEL_TOKEN or pass --token."));
         ctx.process.exit(1);
       }
 
       if (!options.project) {
-        ctx.logger.error(pc.red('hush keys pull --from vercel requires --project <vercel-project-id>'));
-        ctx.logger.log(pc.dim('Example: hush keys pull --from vercel --project prj_123'));
+        ctx.logger.error(
+          pc.red("hush keys pull --from vercel requires --project <vercel-project-id>"),
+        );
+        ctx.logger.log(pc.dim("Example: hush keys pull --from vercel --project prj_123"));
         ctx.process.exit(1);
       }
 
@@ -268,14 +283,20 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
       break;
     }
 
-    case 'push': {
-      ctx.logger.error(pc.red('hush keys push was removed. Hush no longer integrates with 1Password.'));
-      ctx.logger.log(pc.dim('Back up ~/.config/sops/age/keys/<project>.txt using your own password manager workflow.'));
+    case "push": {
+      ctx.logger.error(
+        pc.red("hush keys push was removed. Hush no longer integrates with 1Password."),
+      );
+      ctx.logger.log(
+        pc.dim(
+          "Back up ~/.config/sops/age/keys/<project>.txt using your own password manager workflow.",
+        ),
+      );
       ctx.process.exit(1);
     }
-    
-    case 'list': {
-      ctx.logger.log(pc.blue('Local keys:'));
+
+    case "list": {
+      ctx.logger.log(pc.blue("Local keys:"));
       for (const k of keysList()) {
         ctx.logger.log(`  ${pc.cyan(k.project)} ${pc.dim(k.public.slice(0, 20))}...`);
       }
@@ -285,7 +306,7 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
 
     default:
       ctx.logger.error(pc.red(`Unknown: hush keys ${subcommand}`));
-      ctx.logger.log(pc.dim('Commands: setup, generate, list, pull'));
+      ctx.logger.log(pc.dim("Commands: setup, generate, list, pull"));
       ctx.process.exit(1);
   }
 }

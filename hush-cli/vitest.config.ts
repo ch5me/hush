@@ -1,15 +1,15 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     globals: true,
-    include: ['tests/**/*.test.ts'],
+    include: ["tests/**/*.test.ts"],
     isolate: true,
-    pool: 'forks',
+    pool: "forks",
     fileParallelism: false,
     // Keeps the machine's real age keyring out of every test process; see the
     // setup file for why SOPS_AGE_KEY_FILE alone is not isolation.
-    setupFiles: ['./tests/setup/isolate-machine-keyring.ts'],
+    setupFiles: ["./tests/setup/isolate-machine-keyring.ts"],
     // Many tests shell out to real sops/age; local binary versions and machine
     // load make 5s flaky. CI pins sops/age versions and remains the gate.
     // Do not shorten this with a per-test `{ timeout }` override: two sops-heavy
@@ -22,10 +22,10 @@ export default defineConfig({
       // at load average ~490). A timed-out preflight here cascades into
       // confusing decrypt failures across the suite, so raise it for tests only.
       // Tests that assert preflight behavior clear this themselves.
-      HUSH_SOPS_PREFLIGHT_TIMEOUT_MS: '30000',
+      HUSH_SOPS_PREFLIGHT_TIMEOUT_MS: "30000",
     },
     coverage: {
-      provider: 'v8',
+      provider: "v8",
       thresholds: {
         lines: 64,
         functions: 78,

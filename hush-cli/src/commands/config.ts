@@ -1,6 +1,5 @@
-import { stringify as stringifyYaml } from 'yaml';
-import { writeJsonSuccess } from '../lib/command-output.js';
-import type { ConfigOptions, HushContext, HushV3Repository } from '../types.js';
+import { stringify as stringifyYaml } from "yaml";
+
 import {
   appendAuditEvent,
   assertHushRole,
@@ -9,12 +8,22 @@ import {
   getActiveIdentity,
   loadV3Repository,
   setActiveIdentity,
-} from '../index.js';
-import { persistV3FileDocument } from '../v3/repository.js';
-import { isIdentityAllowed } from '../v3/domain.js';
-import { requireMutableIdentity } from './v3-command-helpers.js';
+} from "../index.js";
+import { writeJsonSuccess } from "../lib/command-output.js";
+import type { ConfigOptions, HushContext, HushV3Repository } from "../types.js";
+import { isIdentityAllowed } from "../v3/domain.js";
+import { persistV3FileDocument } from "../v3/repository.js";
+import { requireMutableIdentity } from "./v3-command-helpers.js";
 
-type ConfigShowSection = 'all' | 'manifest' | 'identities' | 'bundles' | 'targets' | 'imports' | 'files' | 'state';
+type ConfigShowSection =
+  | "all"
+  | "manifest"
+  | "identities"
+  | "bundles"
+  | "targets"
+  | "imports"
+  | "files"
+  | "state";
 
 function printConfigUsage(ctx: HushContext): void {
   ctx.logger.log(`Usage:
@@ -33,39 +42,50 @@ function loadRepository(storeRoot: string, keyIdentity: string | undefined): Hus
   return loadV3Repository(storeRoot, { keyIdentity });
 }
 
-function getCommandArgs(subcommand: string | undefined, args: string[], options: ConfigOptions): string[] {
+function getCommandArgs(
+  subcommand: string | undefined,
+  args: string[],
+  options: ConfigOptions,
+): string[] {
   const commandArgs = subcommand ? [subcommand, ...args] : [...args];
 
   if (options.roles !== undefined) {
-    commandArgs.push('--roles', options.roles);
+    commandArgs.push("--roles", options.roles);
   }
 
   if (options.identities !== undefined) {
-    commandArgs.push('--identities', options.identities);
+    commandArgs.push("--identities", options.identities);
   }
 
   return commandArgs;
 }
 
-function parseRoleCsv(value: string | undefined, fallback: Array<'owner' | 'member' | 'ci'>): Array<'owner' | 'member' | 'ci'> {
+function parseRoleCsv(
+  value: string | undefined,
+  fallback: Array<"owner" | "member" | "ci">,
+): Array<"owner" | "member" | "ci"> {
   if (value === undefined) {
     return fallback;
   }
 
   return value
-    .split(',')
+    .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => assertHushRole(entry));
 }
 
-function parseIdentityCsv(value: string | undefined, fallback: string[], repository: HushV3Repository): string[] {
+function parseIdentityCsv(
+  value: string | undefined,
+  fallback: string[],
+  repository: HushV3Repository,
+): string[] {
   if (value === undefined) {
     return fallback;
   }
 
   const identities = value
-    .split(',')
+    .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
 
@@ -78,7 +98,11 @@ function parseIdentityCsv(value: string | undefined, fallback: string[], reposit
   return identities;
 }
 
-function canReadIndexedFile(repository: HushV3Repository, activeIdentity: string | null, filePath: string): boolean {
+function canReadIndexedFile(
+  repository: HushV3Repository,
+  activeIdentity: string | null,
+  filePath: string,
+): boolean {
   if (!activeIdentity) {
     return false;
   }
@@ -88,9 +112,12 @@ function canReadIndexedFile(repository: HushV3Repository, activeIdentity: string
   return roles.some((role) => isIdentityAllowed(file.readers, activeIdentity, role as never));
 }
 
-function getReadableFileSummaries(repository: HushV3Repository, activeIdentity: string | null): Array<{
+function getReadableFileSummaries(
+  repository: HushV3Repository,
+  activeIdentity: string | null,
+): Array<{
   path: string;
-  readers: HushV3Repository['filesByPath'][string]['readers'];
+  readers: HushV3Repository["filesByPath"][string]["readers"];
   sensitive: boolean;
   entryCount: number;
 }> {
@@ -110,12 +137,16 @@ function sanitizeManifest(repository: HushV3Repository) {
   return manifest;
 }
 
-function showSection(repository: HushV3Repository, options: ConfigOptions, activeIdentity: string | null): unknown {
-  const requestedSection = (options.args[0] ?? 'all') as ConfigShowSection;
+function showSection(
+  repository: HushV3Repository,
+  options: ConfigOptions,
+  activeIdentity: string | null,
+): unknown {
+  const requestedSection = (options.args[0] ?? "all") as ConfigShowSection;
   const readableFiles = getReadableFileSummaries(repository, activeIdentity);
 
   switch (requestedSection) {
-    case 'all':
+    case "all":
       return {
         manifest: sanitizeManifest(repository),
         files: readableFiles,
@@ -124,19 +155,19 @@ function showSection(repository: HushV3Repository, options: ConfigOptions, activ
           activeIdentityPath: options.store.activeIdentityPath,
         },
       };
-    case 'manifest':
+    case "manifest":
       return sanitizeManifest(repository);
-    case 'identities':
+    case "identities":
       return repository.manifest.identities;
-    case 'bundles':
+    case "bundles":
       return repository.manifest.bundles ?? {};
-    case 'targets':
+    case "targets":
       return repository.manifest.targets ?? {};
-    case 'imports':
+    case "imports":
       return repository.manifest.imports ?? {};
-    case 'files':
+    case "files":
       return readableFiles;
-    case 'state':
+    case "state":
       return {
         activeIdentity,
         activeIdentityPath: options.store.activeIdentityPath,
@@ -152,15 +183,15 @@ function handleShow(ctx: HushContext, options: ConfigOptions): void {
   const payload = showSection(repository, options, activeIdentity);
 
   appendAuditEvent(ctx, options.store, {
-    type: 'read_attempt',
+    type: "read_attempt",
     activeIdentity: activeIdentity ?? undefined,
     success: true,
-    command: { name: 'config', args: getCommandArgs('show', options.args, options) },
+    command: { name: "config", args: getCommandArgs("show", options.args, options) },
     files: getReadableFileSummaries(repository, activeIdentity).map((file) => file.path),
   });
 
   if (options.json) {
-    writeJsonSuccess(ctx, 'config', payload);
+    writeJsonSuccess(ctx, "config", payload);
     return;
   }
 
@@ -173,7 +204,7 @@ function handleActiveIdentity(ctx: HushContext, options: ConfigOptions): void {
 
   if (!nextIdentity) {
     const activeIdentity = getActiveIdentity(ctx, options.store);
-    ctx.logger.log(activeIdentity ?? '(not set)');
+    ctx.logger.log(activeIdentity ?? "(not set)");
     return;
   }
 
@@ -181,7 +212,7 @@ function handleActiveIdentity(ctx: HushContext, options: ConfigOptions): void {
     store: options.store,
     identity: nextIdentity,
     identities: repository.manifest.identities,
-    command: { name: 'config', args: getCommandArgs('active-identity', options.args, options) },
+    command: { name: "config", args: getCommandArgs("active-identity", options.args, options) },
   });
 
   ctx.logger.log(`Active identity set to ${result.identity}`);
@@ -190,14 +221,14 @@ function handleActiveIdentity(ctx: HushContext, options: ConfigOptions): void {
 function handleReaders(ctx: HushContext, options: ConfigOptions): void {
   const repository = loadRepository(options.store.root, options.store.keyIdentity);
   const requestedFilePath = options.args[0];
-  const command = { name: 'config', args: getCommandArgs('readers', options.args, options) };
+  const command = { name: "config", args: getCommandArgs("readers", options.args, options) };
 
   if (!requestedFilePath) {
     failWithUsage(ctx, 'Missing file path for "hush config readers".');
   }
 
   if (options.roles === undefined && options.identities === undefined) {
-    failWithUsage(ctx, 'Provide --roles, --identities, or both when updating readers.');
+    failWithUsage(ctx, "Provide --roles, --identities, or both when updating readers.");
   }
 
   const activeIdentity = requireMutableIdentity(ctx, options.store, repository, command);
@@ -218,10 +249,16 @@ function handleReaders(ctx: HushContext, options: ConfigOptions): void {
     readers: nextReaders,
   };
 
-  persistV3FileDocument(ctx, options.store, repository, repository.fileSystemPaths[filePath]!, nextFile);
+  persistV3FileDocument(
+    ctx,
+    options.store,
+    repository,
+    repository.fileSystemPaths[filePath]!,
+    nextFile,
+  );
 
   appendAuditEvent(ctx, options.store, {
-    type: 'metadata_change',
+    type: "metadata_change",
     activeIdentity,
     success: true,
     command,
@@ -236,16 +273,16 @@ function handleReaders(ctx: HushContext, options: ConfigOptions): void {
 }
 
 export async function configCommand(ctx: HushContext, options: ConfigOptions): Promise<void> {
-  const subcommand = options.subcommand ?? 'show';
+  const subcommand = options.subcommand ?? "show";
 
   switch (subcommand) {
-    case 'show':
+    case "show":
       handleShow(ctx, options);
       return;
-    case 'active-identity':
+    case "active-identity":
       handleActiveIdentity(ctx, options);
       return;
-    case 'readers':
+    case "readers":
       handleReaders(ctx, options);
       return;
     default:

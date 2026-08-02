@@ -2,15 +2,53 @@
   "name": "@chriscode/hush",
   "version": "8.3.1",
   "description": "AI-native secrets manager. Secrets stay encrypted at rest; AI agents help without seeing values.",
-  "type": "module",
+  "keywords": [
+    "age",
+    "agents",
+    "ai",
+    "ai-native",
+    "claude",
+    "cloudflare",
+    "dotenv",
+    "encryption",
+    "env",
+    "expo",
+    "llm",
+    "monorepo",
+    "secrets",
+    "secrets-manager",
+    "sops",
+    "wrangler"
+  ],
+  "homepage": "https://hush.ch5.me",
+  "bugs": {
+    "url": "https://git.ch5.me/ch5/hush/issues"
+  },
+  "license": "MIT",
+  "author": "Chris Hasson",
+  "repository": {
+    "type": "git",
+    "url": "git+https://git.ch5.me/ch5/hush.git",
+    "directory": "hush-cli"
+  },
   "bin": {
     "hush": "./bin/hush.js"
   },
+  "files": [
+    "dist",
+    "bin",
+    "schema.json"
+  ],
+  "type": "module",
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://npm.ch5.me/"
   },
   "scripts": {
     "build": "tsc",
@@ -20,38 +58,6 @@
     "verify:pack-install": "node ./scripts/verify-pack-install.mjs",
     "prepublishOnly": "bun run build && bun run test && bun run verify:pack-install",
     "type-check": "tsc --noEmit"
-  },
-  "keywords": [
-    "secrets",
-    "sops",
-    "age",
-    "encryption",
-    "env",
-    "dotenv",
-    "monorepo",
-    "cloudflare",
-    "wrangler",
-    "expo",
-    "ai",
-    "ai-native",
-    "agents",
-    "llm",
-    "claude",
-    "secrets-manager"
-  ],
-  "author": "Chris Hasson",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://git.ch5.me/ch5/hush.git",
-    "directory": "hush-cli"
-  },
-  "bugs": {
-    "url": "https://git.ch5.me/ch5/hush/issues"
-  },
-  "homepage": "https://hush.ch5.me",
-  "engines": {
-    "node": ">=24 <25"
   },
   "dependencies": {
     "picocolors": "^1.0.0",
@@ -63,13 +69,7 @@
     "typescript": "^5.8.3",
     "vitest": "^4.1.10"
   },
-  "files": [
-    "dist",
-    "bin",
-    "schema.json"
-  ],
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://npm.ch5.me/"
+  "engines": {
+    "node": ">=24 <25"
   }
 }

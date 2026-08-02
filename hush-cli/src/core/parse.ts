@@ -1,25 +1,27 @@
-import { fs } from '../lib/fs.js';
-import type { EnvVar } from '../types.js';
+import { fs } from "../lib/fs.js";
+import type { EnvVar } from "../types.js";
 
 export function parseEnvContent(content: string): EnvVar[] {
   const vars: EnvVar[] = [];
-  const lines = content.split('\n');
+  const lines = content.split("\n");
 
   for (const line of lines) {
     const trimmed = line.trim();
 
-    if (!trimmed || trimmed.startsWith('#')) {
+    if (!trimmed || trimmed.startsWith("#")) {
       continue;
     }
 
-    const eqIndex = trimmed.indexOf('=');
+    const eqIndex = trimmed.indexOf("=");
     if (eqIndex === -1) continue;
 
     const key = trimmed.slice(0, eqIndex).trim();
     let value = trimmed.slice(eqIndex + 1);
 
-    if ((value.startsWith('"') && value.endsWith('"')) || 
-        (value.startsWith("'") && value.endsWith("'"))) {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
       value = value.slice(1, -1);
     }
 
@@ -34,7 +36,7 @@ export function parseEnvFile(filePath: string): EnvVar[] {
     return [];
   }
 
-  const content = fs.readFileSync(filePath, 'utf-8') as string;
+  const content = fs.readFileSync(filePath, "utf-8") as string;
   return parseEnvContent(content);
 }
 

@@ -1,11 +1,12 @@
-import { posix as posixPath, resolve, sep } from 'node:path';
+import { posix as posixPath, resolve, sep } from "node:path";
+
 import {
   HUSH_V3_ENCRYPTED_FILE_EXTENSION,
   HUSH_V3_FILES_DIRNAME,
   HUSH_V3_MANIFEST_BASENAME,
   HUSH_V3_ROOT_DIR,
   normalizeHushPath,
-} from './schema.js';
+} from "./schema.js";
 
 export function getV3RepoRoot(root: string): string {
   return posixPath.join(root, HUSH_V3_ROOT_DIR);
@@ -22,7 +23,10 @@ export function getV3FilesRoot(root: string): string {
 export function getV3EncryptedFilePath(root: string, filePath: string): string {
   const normalizedFilePath = normalizeHushPath(filePath);
   const filesRoot = resolve(getV3FilesRoot(root));
-  const encryptedPath = resolve(filesRoot, `${normalizedFilePath}${HUSH_V3_ENCRYPTED_FILE_EXTENSION}`);
+  const encryptedPath = resolve(
+    filesRoot,
+    `${normalizedFilePath}${HUSH_V3_ENCRYPTED_FILE_EXTENSION}`,
+  );
   if (!encryptedPath.startsWith(`${filesRoot}${sep}`)) {
     throw new Error(`Hush path "${filePath}" resolves outside the repository files directory`);
   }
@@ -40,6 +44,8 @@ export function isV3ManifestPath(filePath: string): boolean {
 }
 
 export function isV3EncryptedFilePath(filePath: string): boolean {
-  return filePath.includes(`/${HUSH_V3_ROOT_DIR}/${HUSH_V3_FILES_DIRNAME}/`)
-    && filePath.endsWith(HUSH_V3_ENCRYPTED_FILE_EXTENSION);
+  return (
+    filePath.includes(`/${HUSH_V3_ROOT_DIR}/${HUSH_V3_FILES_DIRNAME}/`) &&
+    filePath.endsWith(HUSH_V3_ENCRYPTED_FILE_EXTENSION)
+  );
 }

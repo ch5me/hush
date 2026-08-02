@@ -1,12 +1,12 @@
 export const V3_SCHEMA_VERSION = 3;
 
-export const HUSH_V3_ROOT_DIR = '.hush';
-export const HUSH_V3_MANIFEST_BASENAME = 'manifest.encrypted';
-export const HUSH_V3_FILES_DIRNAME = 'files';
-export const HUSH_V3_ENCRYPTED_FILE_EXTENSION = '.encrypted';
+export const HUSH_V3_ROOT_DIR = ".hush";
+export const HUSH_V3_MANIFEST_BASENAME = "manifest.encrypted";
+export const HUSH_V3_FILES_DIRNAME = "files";
+export const HUSH_V3_ENCRYPTED_FILE_EXTENSION = ".encrypted";
 
-export const HUSH_V3_NAMESPACES = ['env', 'artifacts', 'bundles', 'user', 'imports'] as const;
-export const HUSH_V3_ROLES = ['owner', 'member', 'ci'] as const;
+export const HUSH_V3_NAMESPACES = ["env", "artifacts", "bundles", "user", "imports"] as const;
+export const HUSH_V3_ROLES = ["owner", "member", "ci"] as const;
 
 /**
  * The first path segment names the storage class.
@@ -22,27 +22,27 @@ export const HUSH_V3_ROLES = ['owner', 'member', 'ci'] as const;
  * two storage locations depending on invisible manifest state, and their entries
  * collided in a single logical-path namespace.
  */
-export const HUSH_MACHINE_LOCAL_NAMESPACE = 'user';
+export const HUSH_MACHINE_LOCAL_NAMESPACE = "user";
 
 /** Logical path of the machine-local override document. */
-export const MACHINE_LOCAL_FILE_PATH = 'user/local';
+export const MACHINE_LOCAL_FILE_PATH = "user/local";
 
 /**
  * The path machine-local override documents carried before `user/local`. Still
  * read (and normalized) from disk; never written, never resolved as an alias.
  */
-export const LEGACY_MACHINE_LOCAL_FILE_PATH = 'env/project/local';
+export const LEGACY_MACHINE_LOCAL_FILE_PATH = "env/project/local";
 
 export class ReservedFilePathError extends Error {
   readonly path: string;
 
   constructor(path: string, remedy: string) {
     super(
-      `"${path}" is in the reserved "${HUSH_MACHINE_LOCAL_NAMESPACE}/" namespace. `
-      + 'That namespace is machine-local override storage and can never be a repository file. '
-      + remedy,
+      `"${path}" is in the reserved "${HUSH_MACHINE_LOCAL_NAMESPACE}/" namespace. ` +
+        "That namespace is machine-local override storage and can never be a repository file. " +
+        remedy,
     );
-    this.name = 'ReservedFilePathError';
+    this.name = "ReservedFilePathError";
     this.path = path;
   }
 }
@@ -64,7 +64,7 @@ export function isHushRole(value: string): value is HushRole {
 export function assertHushNamespace(value: string): HushNamespace {
   if (!isHushNamespace(value)) {
     throw new Error(
-      `Invalid Hush namespace "${value}". Expected one of: ${HUSH_V3_NAMESPACES.join(', ')}`,
+      `Invalid Hush namespace "${value}". Expected one of: ${HUSH_V3_NAMESPACES.join(", ")}`,
     );
   }
 
@@ -73,9 +73,7 @@ export function assertHushNamespace(value: string): HushNamespace {
 
 export function assertHushRole(value: string): HushRole {
   if (!isHushRole(value)) {
-    throw new Error(
-      `Invalid Hush role "${value}". Expected one of: ${HUSH_V3_ROLES.join(', ')}`,
-    );
+    throw new Error(`Invalid Hush role "${value}". Expected one of: ${HUSH_V3_ROLES.join(", ")}`);
   }
 
   return value;
@@ -85,26 +83,26 @@ export function normalizeHushPath(path: string): string {
   const trimmed = path.trim();
 
   if (!trimmed) {
-    throw new Error('Hush path cannot be empty');
+    throw new Error("Hush path cannot be empty");
   }
 
-  const withoutLeadingSlash = trimmed.replace(/^\/+/, '');
-  const withoutTrailingSlash = withoutLeadingSlash.replace(/\/+$/, '');
+  const withoutLeadingSlash = trimmed.replace(/^\/+/, "");
+  const withoutTrailingSlash = withoutLeadingSlash.replace(/\/+$/, "");
 
   if (!withoutTrailingSlash) {
-    throw new Error('Hush path cannot be empty');
+    throw new Error("Hush path cannot be empty");
   }
 
-  if (withoutTrailingSlash.includes('//')) {
+  if (withoutTrailingSlash.includes("//")) {
     throw new Error(`Hush path "${path}" cannot contain empty segments`);
   }
 
-  const segments = withoutTrailingSlash.split('/');
-  if (segments.some((segment) => segment === '.' || segment === '..')) {
+  const segments = withoutTrailingSlash.split("/");
+  if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new Error(`Hush path "${path}" cannot contain "." or ".." segments`);
   }
 
-  if (withoutTrailingSlash.includes('\\')) {
+  if (withoutTrailingSlash.includes("\\")) {
     throw new Error(`Hush path "${path}" must use forward slashes`);
   }
 
@@ -112,7 +110,7 @@ export function normalizeHushPath(path: string): string {
 }
 
 export function splitHushPath(path: string): string[] {
-  return normalizeHushPath(path).split('/');
+  return normalizeHushPath(path).split("/");
 }
 
 export function getNamespaceFromPath(path: string): HushNamespace {

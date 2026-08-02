@@ -44,15 +44,15 @@ export type {
   HushTargetName,
   HushTargetResolution,
   HushValueEntry,
-   OutputFormat,
-   Environment,
-   LegacyTarget,
-   LegacySourceFiles,
-   LegacyHushConfig,
-   LegacyV2Inventory,
-   StoreContext,
-   StoreMode,
-   EnvVar,
+  OutputFormat,
+  Environment,
+  LegacyTarget,
+  LegacySourceFiles,
+  LegacyHushConfig,
+  LegacyV2Inventory,
+  StoreContext,
+  StoreMode,
+  EnvVar,
   DecryptOptions,
   EncryptOptions,
   EditOptions,
@@ -63,8 +63,8 @@ export type {
   InitOptions,
   BootstrapOptions,
   ConfigOptions,
-   ExportExampleOptions,
-   MaterializeOptions,
+  ExportExampleOptions,
+  MaterializeOptions,
   ListOptions,
   ResolveV3BundleOptions,
   ResolveV3Options,
@@ -79,8 +79,8 @@ export type {
   HushMaterializationMode,
   HushMaterializeBundleOptions,
   HushMaterializeTargetOptions,
-} from './types.js';
-export type { DeclaredIdentities, SetActiveIdentityOptions } from './v3/identity.js';
+} from "./types.js";
+export type { DeclaredIdentities, SetActiveIdentityOptions } from "./v3/identity.js";
 
 export {
   ACTIVE_IDENTITY_STATE_BASENAME,
@@ -137,13 +137,25 @@ export {
   readStateJsonFile,
   stripEncryptedFileExtension,
   writeStateJsonFile,
-} from './types.js';
-export { resolveStoreContext, GLOBAL_STORE_ROOT, GLOBAL_STORE_KEY_IDENTITY, GLOBAL_STORE_STATE_ROOT } from './store.js';
+} from "./types.js";
+export {
+  resolveStoreContext,
+  GLOBAL_STORE_ROOT,
+  GLOBAL_STORE_KEY_IDENTITY,
+  GLOBAL_STORE_STATE_ROOT,
+} from "./store.js";
 
-export { loadConfig, findConfigPath, findProjectRoot, isV3RepositoryRoot, loadProjectRuntimeAuthority, validateConfig } from './config/loader.js';
-export { loadLegacyV2Inventory } from './v3/legacy-v2.js';
-export { loadV3Repository } from './v3/repository.js';
-export { HushResolutionConflictError, resolveV3Bundle, resolveV3Target } from './v3/resolver.js';
+export {
+  loadConfig,
+  findConfigPath,
+  findProjectRoot,
+  isV3RepositoryRoot,
+  loadProjectRuntimeAuthority,
+  validateConfig,
+} from "./config/loader.js";
+export { loadLegacyV2Inventory } from "./v3/legacy-v2.js";
+export { loadV3Repository } from "./v3/repository.js";
+export { HushResolutionConflictError, resolveV3Bundle, resolveV3Target } from "./v3/resolver.js";
 export {
   ALLOW_LOCAL_OVERRIDES_ENV,
   HushLocalOverrideShadowError,
@@ -152,36 +164,48 @@ export {
   shapeResolvedArtifacts,
   shapeTargetArtifacts,
   targetFormatToArtifactFormat,
-} from './v3/artifacts.js';
+} from "./v3/artifacts.js";
 export {
   HushMaterializationInterruptedError,
   materializeV3Bundle,
   materializeV3Target,
   withMaterializedBundle,
   withMaterializedTarget,
-} from './v3/materialize.js';
+} from "./v3/materialize.js";
 
-export { parseEnvContent, parseEnvFile, varsToRecord, recordToVars } from './core/parse.js';
-export { interpolateVars, interpolateValue, hasUnresolvedVars, getUnresolvedVars } from './core/interpolate.js';
-export { mergeVars } from './core/merge.js';
-export { decrypt, encrypt, edit, isSopsInstalled, isAgeKeyConfigured } from './core/sops.js';
-export { maskValue, maskVars, formatMaskedVar } from './core/mask.js';
-export type { MaskedVar } from './core/mask.js';
+export { parseEnvContent, parseEnvFile, varsToRecord, recordToVars } from "./core/parse.js";
+export {
+  interpolateVars,
+  interpolateValue,
+  hasUnresolvedVars,
+  getUnresolvedVars,
+} from "./core/interpolate.js";
+export { mergeVars } from "./core/merge.js";
+export { decrypt, encrypt, edit, isSopsInstalled, isAgeKeyConfigured } from "./core/sops.js";
+export { maskValue, maskVars, formatMaskedVar } from "./core/mask.js";
+export type { MaskedVar } from "./core/mask.js";
 
-export { formatVars, formatDotenv, formatWrangler, formatJson, formatShell, formatYaml } from './formats/index.js';
+export {
+  formatVars,
+  formatDotenv,
+  formatWrangler,
+  formatJson,
+  formatShell,
+  formatYaml,
+} from "./formats/index.js";
 
-export { decryptCommand } from './commands/decrypt.js';
-export { encryptCommand } from './commands/encrypt.js';
-export { editCommand } from './commands/edit.js';
-export { statusCommand } from './commands/status.js';
-export { pushCommand } from './commands/push.js';
-export { bootstrapCommand } from './commands/bootstrap.js';
-export { configCommand } from './commands/config.js';
-export { initCommand } from './commands/init.js';
-export { listCommand } from './commands/list.js';
-export { inspectCommand } from './commands/inspect.js';
-export { hasCommand } from './commands/has.js';
-export { diffCommand } from './commands/diff.js';
-export { exportExampleCommand } from './commands/export-example.js';
-export { materializeCommand } from './commands/materialize.js';
-export { projectCommand } from './commands/project.js';
+export { decryptCommand } from "./commands/decrypt.js";
+export { encryptCommand } from "./commands/encrypt.js";
+export { editCommand } from "./commands/edit.js";
+export { statusCommand } from "./commands/status.js";
+export { pushCommand } from "./commands/push.js";
+export { bootstrapCommand } from "./commands/bootstrap.js";
+export { configCommand } from "./commands/config.js";
+export { initCommand } from "./commands/init.js";
+export { listCommand } from "./commands/list.js";
+export { inspectCommand } from "./commands/inspect.js";
+export { hasCommand } from "./commands/has.js";
+export { diffCommand } from "./commands/diff.js";
+export { exportExampleCommand } from "./commands/export-example.js";
+export { materializeCommand } from "./commands/materialize.js";
+export { projectCommand } from "./commands/project.js";

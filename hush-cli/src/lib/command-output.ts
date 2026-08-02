@@ -1,4 +1,4 @@
-import type { HushContext } from '../types.js';
+import type { HushContext } from "../types.js";
 
 export const JSON_OUTPUT_VERSION = 1 as const;
 

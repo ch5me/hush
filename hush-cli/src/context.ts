@@ -1,11 +1,29 @@
-import { fs } from './lib/fs.js';
-import { spawnSync, execSync } from 'node:child_process';
-import { join } from 'node:path';
-import { loadConfig, findProjectRoot } from './config/loader.js';
-import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, edit, isSopsInstalled } from './core/sops.js';
-import { ageAvailable, ageGenerate, agePublicFromPrivate, keyExists, keySave, keyLoad, keyPath } from './lib/age.js';
-import type { HushContext } from './types.js';
-import pc from 'picocolors';
+import { spawnSync, execSync } from "node:child_process";
+import { join } from "node:path";
+
+import pc from "picocolors";
+
+import { loadConfig, findProjectRoot } from "./config/loader.js";
+import {
+  decrypt,
+  decryptYaml,
+  encrypt,
+  encryptYaml,
+  encryptYamlContent,
+  edit,
+  isSopsInstalled,
+} from "./core/sops.js";
+import {
+  ageAvailable,
+  ageGenerate,
+  agePublicFromPrivate,
+  keyExists,
+  keySave,
+  keyLoad,
+  keyPath,
+} from "./lib/age.js";
+import { fs } from "./lib/fs.js";
+import type { HushContext } from "./types.js";
 
 export const defaultContext: HushContext = {
   fs,

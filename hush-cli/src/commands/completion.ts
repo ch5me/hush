@@ -1,112 +1,113 @@
-import pc from 'picocolors';
-import type { HushContext } from '../types.js';
+import pc from "picocolors";
+
+import type { HushContext } from "../types.js";
 
 export interface CompletionOptions {
   shell: string;
 }
 
 export const HUSH_COMMANDS = [
-  'bootstrap',
-  'bundle',
-  'check',
-  'completion',
-  'config',
-  'copy-key',
-  'decrypt',
-  'delete-key',
-  'diff',
-  'doctor',
-  'edit',
-  'encrypt',
-  'expansions',
-  'export-example',
-  'file',
-  'has',
-  'init',
-  'inspect',
-  'import',
-  'keys',
-  'list',
-  'materialize',
-  'migrate',
-  'move-key',
-  'push',
-  'project',
-  'resolve',
-  'run',
-  'set',
-  'skill',
-  'status',
-  'target',
-  'template',
-  'trace',
-  'verify-target',
+  "bootstrap",
+  "bundle",
+  "check",
+  "completion",
+  "config",
+  "copy-key",
+  "decrypt",
+  "delete-key",
+  "diff",
+  "doctor",
+  "edit",
+  "encrypt",
+  "expansions",
+  "export-example",
+  "file",
+  "has",
+  "init",
+  "inspect",
+  "import",
+  "keys",
+  "list",
+  "materialize",
+  "migrate",
+  "move-key",
+  "push",
+  "project",
+  "resolve",
+  "run",
+  "set",
+  "skill",
+  "status",
+  "target",
+  "template",
+  "trace",
+  "verify-target",
 ] as const;
 
 export const HUSH_FLAGS = [
-  '--allow-plaintext',
-  '--bundle',
-  '--cleanup',
-  '--config',
-  '--cwd',
-  '--dry-run',
-  '--env',
-  '--environment',
-  '--file',
-  '--files',
-  '--filename',
-  '--force',
-  '--format',
-  '--from',
-  '--global',
-  '--gui',
-  '--help',
-  '--json',
-  '--keep-file',
-  '--local',
-  '--identities',
-  '--import-name',
-  '--materialize-as',
-  '--mode',
-  '--new-repo',
-  '--only-changed',
-  '--output-root',
-  '--project',
-  '--quiet',
-  '--ref',
-  '--repo-local',
-  '--require',
-  '--require-source',
-  '--reveal',
-  '--root',
-  '--roles',
-  '--skip-provider',
-  '--skip-remote',
-  '--subpath',
-  '--source-root',
-  '--surface',
-  '--team',
-  '--target',
-  '--token',
-  '--to',
-  '--vercel',
-  '--verbose',
-  '--version',
-  '--warn',
-  '--wrangler-env',
-  '--write',
-  '--yes',
-  '-e',
-  '-f',
-  '-h',
-  '-q',
-  '-r',
-  '-t',
-  '-v',
-  '-y',
+  "--allow-plaintext",
+  "--bundle",
+  "--cleanup",
+  "--config",
+  "--cwd",
+  "--dry-run",
+  "--env",
+  "--environment",
+  "--file",
+  "--files",
+  "--filename",
+  "--force",
+  "--format",
+  "--from",
+  "--global",
+  "--gui",
+  "--help",
+  "--json",
+  "--keep-file",
+  "--local",
+  "--identities",
+  "--import-name",
+  "--materialize-as",
+  "--mode",
+  "--new-repo",
+  "--only-changed",
+  "--output-root",
+  "--project",
+  "--quiet",
+  "--ref",
+  "--repo-local",
+  "--require",
+  "--require-source",
+  "--reveal",
+  "--root",
+  "--roles",
+  "--skip-provider",
+  "--skip-remote",
+  "--subpath",
+  "--source-root",
+  "--surface",
+  "--team",
+  "--target",
+  "--token",
+  "--to",
+  "--vercel",
+  "--verbose",
+  "--version",
+  "--warn",
+  "--wrangler-env",
+  "--write",
+  "--yes",
+  "-e",
+  "-f",
+  "-h",
+  "-q",
+  "-r",
+  "-t",
+  "-v",
+  "-y",
 ] as const;
 
-const SUPPORTED_SHELLS = ['bash', 'zsh', 'fish'] as const;
+const SUPPORTED_SHELLS = ["bash", "zsh", "fish"] as const;
 type SupportedShell = (typeof SUPPORTED_SHELLS)[number];
 
 function isSupportedShell(shell: string): shell is SupportedShell {
@@ -114,8 +115,8 @@ function isSupportedShell(shell: string): shell is SupportedShell {
 }
 
 function buildBashScript(): string {
-  const commands = HUSH_COMMANDS.join(' ');
-  const flags = HUSH_FLAGS.join(' ');
+  const commands = HUSH_COMMANDS.join(" ");
+  const flags = HUSH_FLAGS.join(" ");
   return `# hush bash completion
 # Install: hush completion bash >> ~/.bashrc
 # Or:      hush completion bash > /etc/bash_completion.d/hush
@@ -163,8 +164,8 @@ complete -F _hush_completion hush
 }
 
 function buildZshScript(): string {
-  const commandLines = HUSH_COMMANDS.map((cmd) => `    '${cmd}'`).join('\n');
-  const flagLines = HUSH_FLAGS.map((flag) => `    '${flag}'`).join('\n');
+  const commandLines = HUSH_COMMANDS.map((cmd) => `    '${cmd}'`).join("\n");
+  const flagLines = HUSH_FLAGS.map((flag) => `    '${flag}'`).join("\n");
   return `#compdef hush
 # hush zsh completion
 # Install: hush completion zsh > ~/.zsh/completions/_hush
@@ -225,10 +226,10 @@ _hush
 function buildFishScript(): string {
   const commandCompletions = HUSH_COMMANDS.map(
     (cmd) => `complete -c hush -f -n '__fish_use_subcommand' -a '${cmd}'`,
-  ).join('\n');
+  ).join("\n");
   const flagCompletions = HUSH_FLAGS.map(
-    (flag) => `complete -c hush -n 'not __fish_use_subcommand' -l '${flag.replace(/^-+/, '')}'`,
-  ).join('\n');
+    (flag) => `complete -c hush -n 'not __fish_use_subcommand' -l '${flag.replace(/^-+/, "")}'`,
+  ).join("\n");
 
   return `# hush fish completion
 # Install: hush completion fish > ~/.config/fish/completions/hush.fish
@@ -293,25 +294,28 @@ complete -c hush -l 'mode' -r -a 'process file example' -d 'Materialization mode
 `;
 }
 
-export async function completionCommand(ctx: HushContext, options: CompletionOptions): Promise<void> {
+export async function completionCommand(
+  ctx: HushContext,
+  options: CompletionOptions,
+): Promise<void> {
   const { shell } = options;
 
   if (!shell || !isSupportedShell(shell)) {
-    ctx.logger.error(pc.red(`Unknown shell: ${shell || '(none provided)'}`));
-    ctx.logger.error(pc.dim(`Supported shells: ${SUPPORTED_SHELLS.join(', ')}`));
-    ctx.logger.error(pc.dim('Usage: hush completion <bash|zsh|fish>'));
+    ctx.logger.error(pc.red(`Unknown shell: ${shell || "(none provided)"}`));
+    ctx.logger.error(pc.dim(`Supported shells: ${SUPPORTED_SHELLS.join(", ")}`));
+    ctx.logger.error(pc.dim("Usage: hush completion <bash|zsh|fish>"));
     ctx.process.exit(1);
     return;
   }
 
   switch (shell) {
-    case 'bash':
+    case "bash":
       ctx.logger.log(buildBashScript());
       break;
-    case 'zsh':
+    case "zsh":
       ctx.logger.log(buildZshScript());
       break;
-    case 'fish':
+    case "fish":
       ctx.logger.log(buildFishScript());
       break;
   }

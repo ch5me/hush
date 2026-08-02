@@ -1,14 +1,15 @@
-import { join } from 'node:path';
-import { parseEnvContent } from './parse.js';
-import { mergeVars } from './merge.js';
-import { interpolateVars, type InterpolateOptions } from './interpolate.js';
-import type { EnvVar, Environment, HushContext } from '../types.js';
+import { join } from "node:path";
+
+import type { EnvVar, Environment, HushContext } from "../types.js";
+import { interpolateVars, type InterpolateOptions } from "./interpolate.js";
+import { mergeVars } from "./merge.js";
+import { parseEnvContent } from "./parse.js";
 
 const TEMPLATE_FILES = {
-  base: '.hush',
-  development: '.hush.development',
-  production: '.hush.production',
-  local: '.hush.local',
+  base: ".hush",
+  development: ".hush.development",
+  production: ".hush.production",
+  local: ".hush.local",
 };
 
 export interface LocalTemplateResult {
@@ -21,7 +22,7 @@ export interface LocalTemplateResult {
 export function loadLocalTemplates(
   contextDir: string,
   env: Environment,
-  fs: HushContext['fs']
+  fs: HushContext["fs"],
 ): LocalTemplateResult {
   const files: string[] = [];
   const varSources: EnvVar[][] = [];
@@ -29,19 +30,19 @@ export function loadLocalTemplates(
   const basePath = join(contextDir, TEMPLATE_FILES.base);
   if (fs.existsSync(basePath)) {
     files.push(TEMPLATE_FILES.base);
-    varSources.push(parseEnvContent(fs.readFileSync(basePath, 'utf-8') as string));
+    varSources.push(parseEnvContent(fs.readFileSync(basePath, "utf-8") as string));
   }
 
   const envPath = join(contextDir, TEMPLATE_FILES[env]);
   if (fs.existsSync(envPath)) {
     files.push(TEMPLATE_FILES[env]);
-    varSources.push(parseEnvContent(fs.readFileSync(envPath, 'utf-8') as string));
+    varSources.push(parseEnvContent(fs.readFileSync(envPath, "utf-8") as string));
   }
 
   const localPath = join(contextDir, TEMPLATE_FILES.local);
   if (fs.existsSync(localPath)) {
     files.push(TEMPLATE_FILES.local);
-    varSources.push(parseEnvContent(fs.readFileSync(localPath, 'utf-8') as string));
+    varSources.push(parseEnvContent(fs.readFileSync(localPath, "utf-8") as string));
   }
 
   if (varSources.length === 0) {
@@ -64,13 +65,13 @@ export function loadLocalTemplates(
 export function resolveTemplateVars(
   templateVars: EnvVar[],
   rootSecrets: Record<string, string>,
-  options: InterpolateOptions = {}
+  options: InterpolateOptions = {},
 ): EnvVar[] {
-  const interpolated = interpolateVars(templateVars, { 
-    ...options, 
-    baseContext: rootSecrets 
+  const interpolated = interpolateVars(templateVars, {
+    ...options,
+    baseContext: rootSecrets,
   });
-  
-  const templateKeys = new Set(templateVars.map(v => v.key));
-  return interpolated.filter(v => templateKeys.has(v.key));
+
+  const templateKeys = new Set(templateVars.map((v) => v.key));
+  return interpolated.filter((v) => templateKeys.has(v.key));
 }

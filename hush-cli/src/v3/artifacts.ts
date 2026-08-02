@@ -1,39 +1,45 @@
-import { basename, join as joinPosix } from 'node:path/posix';
-import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
-import { formatVars } from '../formats/index.js';
-import { formatDuplicateKeyHint } from '../commands/v3-command-helpers.js';
-import type { EnvVar, OutputFormat } from '../types.js';
-import { isMachineLocalPath } from './schema.js';
-import type { HushArtifactEntry, HushArtifactFormat, HushLogicalPath, HushTargetDefinition } from './domain.js';
-import type { HushResolvedNode, HushTargetResolution } from './provenance.js';
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
+import { basename, join as joinPosix } from "node:path/posix";
+
+import { formatDuplicateKeyHint } from "../commands/v3-command-helpers.js";
+import { formatVars } from "../formats/index.js";
+import type { EnvVar, OutputFormat } from "../types.js";
+import type {
+  HushArtifactEntry,
+  HushArtifactFormat,
+  HushLogicalPath,
+  HushTargetDefinition,
+} from "./domain.js";
+import type { HushResolvedNode, HushTargetResolution } from "./provenance.js";
+import { isMachineLocalPath } from "./schema.js";
 
 export interface HushArtifactBaseDescriptor {
   logicalPath: HushLogicalPath;
   format: HushArtifactFormat;
   sensitive: boolean;
-  provenance: HushResolvedNode['provenance'];
-  resolvedFrom: HushResolvedNode['resolvedFrom'];
+  provenance: HushResolvedNode["provenance"];
+  resolvedFrom: HushResolvedNode["resolvedFrom"];
   suggestedName: string;
   relativePath: string;
   sha256: string;
 }
 
 export interface HushArtifactFileDescriptor extends HushArtifactBaseDescriptor {
-  kind: 'file';
+  kind: "file";
   content: string;
 }
 
 export interface HushArtifactBinaryDescriptor extends HushArtifactBaseDescriptor {
-  kind: 'binary';
+  kind: "binary";
   content: Uint8Array;
-  encoding: 'base64' | 'utf8';
+  encoding: "base64" | "utf8";
 }
 
 export type HushArtifactDescriptor = HushArtifactFileDescriptor | HushArtifactBinaryDescriptor;
 
 export interface HushTargetArtifactDescriptor extends HushArtifactFileDescriptor {
-  source: 'target';
+  source: "target";
   target: string;
 }
 
@@ -47,19 +53,26 @@ export interface HushArtifactShapeResult {
 }
 
 function isOutputFormat(format: HushArtifactFormat): format is OutputFormat {
-  return format === 'dotenv' || format === 'wrangler' || format === 'vercel' || format === 'json' || format === 'shell' || format === 'yaml';
+  return (
+    format === "dotenv" ||
+    format === "wrangler" ||
+    format === "vercel" ||
+    format === "json" ||
+    format === "shell" ||
+    format === "yaml"
+  );
 }
 
-function toEnvVarValue(value: HushResolvedNode['entry']['value']): string {
-  if (typeof value === 'string') {
+function toEnvVarValue(value: HushResolvedNode["entry"]["value"]): string {
+  if (typeof value === "string") {
     return value;
   }
 
   if (value === null) {
-    return '';
+    return "";
   }
 
-  if (typeof value === 'number' || typeof value === 'boolean') {
+  if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
 
@@ -67,7 +80,7 @@ function toEnvVarValue(value: HushResolvedNode['entry']['value']): string {
 }
 
 function logicalPathToEnvKey(path: string): string {
-  const segments = path.split('/').filter(Boolean);
+  const segments = path.split("/").filter(Boolean);
   const key = segments.at(-1);
 
   if (!key) {
@@ -77,11 +90,12 @@ function logicalPathToEnvKey(path: string): string {
   return key;
 }
 
-function buildTargetPrecedenceFiles(values: HushTargetResolution['values']): string[] {
-  return Array.from(new Set(
-    Object.values(values)
-      .flatMap((node) => node.provenance.map((record) => record.filePath)),
-  ));
+function buildTargetPrecedenceFiles(values: HushTargetResolution["values"]): string[] {
+  return Array.from(
+    new Set(
+      Object.values(values).flatMap((node) => node.provenance.map((record) => record.filePath)),
+    ),
+  );
 }
 
 /**
@@ -122,10 +136,10 @@ interface CollectedEnvVars {
  * entire job is to show you the shadowing. Everything that hands a value to a
  * process uses `error`.
  */
-export type ShadowPolicy = 'error' | 'report';
+export type ShadowPolicy = "error" | "report";
 
 /** Opt out per-invocation, deliberately and visibly. */
-export const ALLOW_LOCAL_OVERRIDES_ENV = 'HUSH_ALLOW_LOCAL_OVERRIDES';
+export const ALLOW_LOCAL_OVERRIDES_ENV = "HUSH_ALLOW_LOCAL_OVERRIDES";
 
 /**
  * Machine-local shadowing is refused unless THIS invocation opted in.
@@ -134,9 +148,11 @@ export const ALLOW_LOCAL_OVERRIDES_ENV = 'HUSH_ALLOW_LOCAL_OVERRIDES';
  * would itself become invisible state, which is the class of bug this guard
  * exists to remove.
  */
-export function shadowPolicyFromEnv(ctx: { process: { env: Record<string, string | undefined> } }): ShadowPolicy {
+export function shadowPolicyFromEnv(ctx: {
+  process: { env: Record<string, string | undefined> };
+}): ShadowPolicy {
   const value = ctx.process.env[ALLOW_LOCAL_OVERRIDES_ENV];
-  return value === '1' || value === 'true' ? 'report' : 'error';
+  return value === "1" || value === "true" ? "report" : "error";
 }
 
 export class HushLocalOverrideShadowError extends Error {
@@ -144,9 +160,12 @@ export class HushLocalOverrideShadowError extends Error {
   readonly overridePath: string;
   readonly shadowedPaths: string[];
 
-  constructor(message: string, details: { key: string; overridePath: string; shadowedPaths: string[] }) {
+  constructor(
+    message: string,
+    details: { key: string; overridePath: string; shadowedPaths: string[] },
+  ) {
     super(message);
-    this.name = 'HushLocalOverrideShadowError';
+    this.name = "HushLocalOverrideShadowError";
     this.key = details.key;
     this.overridePath = details.overridePath;
     this.shadowedPaths = details.shadowedPaths;
@@ -163,10 +182,11 @@ function formatShadowError(
   const sources = [
     `  machine-local (this machine only): ${overridePath}`,
     ...shadowedPaths.map((path) => `  repository:                        ${path}`),
-  ].join('\n');
-  const removal = shadowedFiles.length > 0
-    ? `\n\nThe repository value lives in:\n${shadowedFiles.map((file) => `  - ${file}`).join('\n')}`
-    : '';
+  ].join("\n");
+  const removal =
+    shadowedFiles.length > 0
+      ? `\n\nThe repository value lives in:\n${shadowedFiles.map((file) => `  - ${file}`).join("\n")}`
+      : "";
 
   return `Refusing to resolve "${key}" for target "${target}": a machine-local override shadows a repository value.
 
@@ -216,7 +236,7 @@ Inspect both sources first with:  hush trace ${key}`;
 function resolveKeyCollision(
   key: string,
   contenders: EnvVarPair[],
-  values: HushTargetResolution['values'],
+  values: HushTargetResolution["values"],
   target: string,
   shadowPolicy: ShadowPolicy,
 ): { winner: EnvVarPair; shadowed: HushShadowedEnvVar | null } {
@@ -237,17 +257,24 @@ function resolveKeyCollision(
     const precedenceFiles = buildTargetPrecedenceFiles(values);
 
     throw new Error(
-      `Multiple logical paths resolve to environment key "${key}": ${paths.sort().join(', ')}. `
-      + formatDuplicateKeyHint(key, duplicateFiles.length > 0 ? duplicateFiles : precedenceFiles, target),
+      `Multiple logical paths resolve to environment key "${key}": ${paths.sort().join(", ")}. ` +
+        formatDuplicateKeyHint(
+          key,
+          duplicateFiles.length > 0 ? duplicateFiles : precedenceFiles,
+          target,
+        ),
     );
   }
 
-  const shadowedPaths = contenders.filter((pair) => pair !== override).map((pair) => pair.path).sort();
-  const shadowedFiles = Array.from(new Set(
-    shadowedPaths.flatMap((path) => values[path]?.resolvedFrom ?? []),
-  )).sort();
+  const shadowedPaths = contenders
+    .filter((pair) => pair !== override)
+    .map((pair) => pair.path)
+    .sort();
+  const shadowedFiles = Array.from(
+    new Set(shadowedPaths.flatMap((path) => values[path]?.resolvedFrom ?? [])),
+  ).sort();
 
-  if (shadowPolicy === 'error') {
+  if (shadowPolicy === "error") {
     throw new HushLocalOverrideShadowError(
       formatShadowError(key, override.path, shadowedPaths, shadowedFiles, target),
       { key, overridePath: override.path, shadowedPaths },
@@ -266,7 +293,7 @@ function resolveKeyCollision(
 }
 
 function collectEnvVars(
-  values: HushTargetResolution['values'],
+  values: HushTargetResolution["values"],
   target: string,
   shadowPolicy: ShadowPolicy,
 ): CollectedEnvVars {
@@ -282,7 +309,9 @@ function collectEnvVars(
   const envVars: EnvVar[] = [];
   const shadowed: HushShadowedEnvVar[] = [];
 
-  for (const [key, contenders] of Array.from(byKey.entries()).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, contenders] of Array.from(byKey.entries()).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
     const resolved = resolveKeyCollision(key, contenders, values, target, shadowPolicy);
     envVars.push({ key, value: resolved.winner.value });
 
@@ -300,25 +329,25 @@ function toEnvRecord(envVars: readonly EnvVar[]): Record<string, string> {
 
 function formatToExtension(format: HushArtifactFormat): string {
   switch (format) {
-    case 'dotenv':
-      return '.env';
-    case 'wrangler':
-      return '.dev.vars';
-    case 'vercel':
-      return '.env';
-    case 'json':
-      return '.json';
-    case 'shell':
-      return '.sh';
-    case 'yaml':
-      return '.yaml';
+    case "dotenv":
+      return ".env";
+    case "wrangler":
+      return ".dev.vars";
+    case "vercel":
+      return ".env";
+    case "json":
+      return ".json";
+    case "shell":
+      return ".sh";
+    case "yaml":
+      return ".yaml";
     default:
-      return '';
+      return "";
   }
 }
 
 function ensureSuggestedName(baseName: string, format: HushArtifactFormat): string {
-  const trimmed = baseName.trim() || 'artifact';
+  const trimmed = baseName.trim() || "artifact";
   const extension = formatToExtension(format);
 
   if (!extension || trimmed.endsWith(extension)) {
@@ -329,7 +358,7 @@ function ensureSuggestedName(baseName: string, format: HushArtifactFormat): stri
 }
 
 function sha256(content: Uint8Array | string): string {
-  return createHash('sha256').update(content).digest('hex');
+  return createHash("sha256").update(content).digest("hex");
 }
 
 type Hints = {
@@ -338,7 +367,11 @@ type Hints = {
   materializeAs?: string;
 };
 
-function resolveArtifactPath(logicalPath: string, format: HushArtifactFormat, hints: Hints): { suggestedName: string; relativePath: string } {
+function resolveArtifactPath(
+  logicalPath: string,
+  format: HushArtifactFormat,
+  hints: Hints,
+): { suggestedName: string; relativePath: string } {
   if (hints.materializeAs) {
     return {
       suggestedName: basename(hints.materializeAs),
@@ -348,7 +381,7 @@ function resolveArtifactPath(logicalPath: string, format: HushArtifactFormat, hi
 
   const defaultName = ensureSuggestedName(basename(logicalPath), format);
   const filename = hints.filename ? ensureSuggestedName(hints.filename, format) : defaultName;
-  const defaultSubpath = logicalPath.split('/').filter(Boolean).slice(0, -1).join('/');
+  const defaultSubpath = logicalPath.split("/").filter(Boolean).slice(0, -1).join("/");
   const subpath = hints.subpath ?? defaultSubpath;
 
   return {
@@ -368,17 +401,23 @@ function createTargetArtifact(
   }
 
   const content = formatVars(envVars, target.format);
-  const { suggestedName, relativePath } = resolveArtifactPath(`targets/${targetName}`, target.format, target);
+  const { suggestedName, relativePath } = resolveArtifactPath(
+    `targets/${targetName}`,
+    target.format,
+    target,
+  );
 
   return {
-    kind: 'file',
-    source: 'target',
+    kind: "file",
+    source: "target",
     target: targetName,
     logicalPath: `targets/${targetName}`,
     format: target.format,
     sensitive: Object.values(resolution.values).some((node) => node.entry.sensitive),
     provenance: Object.values(resolution.values).flatMap((node) => node.provenance),
-    resolvedFrom: Array.from(new Set(Object.values(resolution.values).flatMap((node) => node.resolvedFrom))).sort(),
+    resolvedFrom: Array.from(
+      new Set(Object.values(resolution.values).flatMap((node) => node.resolvedFrom)),
+    ).sort(),
     suggestedName,
     relativePath,
     sha256: sha256(content),
@@ -394,13 +433,14 @@ function shapeArtifact(
   const entry = node.entry as HushArtifactEntry;
   const { suggestedName, relativePath } = resolveArtifactPath(path, entry.format, entry);
 
-  if (entry.type === 'binary') {
-    const encoding = entry.encoding ?? 'base64';
-    const rawValue = entry.value ?? '';
-    const content = encoding === 'utf8' ? Buffer.from(rawValue, 'utf8') : Buffer.from(rawValue, 'base64');
+  if (entry.type === "binary") {
+    const encoding = entry.encoding ?? "base64";
+    const rawValue = entry.value ?? "";
+    const content =
+      encoding === "utf8" ? Buffer.from(rawValue, "utf8") : Buffer.from(rawValue, "base64");
 
     return {
-      kind: 'binary',
+      kind: "binary",
       logicalPath: path,
       format: entry.format,
       sensitive: entry.sensitive,
@@ -414,14 +454,15 @@ function shapeArtifact(
     };
   }
 
-  const content = entry.value !== undefined
-    ? entry.value
-    : isOutputFormat(entry.format)
-      ? formatVars(envVars, entry.format)
-      : '';
+  const content =
+    entry.value !== undefined
+      ? entry.value
+      : isOutputFormat(entry.format)
+        ? formatVars(envVars, entry.format)
+        : "";
 
   return {
-    kind: 'file',
+    kind: "file",
     logicalPath: path,
     format: entry.format,
     sensitive: entry.sensitive,
@@ -434,7 +475,9 @@ function shapeArtifact(
   };
 }
 
-export function targetFormatToArtifactFormat(format: HushTargetDefinition['format']): HushArtifactFormat {
+export function targetFormatToArtifactFormat(
+  format: HushTargetDefinition["format"],
+): HushArtifactFormat {
   return format;
 }
 
@@ -447,7 +490,7 @@ export function shapeTargetArtifacts(
   targetName: string,
   target: HushTargetDefinition,
   resolution: HushTargetResolution,
-  shadowPolicy: ShadowPolicy = 'error',
+  shadowPolicy: ShadowPolicy = "error",
 ): HushArtifactShapeResult {
   const { envVars, shadowed } = collectEnvVars(resolution.values, targetName, shadowPolicy);
   const env = toEnvRecord(envVars);
@@ -469,16 +512,18 @@ export function shapeResolvedArtifacts(
   targetName: string,
   target: HushTargetDefinition,
   resolution: HushTargetResolution,
-  shadowPolicy: ShadowPolicy = 'error',
+  shadowPolicy: ShadowPolicy = "error",
 ): HushArtifactShapeResult {
   return shapeTargetArtifacts(targetName, target, resolution, shadowPolicy);
 }
 
 export function shapeBundleArtifacts(
-  resolution: HushTargetResolution | { values: HushTargetResolution['values']; artifacts: HushTargetResolution['artifacts'] },
-  shadowPolicy: ShadowPolicy = 'error',
+  resolution:
+    | HushTargetResolution
+    | { values: HushTargetResolution["values"]; artifacts: HushTargetResolution["artifacts"] },
+  shadowPolicy: ShadowPolicy = "error",
 ): HushArtifactShapeResult {
-  const { envVars, shadowed } = collectEnvVars(resolution.values, 'bundle', shadowPolicy);
+  const { envVars, shadowed } = collectEnvVars(resolution.values, "bundle", shadowPolicy);
   const env = toEnvRecord(envVars);
   const artifacts = Object.entries(resolution.artifacts)
     .sort(([left], [right]) => left.localeCompare(right))

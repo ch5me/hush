@@ -1,7 +1,9 @@
-import { basename, dirname, resolve } from 'node:path';
-import pc from 'picocolors';
-import { stringify as stringifyYaml } from 'yaml';
-import type { BootstrapOptions, HushContext, HushV3Repository, StoreContext } from '../types.js';
+import { basename, dirname, resolve } from "node:path";
+
+import pc from "picocolors";
+import { stringify as stringifyYaml } from "yaml";
+
+import { findProjectRoot, isV3RepositoryRoot } from "../config/loader.js";
 import {
   V3_SCHEMA_VERSION,
   createFileDocument,
@@ -11,21 +13,21 @@ import {
   getV3ManifestPath,
   loadV3Repository,
   setActiveIdentity,
-} from '../index.js';
-import { getProjectIdentifier } from '../project.js';
-import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
-import { resolveStoreContext } from '../store.js';
-import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
-import { missingBinaryError } from '../lib/install-hints.js';
-import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from './v3-command-helpers.js';
+} from "../index.js";
+import { missingBinaryError } from "../lib/install-hints.js";
+import { getProjectIdentifier } from "../project.js";
+import { GLOBAL_STORE_KEY_IDENTITY } from "../store.js";
+import { resolveStoreContext } from "../store.js";
+import type { BootstrapOptions, HushContext, HushV3Repository, StoreContext } from "../types.js";
+import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from "./v3-command-helpers.js";
 
 interface KeySetupResult {
   publicKey: string;
-  source: 'existing' | 'generated';
+  source: "existing" | "generated";
 }
 
-const DEFAULT_SHARED_FILE_PATH = 'env/project/shared';
-const DEFAULT_ACTIVE_IDENTITY = 'owner-local';
+const DEFAULT_SHARED_FILE_PATH = "env/project/shared";
+const DEFAULT_ACTIVE_IDENTITY = "owner-local";
 
 function tryExistingLocalKey(ctx: HushContext, project: string): KeySetupResult | null {
   if (!ctx.age.keyExists(project)) {
@@ -38,12 +40,12 @@ function tryExistingLocalKey(ctx: HushContext, project: string): KeySetupResult 
   }
 
   ctx.logger.log(pc.green(`Using existing key for ${pc.cyan(project)}`));
-  return { publicKey: existing.public, source: 'existing' };
+  return { publicKey: existing.public, source: "existing" };
 }
 
 function generateLocalKey(ctx: HushContext, project: string): KeySetupResult {
   if (!ctx.age.ageAvailable()) {
-    throw missingBinaryError('age');
+    throw missingBinaryError("age");
   }
 
   ctx.logger.log(pc.blue(`Generating new key for ${pc.cyan(project)}...`));
@@ -51,11 +53,15 @@ function generateLocalKey(ctx: HushContext, project: string): KeySetupResult {
   ctx.age.keySave(project, key);
   ctx.logger.log(pc.green(`Saved to ${ctx.age.keyPath(project)}`));
 
-  return { publicKey: key.public, source: 'generated' };
+  return { publicKey: key.public, source: "generated" };
 }
 
-function resolveBootstrapProjectIdentity(root: string, keyIdentity: string | undefined, mode: 'project' | 'global'): string {
-  if (mode === 'global') {
+function resolveBootstrapProjectIdentity(
+  root: string,
+  keyIdentity: string | undefined,
+  mode: "project" | "global",
+): string {
+  if (mode === "global") {
     return GLOBAL_STORE_KEY_IDENTITY;
   }
 
@@ -68,32 +74,35 @@ function resolveBootstrapProjectIdentity(root: string, keyIdentity: string | und
     return detectedProject;
   }
 
-  return basename(root) || 'hush-project';
+  return basename(root) || "hush-project";
 }
 
 async function setupKey(ctx: HushContext, project: string): Promise<KeySetupResult> {
-  return (
-    tryExistingLocalKey(ctx, project)
-    ?? generateLocalKey(ctx, project)
-  );
+  return tryExistingLocalKey(ctx, project) ?? generateLocalKey(ctx, project);
 }
 
 function createSopsConfig(ctx: HushContext, root: string, publicKey: string): void {
-  const sopsPath = ctx.path.join(root, '.sops.yaml');
+  const sopsPath = ctx.path.join(root, ".sops.yaml");
   if (ctx.fs.existsSync(sopsPath)) {
-    ctx.logger.log(pc.dim('Keeping existing .sops.yaml'));
+    ctx.logger.log(pc.dim("Keeping existing .sops.yaml"));
     return;
   }
 
   const sopsConfig = stringifyYaml({
-    creation_rules: [{ encrypted_regex: '.*', age: publicKey }],
+    creation_rules: [{ encrypted_regex: ".*", age: publicKey }],
   });
 
-  ctx.fs.writeFileSync(sopsPath, sopsConfig, 'utf-8');
-  ctx.logger.log(pc.green('Created .sops.yaml'));
+  ctx.fs.writeFileSync(sopsPath, sopsConfig, "utf-8");
+  ctx.logger.log(pc.green("Created .sops.yaml"));
 }
 
-function writeYamlDocument(ctx: HushContext, root: string, keyIdentity: string, filePath: string, document: unknown): void {
+function writeYamlDocument(
+  ctx: HushContext,
+  root: string,
+  keyIdentity: string,
+  filePath: string,
+  document: unknown,
+): void {
   ctx.fs.mkdirSync(dirname(filePath), { recursive: true });
   ctx.sops.encryptYamlContent(stringifyYaml(document, { indent: 2 }), filePath, {
     root,
@@ -110,24 +119,24 @@ function ensureManifestShell(ctx: HushContext, root: string, projectIdentity: st
   const manifest = createManifestDocument({
     version: V3_SCHEMA_VERSION,
     identities: {
-      'owner-local': {
-        roles: ['owner'],
-        description: 'Default owner identity for local operators',
+      "owner-local": {
+        roles: ["owner"],
+        description: "Default owner identity for local operators",
       },
-      'member-local': {
-        roles: ['member'],
-        description: 'Default member identity for local operators',
+      "member-local": {
+        roles: ["member"],
+        description: "Default member identity for local operators",
       },
       ci: {
-        roles: ['ci'],
-        description: 'Default automation identity',
+        roles: ["ci"],
+        description: "Default automation identity",
       },
     },
     fileIndex: {
       [DEFAULT_SHARED_FILE_PATH]: {
         path: DEFAULT_SHARED_FILE_PATH,
         readers: {
-          roles: ['owner', 'member', 'ci'],
+          roles: ["owner", "member", "ci"],
           identities: [],
         },
         sensitive: true,
@@ -141,14 +150,14 @@ function ensureManifestShell(ctx: HushContext, root: string, projectIdentity: st
     },
     targets: {
       runtime: {
-        bundle: 'project',
-        format: 'dotenv',
-        mode: 'process',
+        bundle: "project",
+        format: "dotenv",
+        mode: "process",
       },
       example: {
-        bundle: 'project',
-        format: 'dotenv',
-        mode: 'example',
+        bundle: "project",
+        format: "dotenv",
+        mode: "example",
       },
     },
     metadata: {
@@ -157,7 +166,7 @@ function ensureManifestShell(ctx: HushContext, root: string, projectIdentity: st
   });
 
   writeYamlDocument(ctx, root, projectIdentity, manifestPath, manifest);
-  ctx.logger.log(pc.green('Created .hush/manifest.encrypted'));
+  ctx.logger.log(pc.green("Created .hush/manifest.encrypted"));
   return true;
 }
 
@@ -170,7 +179,7 @@ function ensureSharedFileShell(ctx: HushContext, root: string, projectIdentity: 
   const sharedFile = createFileDocument({
     path: DEFAULT_SHARED_FILE_PATH,
     readers: {
-      roles: ['owner', 'member', 'ci'],
+      roles: ["owner", "member", "ci"],
       identities: [],
     },
     sensitive: true,
@@ -178,12 +187,12 @@ function ensureSharedFileShell(ctx: HushContext, root: string, projectIdentity: 
   });
 
   writeYamlDocument(ctx, root, projectIdentity, sharedFilePath, sharedFile);
-  ctx.logger.log(pc.green('Created .hush/files/env/project/shared.encrypted'));
+  ctx.logger.log(pc.green("Created .hush/files/env/project/shared.encrypted"));
   return true;
 }
 
 function resolveBootstrapStore(store: StoreContext, root: string): StoreContext {
-  if (store.mode === 'global') {
+  if (store.mode === "global") {
     return store;
   }
 
@@ -203,7 +212,7 @@ function persistActiveIdentity(
     store,
     identity: nextIdentity,
     identities: repository.manifest.identities,
-    command: { name: 'bootstrap', args: [] },
+    command: { name: "bootstrap", args: [] },
   });
 }
 
@@ -216,7 +225,7 @@ function ensureActiveIdentity(
 ): string {
   const currentIdentity = forceDefaultIdentity
     ? null
-    : getActiveIdentity(ctx, resolvedStore) ?? getActiveIdentity(ctx, options.store);
+    : (getActiveIdentity(ctx, resolvedStore) ?? getActiveIdentity(ctx, options.store));
 
   if (currentIdentity && repository.manifest.identities[currentIdentity]) {
     persistActiveIdentity(ctx, repository, resolvedStore, currentIdentity);
@@ -231,7 +240,7 @@ function ensureActiveIdentity(
     : Object.keys(repository.manifest.identities)[0];
 
   if (!nextIdentity) {
-    throw new Error('Bootstrapped repository is missing declared identities.');
+    throw new Error("Bootstrapped repository is missing declared identities.");
   }
 
   persistActiveIdentity(ctx, repository, resolvedStore, nextIdentity);
@@ -245,7 +254,7 @@ function ensureActiveIdentity(
 function findGitRoot(startDir: string, ctx: HushContext): string | null {
   let current = resolve(startDir);
   while (true) {
-    if (ctx.fs.existsSync(ctx.path.join(current, '.git'))) {
+    if (ctx.fs.existsSync(ctx.path.join(current, ".git"))) {
       return current;
     }
     const parent = dirname(current);
@@ -255,17 +264,17 @@ function findGitRoot(startDir: string, ctx: HushContext): string | null {
 }
 
 function ensureMaterializedDirIgnored(ctx: HushContext, gitRoot: string): void {
-  const gitignorePath = ctx.path.join(gitRoot, '.gitignore');
+  const gitignorePath = ctx.path.join(gitRoot, ".gitignore");
   const entry = `${DEFAULT_PERSISTED_OUTPUT_DIRNAME}/`;
 
   if (!ctx.fs.existsSync(gitignorePath)) {
-    ctx.fs.writeFileSync(gitignorePath, `${entry}\n`, 'utf-8');
+    ctx.fs.writeFileSync(gitignorePath, `${entry}\n`, "utf-8");
     ctx.logger.log(pc.green(`Created .gitignore with ${entry}`));
     return;
   }
 
-  const raw = ctx.fs.readFileSync(gitignorePath, 'utf-8');
-  const text = typeof raw === 'string' ? raw : raw.toString('utf-8');
+  const raw = ctx.fs.readFileSync(gitignorePath, "utf-8");
+  const text = typeof raw === "string" ? raw : raw.toString("utf-8");
   const lines = text.split(/\r?\n/);
 
   const alreadyPresent = lines.some((line) => {
@@ -274,8 +283,8 @@ function ensureMaterializedDirIgnored(ctx: HushContext, gitRoot: string): void {
   });
 
   if (!alreadyPresent) {
-    const trailingNewline = text.endsWith('\n') ? '' : '\n';
-    ctx.fs.writeFileSync(gitignorePath, `${text}${trailingNewline}${entry}\n`, 'utf-8');
+    const trailingNewline = text.endsWith("\n") ? "" : "\n";
+    ctx.fs.writeFileSync(gitignorePath, `${text}${trailingNewline}${entry}\n`, "utf-8");
     ctx.logger.log(pc.green(`Added ${entry} to .gitignore`));
   }
 }
@@ -284,8 +293,8 @@ async function readLine(ctx: HushContext): Promise<string> {
   return new Promise((resolve) => {
     const { stdin } = ctx.process;
     stdin.resume();
-    stdin.setEncoding('utf-8');
-    stdin.once('data', (data: string) => {
+    stdin.setEncoding("utf-8");
+    stdin.once("data", (data: string) => {
       stdin.pause();
       resolve(data.toString());
     });
@@ -298,18 +307,21 @@ async function verifyBootstrap(
   projectIdentity: string,
   store: StoreContext,
 ): Promise<void> {
-  ctx.logger.log('');
-  ctx.logger.log(pc.blue('━'.repeat(50)));
-  ctx.logger.log(pc.blue(pc.bold('  Bootstrap Verification')));
-  ctx.logger.log(pc.blue('━'.repeat(50)));
-  ctx.logger.log('');
+  ctx.logger.log("");
+  ctx.logger.log(pc.blue("━".repeat(50)));
+  ctx.logger.log(pc.blue(pc.bold("  Bootstrap Verification")));
+  ctx.logger.log(pc.blue("━".repeat(50)));
+  ctx.logger.log("");
 
   let allPassed = true;
 
   // Check 1: hush status — can load the repo
   try {
     const manifestPath = getV3ManifestPath(root);
-    const manifestContent = ctx.sops.decryptYaml(manifestPath, { root, keyIdentity: projectIdentity });
+    const manifestContent = ctx.sops.decryptYaml(manifestPath, {
+      root,
+      keyIdentity: projectIdentity,
+    });
     if (manifestContent && manifestContent.length > 0) {
       ctx.logger.log(pc.green(`  ✓  hush status — manifest decrypts`));
     } else {
@@ -323,22 +335,24 @@ async function verifyBootstrap(
 
   // Check 2: hush inspect — can decrypt files
   try {
-    const filePath = getV3EncryptedFilePath(root, 'env/project/shared');
+    const filePath = getV3EncryptedFilePath(root, "env/project/shared");
     if (ctx.fs.existsSync(filePath)) {
       const activeIdentity = getActiveIdentity(ctx, store);
       if (!activeIdentity) {
-        throw new Error('Active identity was not persisted for the bootstrapped project state');
+        throw new Error("Active identity was not persisted for the bootstrapped project state");
       }
 
       const repository = loadV3Repository(root, { keyIdentity: projectIdentity });
       if (!repository.manifest.identities[activeIdentity]) {
-        throw new Error(`Active identity "${activeIdentity}" is not declared in the bootstrapped repository`);
+        throw new Error(
+          `Active identity "${activeIdentity}" is not declared in the bootstrapped repository`,
+        );
       }
 
       repository.loadFile(DEFAULT_SHARED_FILE_PATH);
-      ctx.logger.log(pc.green('  ✓  hush inspect — shared file decrypts'));
+      ctx.logger.log(pc.green("  ✓  hush inspect — shared file decrypts"));
     } else {
-      ctx.logger.log(pc.red('  ✗  hush inspect — shared file not found'));
+      ctx.logger.log(pc.red("  ✗  hush inspect — shared file not found"));
       allPassed = false;
     }
   } catch (error) {
@@ -348,27 +362,27 @@ async function verifyBootstrap(
 
   // Check 3: runtime key resolution (non-blocking)
   try {
-    const { resolveAgeKeySource } = await import('../core/sops.js');
+    const { resolveAgeKeySource } = await import("../core/sops.js");
     const resolution = resolveAgeKeySource({ root, keyIdentity: projectIdentity });
     if (resolution.selectedKeySource) {
       ctx.logger.log(pc.green(`  ✓  Key resolution — using ${resolution.selectedKeySource}`));
     } else if (process.env.SOPS_AGE_KEY_FILE || process.env.SOPS_AGE_KEY) {
-      ctx.logger.log(pc.green('  ✓  Key resolution — explicit SOPS env var set'));
+      ctx.logger.log(pc.green("  ✓  Key resolution — explicit SOPS env var set"));
     } else {
       ctx.logger.log(pc.yellow('  ⚠  Key resolution — no key found (run "hush keys setup")'));
     }
   } catch {
-    ctx.logger.log(pc.yellow('  ⚠  Key resolution — skipped (non-standard environment)'));
+    ctx.logger.log(pc.yellow("  ⚠  Key resolution — skipped (non-standard environment)"));
   }
 
-  ctx.logger.log('');
+  ctx.logger.log("");
   if (allPassed) {
-    ctx.logger.log(pc.green(pc.bold('  All checks passed. Repository is ready for use.')));
+    ctx.logger.log(pc.green(pc.bold("  All checks passed. Repository is ready for use.")));
   } else {
     ctx.logger.log(pc.red(pc.bold('  Some checks failed. Run "hush doctor" for diagnostics.')));
   }
-  ctx.logger.log(pc.blue('━'.repeat(50)));
-  ctx.logger.log('');
+  ctx.logger.log(pc.blue("━".repeat(50)));
+  ctx.logger.log("");
 }
 
 export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptions): Promise<void> {
@@ -381,42 +395,46 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
 
   if (options.newRepo && isV3RepositoryRoot(startDir)) {
     ctx.logger.error(pc.red(`A Hush repository already exists at ${startDir}.`));
-    ctx.logger.error(pc.dim('Remove .hush/ and .sops.yaml first, or run without --new-repo.'));
+    ctx.logger.error(pc.dim("Remove .hush/ and .sops.yaml first, or run without --new-repo."));
     ctx.process.exit(1);
   }
 
   const reason = parentRoot
-    ? 'nearest parent .hush/ was found'
-    : 'no parent Hush repository found; using current directory';
+    ? "nearest parent .hush/ was found"
+    : "no parent Hush repository found; using current directory";
 
   const effectiveRoot = options.newRepo ? startDir : (parentRoot ?? startDir);
 
-  ctx.logger.log(pc.blue('Hush bootstrap plan'));
+  ctx.logger.log(pc.blue("Hush bootstrap plan"));
   ctx.logger.log(pc.dim(`  Current directory:  ${cwd}`));
-  ctx.logger.log(pc.dim(`  Detected git root:  ${gitRoot ?? '(none)'}`));
+  ctx.logger.log(pc.dim(`  Detected git root:  ${gitRoot ?? "(none)"}`));
   if (parentRoot) {
     ctx.logger.log(pc.dim(`  Detected parent Hush repo:  ${parentRoot}`));
   }
   ctx.logger.log(pc.dim(`  Selected repository root:  ${effectiveRoot}`));
-  ctx.logger.log(pc.dim(`  Reason:  ${options.newRepo ? '--new-repo flag; forcing child-local repo' : reason}`));
-  ctx.logger.log('');
+  ctx.logger.log(
+    pc.dim(`  Reason:  ${options.newRepo ? "--new-repo flag; forcing child-local repo" : reason}`),
+  );
+  ctx.logger.log("");
 
   if (!options.yes) {
     const isInteractive = ctx.process.stdin.isTTY;
     if (!isInteractive) {
-      ctx.logger.error(pc.red('Non-interactive mode: bootstrap requires --yes (-y) when a plan is displayed.'));
-      ctx.logger.error(pc.dim('Run: hush bootstrap --yes'));
+      ctx.logger.error(
+        pc.red("Non-interactive mode: bootstrap requires --yes (-y) when a plan is displayed."),
+      );
+      ctx.logger.error(pc.dim("Run: hush bootstrap --yes"));
       ctx.process.exit(1);
     }
 
-    ctx.logger.log(pc.bold('Proceed with bootstrap?'));
-    ctx.logger.log(pc.dim('  This will create encrypted repository files.'));
+    ctx.logger.log(pc.bold("Proceed with bootstrap?"));
+    ctx.logger.log(pc.dim("  This will create encrypted repository files."));
     ctx.logger.log(pc.dim('  Type "yes" to confirm, or anything else to abort.'));
-    ctx.logger.log('');
+    ctx.logger.log("");
 
     const answer = await readLine(ctx);
-    if (answer.trim().toLowerCase() !== 'yes') {
-      ctx.logger.log(pc.yellow('Bootstrap cancelled.'));
+    if (answer.trim().toLowerCase() !== "yes") {
+      ctx.logger.log(pc.yellow("Bootstrap cancelled."));
       ctx.process.exit(0);
     }
   }
@@ -425,9 +443,13 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
     ctx.fs.mkdirSync(effectiveRoot, { recursive: true });
   }
 
-  ctx.logger.log(pc.blue('\nBootstrapping Hush v3...\n'));
+  ctx.logger.log(pc.blue("\nBootstrapping Hush v3...\n"));
 
-  const projectIdentity = resolveBootstrapProjectIdentity(effectiveRoot, options.store.keyIdentity, options.store.mode);
+  const projectIdentity = resolveBootstrapProjectIdentity(
+    effectiveRoot,
+    options.store.keyIdentity,
+    options.store.mode,
+  );
   const keyResult = await setupKey(ctx, projectIdentity);
 
   createSopsConfig(ctx, effectiveRoot, keyResult.publicKey);
@@ -448,21 +470,33 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
     createdManifestShell || createdSharedFileShell,
   );
 
-  ctx.logger.log(pc.bold('\nBootstrap summary:'));
+  ctx.logger.log(pc.bold("\nBootstrap summary:"));
   ctx.logger.log(pc.dim(`  Key identity: ${projectIdentity}`));
   ctx.logger.log(pc.dim(`  Key source: ${keyResult.source}`));
   ctx.logger.log(pc.dim(`  Active identity: ${activeIdentity}`));
-  ctx.logger.log(pc.dim(`  Bundle shells: ${Object.keys(repository.manifest.bundles ?? {}).join(', ') || '(none)'}`));
-  ctx.logger.log(pc.dim(`  Target shells: ${Object.keys(repository.manifest.targets ?? {}).join(', ') || '(none)'}`));
+  ctx.logger.log(
+    pc.dim(
+      `  Bundle shells: ${Object.keys(repository.manifest.bundles ?? {}).join(", ") || "(none)"}`,
+    ),
+  );
+  ctx.logger.log(
+    pc.dim(
+      `  Target shells: ${Object.keys(repository.manifest.targets ?? {}).join(", ") || "(none)"}`,
+    ),
+  );
 
   try {
     await verifyBootstrap(ctx, effectiveRoot, projectIdentity, resolvedStore);
   } catch {
-    ctx.logger.log(pc.yellow('Verification skipped (non-critical).'));
+    ctx.logger.log(pc.yellow("Verification skipped (non-critical)."));
   }
 
-  ctx.logger.log(pc.bold('\nNext steps:'));
-  ctx.logger.log(pc.dim('  1. hush set DATABASE_URL        Add your first secret'));
-  ctx.logger.log(pc.dim('  2. hush run -- npm start        Run your app with secrets injected in memory'));
-  ctx.logger.log(pc.dim('  3. hush inspect                 List what is stored (values stay hidden)'));
+  ctx.logger.log(pc.bold("\nNext steps:"));
+  ctx.logger.log(pc.dim("  1. hush set DATABASE_URL        Add your first secret"));
+  ctx.logger.log(
+    pc.dim("  2. hush run -- npm start        Run your app with secrets injected in memory"),
+  );
+  ctx.logger.log(
+    pc.dim("  3. hush inspect                 List what is stored (values stay hidden)"),
+  );
 }

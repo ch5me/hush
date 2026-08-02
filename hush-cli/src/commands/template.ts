@@ -1,5 +1,5 @@
-import type { Environment, HushContext } from '../types.js';
-import { createMigrationOnlyCommandError } from './v3-command-helpers.js';
+import type { Environment, HushContext } from "../types.js";
+import { createMigrationOnlyCommandError } from "./v3-command-helpers.js";
 
 export interface TemplateOptions {
   root: string;
@@ -9,5 +9,5 @@ export interface TemplateOptions {
 export async function templateCommand(ctx: HushContext, options: TemplateOptions): Promise<void> {
   void ctx;
   void options;
-  throw createMigrationOnlyCommandError('template');
+  throw createMigrationOnlyCommandError("template");
 }

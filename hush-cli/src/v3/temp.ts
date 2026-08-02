@@ -1,14 +1,15 @@
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { existsSync } from 'node:fs';
-import type { HushContext } from '../types.js';
-import type { HushArtifactDescriptor } from './artifacts.js';
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-export type HushSignalName = 'SIGINT' | 'SIGTERM';
+import type { HushContext } from "../types.js";
+import type { HushArtifactDescriptor } from "./artifacts.js";
+
+export type HushSignalName = "SIGINT" | "SIGTERM";
 
 export interface HushStagedArtifact {
   logicalPath: string;
-  kind: HushArtifactDescriptor['kind'];
+  kind: HushArtifactDescriptor["kind"];
   path: string;
   format: string;
   sensitive: boolean;
@@ -37,7 +38,10 @@ export class HushTempController {
     this.ctx = ctx;
     this.persist = options.persist;
     this.outputRoot = options.outputRoot;
-    this.tempRoot = join(tmpdir(), `hush-materialize-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`);
+    this.tempRoot = join(
+      tmpdir(),
+      `hush-materialize-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+    );
   }
 
   private setPrivateRoot(): void {
@@ -50,7 +54,7 @@ export class HushTempController {
   initialize(): void {
     this.setPrivateRoot();
 
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
       const handler = () => {
         this.interruptedBy = signal;
         this.cleanup();
@@ -62,8 +66,8 @@ export class HushTempController {
   }
 
   writeArtifact(descriptor: HushArtifactDescriptor): HushStagedArtifact {
-    const baseRoot = this.persist ? this.outputRoot ?? this.tempRoot : this.tempRoot;
-    const directory = join(baseRoot, ...descriptor.relativePath.split('/').slice(0, -1));
+    const baseRoot = this.persist ? (this.outputRoot ?? this.tempRoot) : this.tempRoot;
+    const directory = join(baseRoot, ...descriptor.relativePath.split("/").slice(0, -1));
     const targetPath = join(baseRoot, descriptor.relativePath);
 
     if (existsSync(baseRoot)) {
@@ -76,8 +80,10 @@ export class HushTempController {
     }
     this.ctx.fs.writeFileSync(
       targetPath,
-      descriptor.kind === 'binary' ? descriptor.content : descriptor.content,
-      descriptor.kind === 'binary' ? { mode: PRIVATE_FILE_MODE } : { encoding: 'utf-8', mode: PRIVATE_FILE_MODE },
+      descriptor.kind === "binary" ? descriptor.content : descriptor.content,
+      descriptor.kind === "binary"
+        ? { mode: PRIVATE_FILE_MODE }
+        : { encoding: "utf-8", mode: PRIVATE_FILE_MODE },
     );
 
     return {

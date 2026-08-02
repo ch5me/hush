@@ -1,12 +1,13 @@
-import { join } from 'node:path';
-import { fs } from './lib/fs.js';
+import { join } from "node:path";
+
+import { fs } from "./lib/fs.js";
 
 function normalizeRepositoryPath(pathname: string): string | undefined {
   const cleaned = pathname
-    .replace(/^\/+/, '')
-    .replace(/\.git$/, '')
-    .replace(/\/+$/, '');
-  const [owner, repo] = cleaned.split('/');
+    .replace(/^\/+/, "")
+    .replace(/\.git$/, "")
+    .replace(/\/+$/, "");
+  const [owner, repo] = cleaned.split("/");
 
   if (!owner || !repo) {
     return undefined;
@@ -16,17 +17,21 @@ function normalizeRepositoryPath(pathname: string): string | undefined {
 }
 
 function projectIdentifierFromRepository(repository: unknown): string | undefined {
-  const value = typeof repository === 'string'
-    ? repository
-    : typeof repository === 'object' && repository !== null && 'url' in repository && typeof repository.url === 'string'
-      ? repository.url
-      : undefined;
+  const value =
+    typeof repository === "string"
+      ? repository
+      : typeof repository === "object" &&
+          repository !== null &&
+          "url" in repository &&
+          typeof repository.url === "string"
+        ? repository.url
+        : undefined;
 
   if (!value) {
     return undefined;
   }
 
-  const withoutGitPrefix = value.replace(/^git\+/, '');
+  const withoutGitPrefix = value.replace(/^git\+/, "");
 
   try {
     const parsed = new URL(withoutGitPrefix);
@@ -47,13 +52,13 @@ function projectIdentifierFromRepository(repository: unknown): string | undefine
 }
 
 export function getProjectIdentifier(root: string): string | undefined {
-  const pkgPath = join(root, 'package.json');
+  const pkgPath = join(root, "package.json");
   if (!fs.existsSync(pkgPath)) {
     return undefined;
   }
 
   try {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8') as string);
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8") as string);
     return projectIdentifierFromRepository(pkg.repository);
   } catch {
     return undefined;

@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { join } from 'node:path';
-import * as nodeFs from 'node:fs';
+import * as nodeFs from "node:fs";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   appendAuditEvent,
   createProjectSlug,
@@ -9,20 +11,20 @@ import {
   readActiveIdentityState,
   setActiveIdentity,
   type ActiveIdentityStateDocument,
-} from '../../src/index.js';
-import type { HushContext, LegacyHushConfig, StoreContext } from '../../src/types.js';
+} from "../../src/index.js";
+import type { HushContext, LegacyHushConfig, StoreContext } from "../../src/types.js";
 
-const TEST_DIR = join('/tmp', 'hush-test-v3-identity-audit');
+const TEST_DIR = join("/tmp", "hush-test-v3-identity-audit");
 
 function createContext(): HushContext {
-const defaultConfig: LegacyHushConfig = {
+  const defaultConfig: LegacyHushConfig = {
     sources: {
-      shared: '.hush',
-      development: '.hush.development',
-      production: '.hush.production',
-      local: '.hush.local',
+      shared: ".hush",
+      development: ".hush.development",
+      production: ".hush.production",
+      local: ".hush.local",
     },
-    targets: [{ name: 'root', path: '.', format: 'dotenv' }],
+    targets: [{ name: "root", path: ".", format: "dotenv" }],
   };
 
   return {
@@ -40,8 +42,8 @@ const defaultConfig: LegacyHushConfig = {
       join,
     },
     exec: {
-      spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
-      execSync: vi.fn(() => ''),
+      spawnSync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })),
+      execSync: vi.fn(() => ""),
     },
     logger: {
       log: vi.fn(),
@@ -64,16 +66,16 @@ const defaultConfig: LegacyHushConfig = {
     },
     age: {
       ageAvailable: vi.fn(() => true),
-      ageGenerate: vi.fn(() => ({ private: 'private', public: 'public' })),
+      ageGenerate: vi.fn(() => ({ private: "private", public: "public" })),
       keyExists: vi.fn(() => false),
       keySave: vi.fn(),
-      keyPath: vi.fn(() => ''),
+      keyPath: vi.fn(() => ""),
       keyLoad: vi.fn(() => null),
-      agePublicFromPrivate: vi.fn(() => 'public'),
+      agePublicFromPrivate: vi.fn(() => "public"),
     },
     sops: {
-      decrypt: vi.fn(() => ''),
-      decryptYaml: vi.fn(() => ''),
+      decrypt: vi.fn(() => ""),
+      decryptYaml: vi.fn(() => ""),
       encrypt: vi.fn(),
       encryptYaml: vi.fn(),
       encryptYamlContent: vi.fn(),
@@ -83,27 +85,27 @@ const defaultConfig: LegacyHushConfig = {
   };
 }
 
-function createStore(mode: 'project' | 'global' = 'project'): StoreContext {
+function createStore(mode: "project" | "global" = "project"): StoreContext {
   const root = join(TEST_DIR, mode);
-  const stateRoot = join(TEST_DIR, '.machine-state');
-  const projectSlug = createProjectSlug(mode === 'global' ? 'hush-global' : 'acme/hush');
-  const projectStateRoot = join(stateRoot, 'projects', projectSlug);
+  const stateRoot = join(TEST_DIR, ".machine-state");
+  const projectSlug = createProjectSlug(mode === "global" ? "hush-global" : "acme/hush");
+  const projectStateRoot = join(stateRoot, "projects", projectSlug);
 
   return {
     mode,
     root,
-    configPath: mode === 'project' ? join(root, 'hush.yaml') : null,
-    keyIdentity: mode === 'global' ? 'hush-global' : 'acme/hush',
+    configPath: mode === "project" ? join(root, "hush.yaml") : null,
+    keyIdentity: mode === "global" ? "hush-global" : "acme/hush",
     displayLabel: root,
     projectSlug,
     stateRoot,
     projectStateRoot,
-    activeIdentityPath: join(projectStateRoot, 'active-identity.json'),
-    auditLogPath: join(projectStateRoot, 'audit.jsonl'),
+    activeIdentityPath: join(projectStateRoot, "active-identity.json"),
+    auditLogPath: join(projectStateRoot, "audit.jsonl"),
   };
 }
 
-describe('v3 identity and audit primitives', () => {
+describe("v3 identity and audit primitives", () => {
   beforeEach(() => {
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
     nodeFs.mkdirSync(TEST_DIR, { recursive: true });
@@ -113,115 +115,128 @@ describe('v3 identity and audit primitives', () => {
     nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
-  it('round-trips the active identity and emits an identity change audit event', () => {
+  it("round-trips the active identity and emits an identity change audit event", () => {
     const ctx = createContext();
     const store = createStore();
 
     const document = setActiveIdentity(ctx, {
       store,
-      identity: 'owner-local',
-      identities: ['owner-local', 'ci'],
-      command: { name: 'config', args: ['active-identity', 'owner-local'] },
+      identity: "owner-local",
+      identities: ["owner-local", "ci"],
+      command: { name: "config", args: ["active-identity", "owner-local"] },
     });
 
     const stored = readActiveIdentityState(ctx, store) as ActiveIdentityStateDocument;
     const auditPath = getProjectStatePaths(store).auditLogPath;
-    const auditLines = nodeFs.readFileSync(auditPath, 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
+    const auditLines = nodeFs
+      .readFileSync(auditPath, "utf-8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
 
-    expect(document.identity).toBe('owner-local');
-    expect(stored.identity).toBe('owner-local');
-    expect(getActiveIdentity(ctx, store)).toBe('owner-local');
+    expect(document.identity).toBe("owner-local");
+    expect(stored.identity).toBe("owner-local");
+    expect(getActiveIdentity(ctx, store)).toBe("owner-local");
     expect(auditLines).toHaveLength(1);
     expect(auditLines[0]).toMatchObject({
-      type: 'identity_change',
+      type: "identity_change",
       success: true,
-      activeIdentity: 'owner-local',
-      nextIdentity: 'owner-local',
-      requestedIdentity: 'owner-local',
+      activeIdentity: "owner-local",
+      nextIdentity: "owner-local",
+      requestedIdentity: "owner-local",
     });
   });
 
-  it('rejects invalid identities without mutating the pointer and records access denial', () => {
+  it("rejects invalid identities without mutating the pointer and records access denial", () => {
     const ctx = createContext();
     const store = createStore();
 
     setActiveIdentity(ctx, {
       store,
-      identity: 'owner-local',
-      identities: ['owner-local', 'ci'],
-      command: { name: 'config', args: ['active-identity', 'owner-local'] },
+      identity: "owner-local",
+      identities: ["owner-local", "ci"],
+      command: { name: "config", args: ["active-identity", "owner-local"] },
     });
 
     expect(() =>
       setActiveIdentity(ctx, {
         store,
-        identity: 'ghost',
-        identities: ['owner-local', 'ci'],
-        command: { name: 'config', args: ['active-identity', 'ghost'] },
+        identity: "ghost",
+        identities: ["owner-local", "ci"],
+        command: { name: "config", args: ["active-identity", "ghost"] },
       }),
     ).toThrow('Identity "ghost" is not declared in this repository');
 
     const auditPath = getProjectStatePaths(store).auditLogPath;
-    const auditLines = nodeFs.readFileSync(auditPath, 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
+    const auditLines = nodeFs
+      .readFileSync(auditPath, "utf-8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
 
-    expect(getActiveIdentity(ctx, store)).toBe('owner-local');
+    expect(getActiveIdentity(ctx, store)).toBe("owner-local");
     expect(auditLines).toHaveLength(2);
     expect(auditLines[1]).toMatchObject({
-      type: 'access_denied',
+      type: "access_denied",
       success: false,
-      activeIdentity: 'owner-local',
-      requestedIdentity: 'ghost',
+      activeIdentity: "owner-local",
+      requestedIdentity: "ghost",
     });
   });
 
-  it('appends audit records as JSONL without truncating earlier lines', () => {
+  it("appends audit records as JSONL without truncating earlier lines", () => {
     const ctx = createContext();
     const store = createStore();
     const auditPath = getProjectStatePaths(store).auditLogPath;
 
     appendAuditEvent(ctx, store, {
-      type: 'read_attempt',
-      activeIdentity: 'owner-local',
+      type: "read_attempt",
+      activeIdentity: "owner-local",
       success: true,
-      command: { name: 'inspect', args: ['env/project/shared'] },
-      files: ['env/project/shared'],
+      command: { name: "inspect", args: ["env/project/shared"] },
+      files: ["env/project/shared"],
     });
 
-    const firstContents = nodeFs.readFileSync(auditPath, 'utf-8');
+    const firstContents = nodeFs.readFileSync(auditPath, "utf-8");
 
     appendAuditEvent(ctx, store, {
-      type: 'materialize',
-      activeIdentity: 'owner-local',
+      type: "materialize",
+      activeIdentity: "owner-local",
       success: true,
-      command: { name: 'run', args: ['--', 'npm', 'start'] },
-      files: ['env/project/shared'],
-      target: 'web',
+      command: { name: "run", args: ["--", "npm", "start"] },
+      files: ["env/project/shared"],
+      target: "web",
     });
 
-    const secondContents = nodeFs.readFileSync(auditPath, 'utf-8');
-    const auditLines = secondContents.trim().split('\n').map((line) => JSON.parse(line));
+    const secondContents = nodeFs.readFileSync(auditPath, "utf-8");
+    const auditLines = secondContents
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
 
     expect(secondContents.startsWith(firstContents)).toBe(true);
     expect(auditLines).toHaveLength(2);
-    expect(auditLines[0].type).toBe('read_attempt');
-    expect(auditLines[1].type).toBe('materialize');
+    expect(auditLines[0].type).toBe("read_attempt");
+    expect(auditLines[1].type).toBe("materialize");
   });
 
-  it('reports degraded audit telemetry without converting the operation into a failure', () => {
+  it("reports degraded audit telemetry without converting the operation into a failure", () => {
     const ctx = createContext();
     const store = createStore();
     ctx.fs.writeFileSync = vi.fn(() => {
-      throw new Error('synthetic audit sink failure');
+      throw new Error("synthetic audit sink failure");
     });
 
-    expect(() => appendAuditEvent(ctx, store, {
-      type: 'write',
-      activeIdentity: 'owner-local',
-      success: true,
-      command: { name: 'set', args: ['KEY'] },
-    })).not.toThrow();
+    expect(() =>
+      appendAuditEvent(ctx, store, {
+        type: "write",
+        activeIdentity: "owner-local",
+        success: true,
+        command: { name: "set", args: ["KEY"] },
+      }),
+    ).not.toThrow();
     expect(ctx.logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('synthetic audit sink failure'),
+      expect.stringContaining("synthetic audit sink failure"),
     );
   });
 });
