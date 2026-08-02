@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 import {
   chmodSync,
+  closeSync,
+  constants as fsConstants,
   existsSync,
   fstatSync,
   lstatSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -45,8 +47,1753 @@ const guardedFds = {
 };
 const pinnedBunEnv = "HUSH_INSTALL_PINNED_BUN_PATH";
 const pinnedGitEnv = "HUSH_INSTALL_PINNED_GIT_PATH";
+const loginNativeHelperEnv = "HUSH_INSTALL_LOGIN_NATIVE_HELPER";
 const loginPathBlockStart = "# >>> hush managed login PATH >>>";
 const loginPathBlockEnd = "# <<< hush managed login PATH <<<";
+const loginNativeExtension = String.raw`
+#if defined(__APPLE__)
+#include <copyfile.h>
+#include <sys/acl.h>
+#include <sys/random.h>
+#include <sys/xattr.h>
+#elif defined(__linux__)
+#include <sys/ioctl.h>
+#include <sys/random.h>
+#include <sys/xattr.h>
+#endif
+
+#define LOGIN_EXPECTED_FD 3
+#define LOGIN_METADATA_FD 4
+#define LOGIN_PARENT_FD 5
+
+static intmax_t login_mtime_ns(const struct stat *metadata) {
+#if defined(__APPLE__)
+  return (intmax_t)metadata->st_mtimespec.tv_sec * 1000000000
+    + metadata->st_mtimespec.tv_nsec;
+#else
+  return (intmax_t)metadata->st_mtim.tv_sec * 1000000000
+    + metadata->st_mtim.tv_nsec;
+#endif
+}
+
+static intmax_t login_atime_ns(const struct stat *metadata) {
+#if defined(__APPLE__)
+  return (intmax_t)metadata->st_atimespec.tv_sec * 1000000000
+    + metadata->st_atimespec.tv_nsec;
+#else
+  return (intmax_t)metadata->st_atim.tv_sec * 1000000000
+    + metadata->st_atim.tv_nsec;
+#endif
+}
+
+static intmax_t login_ctime_ns(const struct stat *metadata) {
+#if defined(__APPLE__)
+  return (intmax_t)metadata->st_ctimespec.tv_sec * 1000000000
+    + metadata->st_ctimespec.tv_nsec;
+#else
+  return (intmax_t)metadata->st_ctim.tv_sec * 1000000000
+    + metadata->st_ctim.tv_nsec;
+#endif
+}
+
+static bool login_same_state(const struct stat *left, const struct stat *right) {
+  return same_inode(left, right)
+    && left->st_uid == right->st_uid
+    && left->st_gid == right->st_gid
+    && left->st_mode == right->st_mode
+    && left->st_nlink == right->st_nlink
+    && left->st_size == right->st_size
+    && login_mtime_ns(left) == login_mtime_ns(right)
+    && login_ctime_ns(left) == login_ctime_ns(right)
+#if defined(__APPLE__)
+    && left->st_flags == right->st_flags
+#endif
+    ;
+}
+
+static bool login_same_preserved_state(
+  const struct stat *left,
+  const struct stat *right
+) {
+  return same_inode(left, right)
+    && left->st_uid == right->st_uid
+    && left->st_gid == right->st_gid
+    && left->st_mode == right->st_mode
+    && left->st_nlink == right->st_nlink
+    && left->st_size == right->st_size
+    && login_mtime_ns(left) == login_mtime_ns(right)
+#if defined(__APPLE__)
+    && left->st_flags == right->st_flags
+#endif
+    ;
+}
+
+static bool login_capture_rename_transition(
+  int fd,
+  const struct stat *before,
+  struct stat *after
+) {
+  return fstat(fd, after) == 0 && login_same_preserved_state(before, after);
+}
+
+static void login_print_state(const char *label, const struct stat *metadata) {
+  if (
+    printf(
+      "%s\t%ju\t%ju\t%ju\t%ju\t%ju\t%ju\t%ju\t%jd\t%jd\n",
+      label,
+      (uintmax_t)metadata->st_dev,
+      (uintmax_t)metadata->st_ino,
+      (uintmax_t)metadata->st_uid,
+      (uintmax_t)metadata->st_gid,
+      (uintmax_t)metadata->st_mode,
+      (uintmax_t)metadata->st_nlink,
+      (uintmax_t)metadata->st_size,
+      login_mtime_ns(metadata),
+      login_ctime_ns(metadata)
+    ) < 0
+    || fflush(stdout) != 0
+  ) {
+    fail_errno("cannot emit startup publication receipt for", "startup file");
+  }
+}
+
+static intmax_t login_parse_signed_part(const char *value, const char *label) {
+  if (!value || !value[0]) fail("invalid %s: %s", label, value ? value : "(null)");
+  errno = 0;
+  char *end = NULL;
+  intmax_t parsed = strtoimax(value, &end, 10);
+  if (errno || !end || *end) fail("invalid %s: %s", label, value);
+  return parsed;
+}
+
+static bool login_state_matches_args(const struct stat *metadata, char **values) {
+  return (uintmax_t)metadata->st_dev
+      == parse_identity_part(values[0], "startup device", 10)
+    && (uintmax_t)metadata->st_ino
+      == parse_identity_part(values[1], "startup inode", 10)
+    && (uintmax_t)metadata->st_uid
+      == parse_identity_part(values[2], "startup uid", 10)
+    && (uintmax_t)metadata->st_gid
+      == parse_identity_part(values[3], "startup gid", 10)
+    && (uintmax_t)metadata->st_mode
+      == parse_identity_part(values[4], "startup mode", 10)
+    && (uintmax_t)metadata->st_nlink
+      == parse_identity_part(values[5], "startup link count", 10)
+    && (uintmax_t)metadata->st_size
+      == parse_identity_part(values[6], "startup size", 10)
+    && login_mtime_ns(metadata)
+      == login_parse_signed_part(values[7], "startup modification time")
+    && login_ctime_ns(metadata)
+      == login_parse_signed_part(values[8], "startup change time");
+}
+
+static void login_require_regular(
+  int fd,
+  const struct stat *metadata,
+  const char *path,
+  bool linked
+) {
+  (void)fd;
+  if (
+    !S_ISREG(metadata->st_mode)
+    || metadata->st_uid != geteuid()
+    || (linked ? metadata->st_nlink != 1 : metadata->st_nlink > 1)
+  ) {
+    fail("startup file must be a user-owned single-link regular file: %s", path);
+  }
+  if ((metadata->st_mode & (S_ISUID | S_ISGID | S_ISVTX)) != 0) {
+    fail("startup file has unsupported special mode bits: %s", path);
+  }
+}
+
+#if defined(__linux__)
+static void login_require_linux_metadata(int fd, const char *path) {
+  ssize_t attributes = flistxattr(fd, NULL, 0);
+  if (attributes < 0) {
+    fail_errno("cannot inspect startup extended attributes for", path);
+  }
+  if (attributes > 0) {
+    fail("startup file has extended attributes; refusing replacement: %s", path);
+  }
+  int flags = 0;
+  if (ioctl(fd, FS_IOC_GETFLAGS, &flags) < 0) {
+    if (errno != ENOTTY && errno != EOPNOTSUPP) {
+      fail_errno("cannot inspect startup file flags for", path);
+    }
+    return;
+  }
+  int allowed = 0;
+#ifdef FS_EXTENT_FL
+  allowed |= FS_EXTENT_FL;
+#endif
+#ifdef FS_INDEX_FL
+  allowed |= FS_INDEX_FL;
+#endif
+  if ((flags & ~allowed) != 0) {
+    fail("startup file has unsupported file flags: %s", path);
+  }
+}
+#endif
+
+#if defined(__APPLE__)
+struct login_blob {
+  unsigned char *bytes;
+  size_t length;
+  bool present;
+};
+
+struct login_xattr {
+  char *name;
+  unsigned char *value;
+  size_t length;
+};
+
+struct login_apple_metadata {
+  struct login_blob acl;
+  struct login_xattr *xattrs;
+  size_t xattr_count;
+};
+
+static int login_compare_xattr_names(const void *left, const void *right) {
+  const struct login_xattr *left_attribute = left;
+  const struct login_xattr *right_attribute = right;
+  return strcmp(left_attribute->name, right_attribute->name);
+}
+
+static struct login_blob login_capture_acl(int fd, const char *path) {
+  errno = 0;
+  acl_t acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED);
+  if (!acl) {
+    if (errno != ENOENT && errno != EOPNOTSUPP) {
+      fail_errno("cannot inspect startup ACL for", path);
+    }
+    return (struct login_blob){0};
+  }
+  ssize_t length = acl_size(acl);
+  if (length < 0) fail_errno("cannot size startup ACL for", path);
+  unsigned char *bytes = malloc(length == 0 ? 1 : (size_t)length);
+  if (!bytes) fail("cannot allocate startup ACL snapshot");
+  if (acl_copy_ext_native(bytes, acl, length) != length) {
+    fail_errno("cannot snapshot startup ACL for", path);
+  }
+  acl_free(acl);
+  return (struct login_blob){
+    .bytes = bytes,
+    .length = (size_t)length,
+    .present = true,
+  };
+}
+
+static struct login_apple_metadata login_capture_apple_metadata(
+  int fd,
+  const char *path
+) {
+  struct login_apple_metadata result = {
+    .acl = login_capture_acl(fd, path),
+  };
+  ssize_t names_length = flistxattr(fd, NULL, 0, 0);
+  if (names_length < 0) {
+    fail_errno("cannot inspect startup extended attributes for", path);
+  }
+  if (names_length == 0) return result;
+  char *names = malloc((size_t)names_length);
+  if (!names) fail("cannot allocate startup extended attribute names");
+  ssize_t captured_length = flistxattr(fd, names, (size_t)names_length, 0);
+  if (captured_length != names_length) {
+    fail("startup extended attributes changed during snapshot: %s", path);
+  }
+  for (size_t offset = 0; offset < (size_t)names_length;) {
+    size_t remaining = (size_t)names_length - offset;
+    size_t length = strnlen(names + offset, remaining);
+    if (length == 0 || length == remaining) {
+      fail("startup extended attribute listing is invalid: %s", path);
+    }
+    result.xattr_count++;
+    offset += length + 1;
+  }
+  if (result.xattr_count > SIZE_MAX / sizeof(*result.xattrs)) {
+    fail("startup extended attribute listing is too large: %s", path);
+  }
+  result.xattrs = calloc(result.xattr_count, sizeof(*result.xattrs));
+  if (!result.xattrs) fail("cannot allocate startup extended attribute snapshot");
+  size_t index = 0;
+  for (size_t offset = 0; offset < (size_t)names_length; index++) {
+    size_t length = strlen(names + offset);
+    result.xattrs[index].name = strdup(names + offset);
+    if (!result.xattrs[index].name) {
+      fail("cannot allocate startup extended attribute name");
+    }
+    offset += length + 1;
+  }
+  free(names);
+  qsort(
+    result.xattrs,
+    result.xattr_count,
+    sizeof(*result.xattrs),
+    login_compare_xattr_names
+  );
+  for (index = 0; index < result.xattr_count; index++) {
+    struct login_xattr *attribute = &result.xattrs[index];
+    ssize_t length = fgetxattr(fd, attribute->name, NULL, 0, 0, 0);
+    if (length < 0) {
+      fail("startup extended attributes changed during snapshot: %s", path);
+    }
+    attribute->length = (size_t)length;
+    if (length == 0) continue;
+    attribute->value = malloc((size_t)length);
+    if (!attribute->value) {
+      fail("cannot allocate startup extended attribute value");
+    }
+    if (
+      fgetxattr(
+        fd,
+        attribute->name,
+        attribute->value,
+        attribute->length,
+        0,
+        0
+      ) != length
+    ) {
+      fail("startup extended attributes changed during snapshot: %s", path);
+    }
+  }
+  return result;
+}
+
+static bool login_same_blob(
+  const struct login_blob *left,
+  const struct login_blob *right
+) {
+  return left->present == right->present
+    && left->length == right->length
+    && (
+      left->length == 0
+      || memcmp(left->bytes, right->bytes, left->length) == 0
+    );
+}
+
+static bool login_same_apple_metadata(
+  const struct login_apple_metadata *left,
+  const struct login_apple_metadata *right
+) {
+  if (
+    !login_same_blob(&left->acl, &right->acl)
+    || left->xattr_count != right->xattr_count
+  ) {
+    return false;
+  }
+  for (size_t index = 0; index < left->xattr_count; index++) {
+    const struct login_xattr *left_attribute = &left->xattrs[index];
+    const struct login_xattr *right_attribute = &right->xattrs[index];
+    if (
+      strcmp(left_attribute->name, right_attribute->name) != 0
+      || left_attribute->length != right_attribute->length
+      || (
+        left_attribute->length > 0
+        && memcmp(
+          left_attribute->value,
+          right_attribute->value,
+          left_attribute->length
+        ) != 0
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void login_free_apple_metadata(struct login_apple_metadata *metadata) {
+  free(metadata->acl.bytes);
+  for (size_t index = 0; index < metadata->xattr_count; index++) {
+    free(metadata->xattrs[index].name);
+    free(metadata->xattrs[index].value);
+  }
+  free(metadata->xattrs);
+}
+#endif
+
+static void login_copy_metadata(
+  int source,
+  int destination,
+  const struct stat *source_metadata,
+  const char *path
+) {
+#if defined(__APPLE__)
+  unsigned int dangerous = UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND;
+  if ((source_metadata->st_flags & dangerous) != 0) {
+    fail("startup file has immutable or append-only flags: %s", path);
+  }
+  struct login_apple_metadata before = login_capture_apple_metadata(source, path);
+  pause_for_test("during-login-metadata-copy", path);
+  copyfile_state_t state = copyfile_state_alloc();
+  if (!state) fail("cannot allocate startup metadata copy state");
+  if (fcopyfile(source, destination, state, COPYFILE_METADATA) < 0) {
+    copyfile_state_free(state);
+    fail_errno("cannot preserve startup metadata for", path);
+  }
+  copyfile_state_free(state);
+  struct login_apple_metadata after = login_capture_apple_metadata(source, path);
+  struct login_apple_metadata copied = login_capture_apple_metadata(destination, path);
+  if (!login_same_apple_metadata(&before, &after)) {
+    fail("startup ACL or extended attributes changed during copy: %s", path);
+  }
+  if (!login_same_apple_metadata(&before, &copied)) {
+    fail("startup ACL or extended attributes were not preserved: %s", path);
+  }
+  login_free_apple_metadata(&before);
+  login_free_apple_metadata(&after);
+  login_free_apple_metadata(&copied);
+#else
+  login_require_linux_metadata(source, path);
+  const struct timespec timestamps[2] = {
+    source_metadata->st_atim,
+    source_metadata->st_mtim,
+  };
+  if (futimens(destination, timestamps) < 0) {
+    fail_errno("cannot preserve startup timestamps for", path);
+  }
+  struct stat copied;
+  if (
+    fstat(destination, &copied) < 0
+    || login_atime_ns(&copied) != login_atime_ns(source_metadata)
+    || login_mtime_ns(&copied) != login_mtime_ns(source_metadata)
+  ) {
+    fail("startup timestamps were not preserved: %s", path);
+  }
+#endif
+}
+
+static void login_require_new_metadata(
+  int fd,
+  const struct stat *metadata,
+  const char *path
+) {
+#if defined(__APPLE__)
+  if (metadata->st_flags != 0) {
+    fail("new startup file inherited unsupported file flags: %s", path);
+  }
+  struct login_apple_metadata inherited = login_capture_apple_metadata(fd, path);
+  bool inherited_acl = inherited.acl.present;
+  bool inherited_xattrs = false;
+  for (size_t index = 0; index < inherited.xattr_count; index++) {
+    if (strcmp(inherited.xattrs[index].name, "com.apple.provenance") != 0) {
+      inherited_xattrs = true;
+      break;
+    }
+  }
+  login_free_apple_metadata(&inherited);
+  if (inherited_acl) {
+    fail("new startup file inherited an ACL; refusing publication: %s", path);
+  }
+  if (inherited_xattrs) {
+    fail("new startup file inherited extended attributes; refusing publication: %s", path);
+  }
+#else
+  login_require_linux_metadata(fd, path);
+  (void)metadata;
+#endif
+}
+
+static bool login_bytes_equal(int fd, const unsigned char *expected, size_t length) {
+  if (lseek(fd, 0, SEEK_SET) < 0) fail_errno("cannot seek", "startup file");
+  unsigned char buffer[64 * 1024];
+  size_t offset = 0;
+  while (offset < length) {
+    size_t wanted = length - offset < sizeof(buffer) ? length - offset : sizeof(buffer);
+    ssize_t count = read(fd, buffer, wanted);
+    if (count < 0) fail_errno("cannot read", "startup file");
+    if (count == 0 || memcmp(buffer, expected + offset, (size_t)count) != 0) {
+      return false;
+    }
+    offset += (size_t)count;
+  }
+  unsigned char extra;
+  ssize_t trailing = read(fd, &extra, 1);
+  if (trailing < 0) fail_errno("cannot read", "startup file");
+  return trailing == 0;
+}
+
+static unsigned char *login_read_input(size_t length) {
+  unsigned char *buffer = malloc(length == 0 ? 1 : length);
+  if (!buffer) fail("cannot allocate startup input");
+  size_t offset = 0;
+  while (offset < length) {
+    ssize_t count = read(STDIN_FILENO, buffer + offset, length - offset);
+    if (count < 0) fail_errno("cannot read", "startup input");
+    if (count == 0) fail("startup input ended early");
+    offset += (size_t)count;
+  }
+  unsigned char extra;
+  ssize_t trailing = read(STDIN_FILENO, &extra, 1);
+  if (trailing < 0) fail_errno("cannot read", "startup input");
+  if (trailing != 0) fail("startup input has trailing bytes");
+  return buffer;
+}
+
+static bool login_fd_matches_state(int fd, const struct stat *expected) {
+  struct stat current;
+  return fstat(fd, &current) == 0 && login_same_state(expected, &current);
+}
+
+static bool login_name_matches_state(
+  int parent,
+  const char *name,
+  int fd,
+  const struct stat *expected,
+  const unsigned char *bytes,
+  size_t length,
+  bool compare_bytes
+) {
+  struct stat path_metadata;
+  struct stat opened_metadata;
+  struct stat final_expected;
+  struct stat final_path;
+  login_require_regular(fd, expected, name, true);
+  if (!login_fd_matches_state(fd, expected)) return false;
+  if (fstatat(parent, name, &path_metadata, AT_SYMLINK_NOFOLLOW) < 0) return false;
+  if (!login_same_state(expected, &path_metadata)) return false;
+  int opened = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (opened < 0) return false;
+  bool matches = fstat(opened, &opened_metadata) == 0
+    && login_same_state(expected, &opened_metadata)
+    && (!compare_bytes || login_bytes_equal(opened, bytes, length))
+    && fstat(fd, &final_expected) == 0
+    && login_same_state(expected, &final_expected)
+    && fstatat(parent, name, &final_path, AT_SYMLINK_NOFOLLOW) == 0
+    && login_same_state(expected, &final_path);
+  close(opened);
+  return matches;
+}
+
+static bool login_name_matches_inode(int parent, const char *name, int fd) {
+  struct stat expected;
+  struct stat path_metadata;
+  struct stat opened_metadata;
+  struct stat final_expected;
+  struct stat final_path;
+  if (fstat(fd, &expected) < 0) return false;
+  if (
+    fstatat(parent, name, &path_metadata, AT_SYMLINK_NOFOLLOW) < 0
+    || !same_inode(&expected, &path_metadata)
+  ) {
+    return false;
+  }
+  int opened = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (opened < 0) return false;
+  bool matches = fstat(opened, &opened_metadata) == 0
+    && same_inode(&expected, &opened_metadata)
+    && fstat(fd, &final_expected) == 0
+    && same_inode(&expected, &final_expected)
+    && fstatat(parent, name, &final_path, AT_SYMLINK_NOFOLLOW) == 0
+    && same_inode(&expected, &final_path);
+  close(opened);
+  return matches;
+}
+
+static void login_write_all(
+  int fd,
+  const unsigned char *bytes,
+  size_t length,
+  const char *name
+) {
+  size_t offset = 0;
+  while (offset < length) {
+    ssize_t count = write(fd, bytes + offset, length - offset);
+    if (count < 0) fail_errno("cannot write startup temporary", name);
+    if (count == 0) fail("cannot write startup temporary: %s", name);
+    offset += (size_t)count;
+  }
+}
+
+static bool login_claim_and_unlink(
+  int parent,
+  const char *name,
+  int fd,
+  const struct stat *state,
+  const unsigned char *bytes,
+  size_t length,
+  bool compare_bytes
+) {
+  unsigned char random[16];
+  if (getentropy(random, sizeof(random)) < 0) {
+    fprintf(stderr, "hush install helper warning: cannot claim startup cleanup: %s\n", name);
+    return false;
+  }
+  char claim[96];
+  int written = snprintf(
+    claim,
+    sizeof(claim),
+    ".hush-login-claim-%ld-"
+    "%02x%02x%02x%02x%02x%02x%02x%02x"
+    "%02x%02x%02x%02x%02x%02x%02x%02x",
+    (long)getpid(),
+    random[0], random[1], random[2], random[3],
+    random[4], random[5], random[6], random[7],
+    random[8], random[9], random[10], random[11],
+    random[12], random[13], random[14], random[15]
+  );
+  if (written < 0 || (size_t)written >= sizeof(claim)) {
+    fprintf(stderr, "hush install helper warning: cannot name startup cleanup claim: %s\n", name);
+    return false;
+  }
+  if (rename_noreplace(parent, name, parent, claim) < 0) {
+    fprintf(stderr, "hush install helper warning: cannot claim startup cleanup: %s\n", name);
+    return false;
+  }
+  struct stat claimed_state;
+  bool claimed = login_capture_rename_transition(fd, state, &claimed_state)
+    && login_name_matches_state(
+      parent,
+      claim,
+      fd,
+      &claimed_state,
+      bytes,
+      length,
+      compare_bytes
+    );
+  if (!claimed) {
+    if (rename_noreplace(parent, claim, parent, name) < 0) {
+      fprintf(
+        stderr,
+        "hush install helper warning: startup cleanup replacement preserved at %s\n",
+        claim
+      );
+    }
+    return false;
+  }
+  if (unlinkat(parent, claim, 0) < 0) {
+    fprintf(
+      stderr,
+      "hush install helper warning: claimed startup cleanup preserved at %s\n",
+      claim
+    );
+    return false;
+  }
+  return true;
+}
+
+static int login_pending_parent = -1;
+static int login_pending_fd = -1;
+static const char *login_pending_name = NULL;
+
+static void login_cleanup_pending(void) {
+  struct stat expected;
+  if (
+    login_pending_parent < 0
+    || login_pending_fd < 0
+    || !login_pending_name
+    || fstat(login_pending_fd, &expected) < 0
+  ) {
+    return;
+  }
+  login_claim_and_unlink(
+    login_pending_parent,
+    login_pending_name,
+    login_pending_fd,
+    &expected,
+    NULL,
+    0,
+    false
+  );
+}
+
+static void login_arm_cleanup(int parent, const char *name, int fd) {
+  static bool registered = false;
+  login_pending_parent = parent;
+  login_pending_name = name;
+  login_pending_fd = fd;
+  if (!registered) {
+    if (atexit(login_cleanup_pending) != 0) {
+      login_cleanup_pending();
+      close(fd);
+      login_pending_parent = -1;
+      login_pending_name = NULL;
+      login_pending_fd = -1;
+      fail("cannot register startup temporary cleanup");
+    }
+    registered = true;
+  }
+}
+
+static void login_disarm_cleanup(void) {
+  login_pending_parent = -1;
+  login_pending_name = NULL;
+  login_pending_fd = -1;
+}
+
+static int login_create_temporary(
+  int parent,
+  const char *name,
+  const unsigned char *bytes,
+  size_t length,
+  int metadata_source,
+  mode_t default_mode,
+  struct stat *created_state
+) {
+  int fd = openat(
+    parent,
+    name,
+    O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+    0600
+  );
+  if (fd < 0) fail_errno("cannot create startup temporary", name);
+  login_arm_cleanup(parent, name, fd);
+  login_write_all(fd, bytes, length, name);
+
+  struct stat parent_metadata;
+  struct stat source_metadata;
+  uid_t uid = geteuid();
+  gid_t gid;
+  mode_t mode;
+  if (metadata_source >= 0) {
+    if (fstat(metadata_source, &source_metadata) < 0) {
+      fail_errno("cannot inspect startup metadata source", name);
+    }
+    login_require_regular(metadata_source, &source_metadata, name, false);
+    uid = source_metadata.st_uid;
+    gid = source_metadata.st_gid;
+    mode = source_metadata.st_mode & 0777;
+  } else {
+    if (fstat(parent, &parent_metadata) < 0) {
+      fail_errno("cannot inspect startup directory", name);
+    }
+    gid = parent_metadata.st_gid;
+    mode = default_mode;
+  }
+
+  struct stat current;
+  if (fstat(fd, &current) < 0) fail_errno("cannot inspect startup temporary", name);
+  if ((current.st_uid != uid || current.st_gid != gid) && fchown(fd, uid, gid) < 0) {
+    fail_errno("cannot preserve startup ownership for", name);
+  }
+  if (fchmod(fd, mode) < 0) fail_errno("cannot preserve startup mode for", name);
+  if (metadata_source >= 0) {
+    login_copy_metadata(metadata_source, fd, &source_metadata, name);
+    if (!login_fd_matches_state(metadata_source, &source_metadata)) {
+      fail("startup metadata source changed during copy: %s", name);
+    }
+  } else {
+    if (fstat(fd, &current) < 0) {
+      fail_errno("cannot inspect new startup temporary", name);
+    }
+    login_require_new_metadata(fd, &current, name);
+  }
+  if (fsync(fd) < 0) fail_errno("cannot finalize startup temporary", name);
+  if (fstat(fd, created_state) < 0) {
+    fail_errno("cannot inspect finalized startup temporary", name);
+  }
+  login_require_regular(fd, created_state, name, true);
+  if (
+    created_state->st_uid != uid
+    || created_state->st_gid != gid
+    || (created_state->st_mode & 07777) != mode
+    || (
+      metadata_source >= 0
+      && (
+        login_atime_ns(created_state) != login_atime_ns(&source_metadata)
+        || login_mtime_ns(created_state) != login_mtime_ns(&source_metadata)
+      )
+    )
+#if defined(__APPLE__)
+    || (metadata_source >= 0 && created_state->st_flags != source_metadata.st_flags)
+#endif
+  ) {
+    fail("startup temporary metadata differs from intended state: %s", name);
+  }
+  return fd;
+}
+
+static int login_rename_exchange(
+  int left_fd,
+  const char *left,
+  int right_fd,
+  const char *right
+) {
+#if defined(__APPLE__)
+  return renameatx_np(left_fd, left, right_fd, right, RENAME_SWAP);
+#elif defined(__linux__) && defined(SYS_renameat2)
+  return (int)syscall(
+    SYS_renameat2,
+    left_fd,
+    left,
+    right_fd,
+    right,
+    RENAME_EXCHANGE
+  );
+#else
+  errno = ENOTSUP;
+  return -1;
+#endif
+}
+
+static bool login_cleanup_exact(
+  int parent,
+  const char *name,
+  int fd,
+  const struct stat *state,
+  const unsigned char *bytes,
+  size_t length
+) {
+  return login_claim_and_unlink(
+    parent,
+    name,
+    fd,
+    state,
+    bytes,
+    length,
+    true
+  );
+}
+
+static bool login_parent_matches_path(int parent, const char *directory) {
+  int current = open(
+    directory,
+    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+  );
+  if (current < 0) return false;
+  struct stat expected;
+  struct stat actual;
+  bool matches = fstat(parent, &expected) == 0
+    && fstat(current, &actual) == 0
+    && same_inode(&expected, &actual);
+  close(current);
+  return matches;
+}
+
+static int login_open_parent(const char *directory) {
+  int parent = openat(
+    LOGIN_PARENT_FD,
+    ".",
+    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+  );
+  if (parent < 0) {
+    fail_errno("cannot duplicate startup directory descriptor", directory);
+  }
+  struct stat metadata;
+  if (fstat(parent, &metadata) < 0) {
+    fail_errno("cannot inspect startup directory", directory);
+  }
+  if (
+    !S_ISDIR(metadata.st_mode)
+    || metadata.st_uid != geteuid()
+    || (metadata.st_mode & 0022) != 0
+  ) {
+    fail(
+      "startup directory must be user-owned and not group/world writable: %s",
+      directory
+    );
+  }
+  if (!login_parent_matches_path(parent, directory)) {
+    fail("startup directory changed before publication: %s", directory);
+  }
+  lock_directory(parent);
+  if (!login_parent_matches_path(parent, directory)) {
+    fail("startup directory changed while acquiring publication lock: %s", directory);
+  }
+  return parent;
+}
+
+static _Noreturn void login_fail_after_existing_exchange_restore(
+  int parent,
+  const char *target,
+  const char *temporary,
+  int installed_fd,
+  const struct stat *installed_state,
+  const unsigned char *installed_bytes,
+  size_t installed_length,
+  int original_fd,
+  const struct stat *original_state,
+  const unsigned char *original_bytes,
+  size_t original_length,
+  const char *reason
+) {
+  if (login_rename_exchange(parent, target, parent, temporary) < 0) {
+    fail_errno("cannot restore startup file after failed publication", target);
+  }
+  struct stat restored_state;
+  struct stat replacement_state;
+  bool original_transition = login_capture_rename_transition(
+    original_fd,
+    original_state,
+    &restored_state
+  );
+  bool replacement_transition = login_capture_rename_transition(
+    installed_fd,
+    installed_state,
+    &replacement_state
+  );
+  if (
+    !original_transition
+    || !login_name_matches_state(
+      parent,
+      target,
+      original_fd,
+      &restored_state,
+      original_bytes,
+      original_length,
+      true
+    )
+    || !login_name_matches_inode(parent, temporary, installed_fd)
+  ) {
+    fail("startup publication recovery changed concurrently: %s", target);
+  }
+  bool changed_replacement = !replacement_transition
+    || !login_name_matches_state(
+      parent,
+      temporary,
+      installed_fd,
+      &replacement_state,
+      installed_bytes,
+      installed_length,
+      true
+    );
+  bool replacement_preserved = changed_replacement || !login_claim_and_unlink(
+    parent,
+    temporary,
+    installed_fd,
+    &replacement_state,
+    installed_bytes,
+    installed_length,
+    true
+  );
+  if (fsync(parent) < 0) {
+    fail_errno("cannot sync restored startup directory", target);
+  }
+  if (replacement_preserved) {
+    fail(
+      "%s; original restored and changed replacement preserved: %s",
+      reason,
+      target
+    );
+  }
+  fail("%s; original restored: %s", reason, target);
+}
+
+static _Noreturn void login_fail_after_existing_copy_restore(
+  int parent,
+  const char *target,
+  const char *recovery,
+  int installed_fd,
+  const struct stat *installed_state,
+  const unsigned char *installed_bytes,
+  size_t installed_length,
+  int original_fd,
+  const unsigned char *original_bytes,
+  size_t original_length,
+  const char *reason
+) {
+  if (!login_name_matches_inode(parent, target, installed_fd)) {
+    fail("%s; startup target changed and was preserved: %s", reason, target);
+  }
+  struct stat recovery_state;
+  int recovery_fd = login_create_temporary(
+    parent,
+    recovery,
+    original_bytes,
+    original_length,
+    original_fd,
+    0600,
+    &recovery_state
+  );
+  if (
+    !login_name_matches_inode(parent, target, installed_fd)
+    || !login_name_matches_state(
+      parent,
+      recovery,
+      recovery_fd,
+      &recovery_state,
+      original_bytes,
+      original_length,
+      true
+    )
+  ) {
+    login_cleanup_exact(
+      parent,
+      recovery,
+      recovery_fd,
+      &recovery_state,
+      original_bytes,
+      original_length
+    );
+    login_disarm_cleanup();
+    fail("%s; startup changed before recovery: %s", reason, target);
+  }
+  if (login_rename_exchange(parent, recovery, parent, target) < 0) {
+    int saved_errno = errno;
+    login_cleanup_exact(
+      parent,
+      recovery,
+      recovery_fd,
+      &recovery_state,
+      original_bytes,
+      original_length
+    );
+    login_disarm_cleanup();
+    errno = saved_errno;
+    fail_errno("cannot restore startup file after failed publication", target);
+  }
+  login_disarm_cleanup();
+  struct stat restored_state;
+  struct stat replacement_state;
+  bool original_transition = login_capture_rename_transition(
+    recovery_fd,
+    &recovery_state,
+    &restored_state
+  );
+  bool replacement_transition = login_capture_rename_transition(
+    installed_fd,
+    installed_state,
+    &replacement_state
+  );
+  if (
+    !original_transition
+    || !login_name_matches_state(
+      parent,
+      target,
+      recovery_fd,
+      &restored_state,
+      original_bytes,
+      original_length,
+      true
+    )
+    || !login_name_matches_inode(parent, recovery, installed_fd)
+  ) {
+    fail("startup publication recovery changed concurrently: %s", target);
+  }
+  bool changed_replacement = !replacement_transition
+    || !login_name_matches_state(
+      parent,
+      recovery,
+      installed_fd,
+      &replacement_state,
+      installed_bytes,
+      installed_length,
+      true
+    );
+  bool replacement_preserved = changed_replacement || !login_claim_and_unlink(
+    parent,
+    recovery,
+    installed_fd,
+    &replacement_state,
+    installed_bytes,
+    installed_length,
+    true
+  );
+  if (fsync(parent) < 0) {
+    fail_errno("cannot sync restored startup directory", target);
+  }
+  close(recovery_fd);
+  if (replacement_preserved) {
+    fail(
+      "%s; original restored and changed replacement preserved: %s",
+      reason,
+      target
+    );
+  }
+  fail("%s; original restored: %s", reason, target);
+}
+
+static _Noreturn void login_fail_after_absent_restore(
+  int parent,
+  const char *target,
+  const char *recovery,
+  int installed_fd,
+  const struct stat *installed_state,
+  const unsigned char *installed_bytes,
+  size_t installed_length,
+  const char *reason
+) {
+  if (!login_name_matches_inode(parent, target, installed_fd)) {
+    fail("%s; startup target changed and was preserved: %s", reason, target);
+  }
+  if (rename_noreplace(parent, target, parent, recovery) < 0) {
+    fail_errno("cannot quarantine failed startup publication", target);
+  }
+  struct stat quarantined_state;
+  bool publication_transition = login_capture_rename_transition(
+    installed_fd,
+    installed_state,
+    &quarantined_state
+  );
+  if (!login_name_matches_inode(parent, recovery, installed_fd)) {
+    fail("failed startup publication changed during quarantine: %s", target);
+  }
+  bool changed_replacement = !publication_transition
+    || !login_name_matches_state(
+      parent,
+      recovery,
+      installed_fd,
+      &quarantined_state,
+      installed_bytes,
+      installed_length,
+      true
+    );
+  bool replacement_preserved = changed_replacement || !login_claim_and_unlink(
+    parent,
+    recovery,
+    installed_fd,
+    &quarantined_state,
+    installed_bytes,
+    installed_length,
+    true
+  );
+  if (fsync(parent) < 0) {
+    fail_errno("cannot sync restored startup directory", target);
+  }
+  if (replacement_preserved) {
+    fail(
+      "%s; original absence restored and changed replacement preserved: %s",
+      reason,
+      target
+    );
+  }
+  fail("%s; original absence restored: %s", reason, target);
+}
+
+static void command_login_write(int argc, char **argv) {
+  if (argc != 10) {
+    fail(
+      "usage: login-write <dir> <target> <temp> <recovery> <exists> "
+      "<old-length> <new-length> <mode>"
+    );
+  }
+  const char *directory = argv[2];
+  const char *target = argv[3];
+  const char *temporary = argv[4];
+  const char *recovery = argv[5];
+  require_component(target);
+  require_component(temporary);
+  require_component(recovery);
+  if (
+    strcmp(temporary, recovery) == 0
+    || !has_prefix(temporary, ".hush-login-")
+    || !has_prefix(recovery, ".hush-login-")
+  ) {
+    fail("invalid startup temporary name");
+  }
+  bool exists;
+  if (strcmp(argv[6], "1") == 0) exists = true;
+  else if (strcmp(argv[6], "0") == 0) exists = false;
+  else fail("invalid startup expected state");
+  size_t old_length = (size_t)parse_identity_part(
+    argv[7],
+    "startup old length",
+    10
+  );
+  size_t new_length = (size_t)parse_identity_part(
+    argv[8],
+    "startup new length",
+    10
+  );
+  mode_t default_mode = (mode_t)parse_identity_part(
+    argv[9],
+    "startup mode",
+    8
+  );
+  unsigned char *input = login_read_input(old_length + new_length);
+  const unsigned char *desired = input + old_length;
+  int parent = login_open_parent(directory);
+  struct stat expected_state;
+  struct stat temporary_state;
+  struct stat published_state;
+
+  if (exists) {
+    if (fstat(LOGIN_EXPECTED_FD, &expected_state) < 0) {
+      fail_errno("cannot inspect startup source descriptor", target);
+    }
+    login_require_regular(LOGIN_EXPECTED_FD, &expected_state, target, true);
+    if (!login_name_matches_state(
+      parent,
+      target,
+      LOGIN_EXPECTED_FD,
+      &expected_state,
+      input,
+      old_length,
+      true
+    )) {
+      fail("startup file changed before publish: %s", target);
+    }
+  } else {
+    struct stat unexpected;
+    if (
+      fstatat(parent, target, &unexpected, AT_SYMLINK_NOFOLLOW) == 0
+      || errno != ENOENT
+    ) {
+      fail("startup file appeared before publish: %s", target);
+    }
+  }
+
+  int temporary_fd = login_create_temporary(
+    parent,
+    temporary,
+    desired,
+    new_length,
+    exists ? LOGIN_METADATA_FD : -1,
+    default_mode,
+    &temporary_state
+  );
+  pause_for_test("after-login-temp-create", temporary);
+
+  struct stat unexpected;
+  bool expected_still_matches = exists
+    ? login_name_matches_state(
+      parent,
+      target,
+      LOGIN_EXPECTED_FD,
+      &expected_state,
+      input,
+      old_length,
+      true
+    )
+    : fstatat(parent, target, &unexpected, AT_SYMLINK_NOFOLLOW) < 0
+      && errno == ENOENT;
+  if (!expected_still_matches) {
+    login_cleanup_exact(
+      parent,
+      temporary,
+      temporary_fd,
+      &temporary_state,
+      desired,
+      new_length
+    );
+    login_disarm_cleanup();
+    fail("startup file changed during publish: %s", target);
+  }
+  if (!login_parent_matches_path(parent, directory)) {
+    login_cleanup_exact(
+      parent,
+      temporary,
+      temporary_fd,
+      &temporary_state,
+      desired,
+      new_length
+    );
+    login_disarm_cleanup();
+    fail("startup directory changed during publish: %s", directory);
+  }
+  if (!login_name_matches_state(
+    parent,
+    temporary,
+    temporary_fd,
+    &temporary_state,
+    desired,
+    new_length,
+    true
+  )) {
+    login_disarm_cleanup();
+    fail(
+      "startup temporary changed during publish; preserved replacement: %s",
+      temporary
+    );
+  }
+
+  if (exists) {
+    if (login_rename_exchange(parent, temporary, parent, target) < 0) {
+      int saved_errno = errno;
+      login_cleanup_exact(
+        parent,
+        temporary,
+        temporary_fd,
+        &temporary_state,
+        desired,
+        new_length
+      );
+      login_disarm_cleanup();
+      errno = saved_errno;
+      fail_errno("cannot atomically exchange startup file", target);
+    }
+    login_disarm_cleanup();
+    struct stat displaced_state;
+    bool publication_transition = login_capture_rename_transition(
+      temporary_fd,
+      &temporary_state,
+      &published_state
+    );
+    bool displaced_transition = login_capture_rename_transition(
+      LOGIN_EXPECTED_FD,
+      &expected_state,
+      &displaced_state
+    );
+    pause_for_test("after-login-publish-exchange", temporary);
+    bool target_ok = publication_transition
+      && login_name_matches_state(
+        parent,
+        target,
+        temporary_fd,
+        &published_state,
+        desired,
+        new_length,
+        true
+      );
+    bool displaced_ok = displaced_transition
+      && login_name_matches_state(
+        parent,
+        temporary,
+        LOGIN_EXPECTED_FD,
+        &displaced_state,
+        input,
+        old_length,
+        true
+      );
+    bool parent_ok = login_parent_matches_path(parent, directory);
+    if (!target_ok || !displaced_ok || !parent_ok) {
+      const char *reason = !parent_ok
+        ? "startup directory changed during atomic publish"
+        : !target_ok
+          ? "startup file changed during atomic publish"
+          : "displaced startup file changed during atomic publish";
+      if (login_name_matches_inode(parent, target, temporary_fd)) {
+        if (displaced_ok) {
+          login_fail_after_existing_exchange_restore(
+            parent,
+            target,
+            temporary,
+            temporary_fd,
+            &published_state,
+            desired,
+            new_length,
+            LOGIN_EXPECTED_FD,
+            &displaced_state,
+            input,
+            old_length,
+            reason
+          );
+        }
+        login_fail_after_existing_copy_restore(
+          parent,
+          target,
+          recovery,
+          temporary_fd,
+          &published_state,
+          desired,
+          new_length,
+          LOGIN_METADATA_FD,
+          input,
+          old_length,
+          reason
+        );
+      }
+      fail("%s; startup target changed and was preserved: %s", reason, target);
+    }
+    pause_for_test("before-login-displaced-unlink", temporary);
+    target_ok = login_name_matches_state(
+      parent,
+      target,
+      temporary_fd,
+      &published_state,
+      desired,
+      new_length,
+      true
+    );
+    displaced_ok = login_name_matches_state(
+      parent,
+      temporary,
+      LOGIN_EXPECTED_FD,
+      &displaced_state,
+      input,
+      old_length,
+      true
+    );
+    parent_ok = login_parent_matches_path(parent, directory);
+    if (!target_ok || !displaced_ok || !parent_ok) {
+      const char *reason = !parent_ok
+        ? "startup directory changed before displaced cleanup"
+        : !target_ok
+          ? "published startup file changed before displaced cleanup"
+          : "displaced startup file changed before cleanup";
+      if (login_name_matches_inode(parent, target, temporary_fd)) {
+        if (displaced_ok) {
+          login_fail_after_existing_exchange_restore(
+            parent,
+            target,
+            temporary,
+            temporary_fd,
+            &published_state,
+            desired,
+            new_length,
+            LOGIN_EXPECTED_FD,
+            &displaced_state,
+            input,
+            old_length,
+            reason
+          );
+        }
+        login_fail_after_existing_copy_restore(
+          parent,
+          target,
+          recovery,
+          temporary_fd,
+          &published_state,
+          desired,
+          new_length,
+          LOGIN_METADATA_FD,
+          input,
+          old_length,
+          reason
+        );
+      }
+      fail("%s; startup target changed and was preserved: %s", reason, target);
+    }
+    if (fsync(parent) < 0) {
+      login_fail_after_existing_exchange_restore(
+        parent,
+        target,
+        temporary,
+        temporary_fd,
+        &published_state,
+        desired,
+        new_length,
+        LOGIN_EXPECTED_FD,
+        &displaced_state,
+        input,
+        old_length,
+        "startup directory sync failed before displaced cleanup"
+      );
+    }
+    if (!login_claim_and_unlink(
+      parent,
+      temporary,
+      LOGIN_EXPECTED_FD,
+      &displaced_state,
+      input,
+      old_length,
+      true
+    )) {
+      fprintf(
+        stderr,
+        "hush install helper warning: published startup is active, but displaced "
+        "startup cleanup failed; preserved: %s\n",
+        temporary
+      );
+    } else if (fsync(parent) < 0) {
+      fprintf(
+        stderr,
+        "hush install helper warning: published startup is active, but displaced "
+        "cleanup directory sync failed: %s\n",
+        temporary
+      );
+    }
+  } else {
+    if (rename_noreplace(parent, temporary, parent, target) < 0) {
+      int saved_errno = errno;
+      login_cleanup_exact(
+        parent,
+        temporary,
+        temporary_fd,
+        &temporary_state,
+        desired,
+        new_length
+      );
+      login_disarm_cleanup();
+      errno = saved_errno;
+      fail_errno("cannot publish new startup file", target);
+    }
+    login_disarm_cleanup();
+    bool publication_transition = login_capture_rename_transition(
+      temporary_fd,
+      &temporary_state,
+      &published_state
+    );
+    pause_for_test("after-login-publish-noreplace", target);
+    if (
+      !publication_transition
+      || !login_name_matches_state(
+        parent,
+        target,
+        temporary_fd,
+        &published_state,
+        desired,
+        new_length,
+        true
+      )
+      || !login_parent_matches_path(parent, directory)
+    ) {
+      login_fail_after_absent_restore(
+        parent,
+        target,
+        recovery,
+        temporary_fd,
+        &published_state,
+        desired,
+        new_length,
+        "new startup publication changed before validation"
+      );
+    }
+    if (fsync(parent) < 0) {
+      login_fail_after_absent_restore(
+        parent,
+        target,
+        recovery,
+        temporary_fd,
+        &published_state,
+        desired,
+        new_length,
+        "startup directory sync failed after new publication"
+      );
+    }
+    if (
+      !login_name_matches_state(
+        parent,
+        target,
+        temporary_fd,
+        &published_state,
+        desired,
+        new_length,
+        true
+      )
+      || !login_parent_matches_path(parent, directory)
+    ) {
+      login_fail_after_absent_restore(
+        parent,
+        target,
+        recovery,
+        temporary_fd,
+        &published_state,
+        desired,
+        new_length,
+        "new startup publication changed after directory sync"
+      );
+    }
+  }
+
+  login_print_state("published", &published_state);
+  if (exists) {
+    struct stat preserved_source_state;
+    if (fstat(LOGIN_EXPECTED_FD, &preserved_source_state) < 0) {
+      fail_errno("cannot inspect preserved startup source", target);
+    }
+    login_print_state("original", &preserved_source_state);
+  } else if (printf("original\t-\n") < 0 || fflush(stdout) != 0) {
+    fail_errno("cannot emit startup publication receipt for", target);
+  }
+  login_disarm_cleanup();
+  close(temporary_fd);
+  close(parent);
+  free(input);
+}
+
+static void command_login_preserve(int argc, char **argv) {
+  if (argc != 15) {
+    fail(
+      "usage: login-preserve <dir> <recovery> <length> <mode> "
+      "<device> <inode> <uid> <gid> <file-mode> <links> <size> <mtime> <ctime>"
+    );
+  }
+  const char *directory = argv[2];
+  const char *recovery = argv[3];
+  require_component(recovery);
+  if (!has_prefix(recovery, ".hush-login-recovery-")) {
+    fail("invalid startup recovery name");
+  }
+  size_t length = (size_t)parse_identity_part(
+    argv[4],
+    "startup recovery length",
+    10
+  );
+  mode_t default_mode = (mode_t)parse_identity_part(
+    argv[5],
+    "startup recovery mode",
+    8
+  );
+  unsigned char *expected = login_read_input(length);
+  int parent = login_open_parent(directory);
+  struct stat source_state;
+  struct stat metadata_state;
+  if (
+    fstat(LOGIN_EXPECTED_FD, &source_state) < 0
+    || fstat(LOGIN_METADATA_FD, &metadata_state) < 0
+  ) {
+    fail_errno("cannot inspect startup recovery source", recovery);
+  }
+  login_require_regular(LOGIN_EXPECTED_FD, &source_state, recovery, false);
+  if (
+    !same_inode(&source_state, &metadata_state)
+    || !login_state_matches_args(&source_state, &argv[6])
+    || !login_bytes_equal(LOGIN_EXPECTED_FD, expected, length)
+  ) {
+    fail("startup recovery source changed before preservation: %s", recovery);
+  }
+  struct stat recovery_state;
+  int recovery_fd = login_create_temporary(
+    parent,
+    recovery,
+    expected,
+    length,
+    LOGIN_METADATA_FD,
+    default_mode,
+    &recovery_state
+  );
+  if (
+    fstat(LOGIN_EXPECTED_FD, &source_state) < 0
+    || !login_state_matches_args(&source_state, &argv[6])
+    || !login_bytes_equal(LOGIN_EXPECTED_FD, expected, length)
+    || !login_name_matches_state(
+      parent,
+      recovery,
+      recovery_fd,
+      &recovery_state,
+      expected,
+      length,
+      true
+    )
+  ) {
+    fail("startup recovery source changed during preservation: %s", recovery);
+  }
+  if (fsync(parent) < 0) {
+    fail_errno("cannot sync startup recovery directory", recovery);
+  }
+  login_disarm_cleanup();
+  close(recovery_fd);
+  close(parent);
+  free(expected);
+}
+
+static void command_login_remove(int argc, char **argv) {
+  if (argc != 6) {
+    fail("usage: login-remove <dir> <target> <quarantine> <expected-length>");
+  }
+  const char *directory = argv[2];
+  const char *target = argv[3];
+  const char *quarantine = argv[4];
+  require_component(target);
+  require_component(quarantine);
+  if (!has_prefix(quarantine, ".hush-login-")) {
+    fail("invalid startup quarantine name");
+  }
+  size_t length = (size_t)parse_identity_part(
+    argv[5],
+    "startup expected length",
+    10
+  );
+  unsigned char *expected = login_read_input(length);
+  int parent = login_open_parent(directory);
+  struct stat expected_state;
+  if (fstat(LOGIN_EXPECTED_FD, &expected_state) < 0) {
+    fail_errno("cannot inspect rollback descriptor", target);
+  }
+  login_require_regular(LOGIN_EXPECTED_FD, &expected_state, target, true);
+  if (!login_name_matches_state(
+    parent,
+    target,
+    LOGIN_EXPECTED_FD,
+    &expected_state,
+    expected,
+    length,
+    true
+  )) {
+    fail("startup file changed before rollback: %s", target);
+  }
+
+  pause_for_test("before-login-rollback-remove", target);
+  if (
+    !login_name_matches_state(
+      parent,
+      target,
+      LOGIN_EXPECTED_FD,
+      &expected_state,
+      expected,
+      length,
+      true
+    )
+    || !login_parent_matches_path(parent, directory)
+  ) {
+    fail("startup file changed before rollback: %s", target);
+  }
+  if (rename_noreplace(parent, target, parent, quarantine) < 0) {
+    fail_errno("cannot quarantine startup file for rollback", target);
+  }
+  struct stat quarantine_state;
+  bool quarantine_transition = login_capture_rename_transition(
+    LOGIN_EXPECTED_FD,
+    &expected_state,
+    &quarantine_state
+  );
+  if (
+    !quarantine_transition
+    || !login_name_matches_state(
+      parent,
+      quarantine,
+      LOGIN_EXPECTED_FD,
+      &quarantine_state,
+      expected,
+      length,
+      true
+    )
+  ) {
+    fprintf(
+      stderr,
+      "hush install helper warning: rollback restored startup absence, but "
+      "the quarantined publication changed and was preserved: %s\n",
+      quarantine
+    );
+    fsync(parent);
+    close(parent);
+    free(expected);
+    return;
+  }
+  pause_for_test("before-login-quarantine-unlink", quarantine);
+  if (!login_name_matches_state(
+    parent,
+    quarantine,
+    LOGIN_EXPECTED_FD,
+    &quarantine_state,
+    expected,
+    length,
+    true
+  )) {
+    fprintf(
+      stderr,
+      "hush install helper warning: rollback retained startup absence and "
+      "preserved a changed quarantine: %s\n",
+      quarantine
+    );
+    fsync(parent);
+    close(parent);
+    free(expected);
+    return;
+  }
+  if (!login_claim_and_unlink(
+    parent,
+    quarantine,
+    LOGIN_EXPECTED_FD,
+    &quarantine_state,
+    expected,
+    length,
+    true
+  )) {
+    fprintf(
+      stderr,
+      "hush install helper warning: rollback retained startup absence, but "
+      "the quarantined publication could not be removed: %s\n",
+      quarantine
+    );
+  } else if (fsync(parent) < 0) {
+    fprintf(
+      stderr,
+      "hush install helper warning: rollback retained startup absence, but "
+      "directory sync failed after quarantine cleanup: %s\n",
+      quarantine
+    );
+  }
+  close(parent);
+  free(expected);
+}
+
+int main(int argc, char **argv) {
+  if (argc < 2) fail("missing login helper command");
+  if (strcmp(argv[1], "login-write") == 0) {
+    command_login_write(argc, argv);
+  } else if (strcmp(argv[1], "login-preserve") == 0) {
+    command_login_preserve(argc, argv);
+  } else if (strcmp(argv[1], "login-remove") == 0) {
+    command_login_remove(argc, argv);
+  } else {
+    fail("unknown login helper command: %s", argv[1]);
+  }
+  return 0;
+}
+`;
 
 export class HushInstallError extends Error {
   constructor(code, message) {
@@ -191,6 +1938,7 @@ function guardedEnvironment(config) {
   delete env.HUSH_INSTALL_BUN_PATH;
   delete env[pinnedBunEnv];
   delete env[pinnedGitEnv];
+  delete env[loginNativeHelperEnv];
   env[pinnedBunEnv] = config.bunPath;
   env[pinnedGitEnv] = config.gitPath;
   env.NODE_OPTIONS = "";
@@ -632,6 +2380,36 @@ function validateManagedRuntime(candidate, source) {
   validateRuntimeManifest(candidate, source, collected.entries);
 }
 
+function compileNativeProgram(compiler, source, output, label) {
+  const result = spawnSync(
+    compiler,
+    ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-x", "c", "-", "-o", output],
+    {
+      input: source,
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 60_000,
+    },
+  );
+  if (result.error) {
+    throw new HushInstallError(
+      "HUSH_INSTALL_NATIVE_COMPILE_FAILED",
+      `${label} compilation failed: ${result.error.message}`,
+    );
+  }
+  if (result.status !== 0) {
+    throw new HushInstallError(
+      "HUSH_INSTALL_NATIVE_COMPILE_FAILED",
+      `${label} compilation failed:\n${result.stderr || result.stdout}`,
+    );
+  }
+  chmodSync(output, 0o700);
+  const metadata = lstatSync(output);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+    throw new Error(`${label} must be a single-link regular file.`);
+  }
+}
+
 function compileNativeHelper() {
   const compiler = "/usr/bin/cc";
   if (!existsSync(compiler)) {
@@ -642,43 +2420,44 @@ function compileNativeHelper() {
   }
   const buildDirectory = realpathSync(mkdtempSync(join(tmpdir(), "hush-install-native-")));
   const helperPath = join(buildDirectory, "hush-install-native");
-  const source = readFileSync(join(root, "scripts", "install-local-native.c"));
-  const result = spawnSync(
-    compiler,
-    ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-x", "c", "-", "-o", helperPath],
-    {
-      input: source,
-      encoding: "utf8",
-      maxBuffer: 4 * 1024 * 1024,
-      timeout: 60_000,
-    },
-  );
-  if (result.error) {
+  const loginHelperPath = join(buildDirectory, "hush-login-native");
+  const source = readFileSync(join(root, "scripts", "install-local-native.c"), "utf8");
+  const mainAnchor = "\nint main(int argc, char **argv) {";
+  if (source.split(mainAnchor).length !== 2) {
     rmSync(buildDirectory, { recursive: true, force: true });
-    throw new HushInstallError(
-      "HUSH_INSTALL_NATIVE_COMPILE_FAILED",
-      `native helper compilation failed: ${result.error.message}`,
-    );
+    throw new Error("Hush native helper main anchor is invalid.");
   }
-  if (result.status !== 0) {
+  const loginSource = [
+    source.replace(mainAnchor, `\n#define main hush_runtime_unused_main${mainAnchor}`),
+    "#undef main",
+    loginNativeExtension,
+  ].join("\n");
+  try {
+    compileNativeProgram(compiler, source, helperPath, "native helper");
+    compileNativeProgram(compiler, loginSource, loginHelperPath, "login native helper");
+  } catch (error) {
     rmSync(buildDirectory, { recursive: true, force: true });
-    throw new HushInstallError(
-      "HUSH_INSTALL_NATIVE_COMPILE_FAILED",
-      `native helper compilation failed:\n${result.stderr || result.stdout}`,
-    );
-  }
-  chmodSync(helperPath, 0o700);
-  const metadata = lstatSync(helperPath);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
-    rmSync(buildDirectory, { recursive: true, force: true });
-    throw new Error("Hush install helper must be a single-link regular file.");
+    throw error;
   }
   return {
     path: helperPath,
+    loginPath: loginHelperPath,
     cleanup() {
       rmSync(buildDirectory, { recursive: true, force: true });
     },
   };
+}
+
+function requireNativeHelper(environmentKey, label) {
+  const helperPath = process.env[environmentKey];
+  if (!helperPath || !isAbsolute(helperPath)) {
+    throw new Error(`${label} path is missing.`);
+  }
+  const metadata = lstatSync(helperPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || !(metadata.mode & 0o111)) {
+    throw new Error(`${label} is not an executable single-link regular file.`);
+  }
+  return helperPath;
 }
 
 function assertGuardedDescriptors() {
@@ -696,15 +2475,7 @@ function assertGuardedDescriptors() {
       throw new Error(`Hush installer native guard descriptor has the wrong type: ${label}`);
     }
   }
-  const helperPath = process.env.HUSH_INSTALL_NATIVE_HELPER;
-  if (!helperPath || !isAbsolute(helperPath)) {
-    throw new Error("Hush installer native helper path is missing.");
-  }
-  const metadata = lstatSync(helperPath);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || !(metadata.mode & 0o111)) {
-    throw new Error("Hush installer native helper is not an executable single-link regular file.");
-  }
-  return helperPath;
+  return requireNativeHelper("HUSH_INSTALL_NATIVE_HELPER", "Hush installer native helper");
 }
 
 function nativeStdio(stdin, stdout, stderr) {
@@ -862,9 +2633,11 @@ function shellQuote(value) {
 
 function loginShellDetails() {
   const account = userInfo();
-  const shell = process.env.SHELL && existsSync(process.env.SHELL)
-    ? process.env.SHELL
-    : account.shell || "/bin/sh";
+  const shell = requireExecutablePath(
+    "Hush login shell",
+    process.env.SHELL || account.shell || "/bin/sh",
+    true,
+  );
   return {
     account,
     shell,
@@ -873,7 +2646,7 @@ function loginShellDetails() {
 }
 
 function coldLoginEnvironment(details) {
-  return {
+  const environment = {
     HOME: homedir(),
     USER: details.account.username,
     LOGNAME: details.account.username,
@@ -881,36 +2654,174 @@ function coldLoginEnvironment(details) {
     PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
     HUSH_NO_UPDATE_CHECK: "1",
   };
+  if (process.env.ZDOTDIR !== undefined) environment.ZDOTDIR = process.env.ZDOTDIR;
+  return environment;
 }
 
-function probeLoginShell(config) {
-  checkRoots(config);
-  const details = loginShellDetails();
-  const marker = "__HUSH_LOGIN_RESOLVED__";
-  const command = `printf '${marker}%s\\n' "$(command -v hush 2>/dev/null || true)"`;
-  const result = spawnSync(details.shell, [...details.args, command], {
-    encoding: "utf8",
+function sanitizedDiagnostic(value, fallback) {
+  const sanitized = String(value || "")
+    .replace(/[^\x20-\x7e]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 400);
+  return sanitized || fallback;
+}
+
+function safeProbeField(value) {
+  return value.length <= 4096 && !/[\x00-\x1f\x7f]/.test(value);
+}
+
+function loginProbeFailure(details, args, reason) {
+  return {
+    kind: "failure",
+    shell: details.shell,
+    invocation: args.join(" "),
+    reason,
+  };
+}
+
+function runLoginProbe(details, args, command, marker) {
+  const result = spawnSync(details.shell, [...args, command], {
     env: coldLoginEnvironment(details),
     timeout: 30_000,
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (result.error || result.signal || result.status !== 0) {
+    return loginProbeFailure(
+      details,
+      args,
+      sanitizedDiagnostic(
+        result.error?.message || (result.signal ? `signal ${result.signal}` : `exit ${result.status}`),
+        "unknown shell failure",
+      ),
+    );
+  }
+  let stdout;
+  try {
+    stdout = new TextDecoder("utf-8", { fatal: true }).decode(result.stdout);
+  } catch {
+    return loginProbeFailure(details, args, "login shell returned invalid UTF-8 metadata");
+  }
+  const markerLines = stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith(marker));
+  if (markerLines.length !== 1) {
+    return loginProbeFailure(details, args, "login shell returned invalid resolution metadata");
+  }
+  const fields = markerLines[0].slice(marker.length).split("\t");
+  if (fields.length !== 4 || fields.some((field) => !safeProbeField(field))) {
+    return loginProbeFailure(details, args, "login shell returned invalid resolution metadata");
+  }
+  const [shellKind, zdotdirSet, zdotdir, rawResolved] = fields;
+  if (!["zsh", "bash", "other"].includes(shellKind)) {
+    return loginProbeFailure(details, args, "login shell identity is unsupported");
+  }
+  if (!["0", "1"].includes(zdotdirSet)) {
+    return loginProbeFailure(details, args, "login shell returned invalid ZDOTDIR metadata");
+  }
+  return { shellKind, zdotdirSet: zdotdirSet === "1", zdotdir, rawResolved };
+}
+
+function zshStartupPath(zdotdirSet, zdotdir) {
+  const home = resolve(homedir());
+  if (zdotdirSet && !zdotdir) {
+    throw new Error("ZDOTDIR must not be empty.");
+  }
+  const configured = zdotdirSet ? zdotdir : home;
+  if (!isAbsolute(configured)) {
+    throw new Error(`ZDOTDIR must be absolute: ${configured}`);
+  }
+  const directory = resolve(configured);
+  if (!isInside(home, directory)) {
+    throw new Error(`ZDOTDIR must stay within HOME: ${directory}`);
+  }
+  const canonical = realpathSync(directory);
+  if (canonical !== directory) {
+    throw new Error(`ZDOTDIR must not contain symlinked path components: ${directory}`);
+  }
+  const metadata = lstatSync(directory, { bigint: true });
+  const uid = process.getuid?.();
+  if (
+    !metadata.isDirectory()
+    || metadata.isSymbolicLink()
+    || (uid !== undefined && metadata.uid !== BigInt(uid))
+    || (metadata.mode & 0o22n) !== 0n
+  ) {
+    throw new Error(`ZDOTDIR must be a user-owned non-writable-by-others directory: ${directory}`);
+  }
+  return join(directory, ".zlogin");
+}
+
+function probeLoginShell(config) {
+  checkRoots(config);
+  let details;
+  try {
+    details = loginShellDetails();
+  } catch (error) {
     return {
       kind: "failure",
-      shell: details.shell,
-      invocation: details.args.join(" "),
-      reason: result.error?.message || (result.signal ? `signal ${result.signal}` : `exit ${result.status}`),
+      shell: sanitizedDiagnostic(process.env.SHELL, "unknown shell"),
+      invocation: "login",
+      reason: sanitizedDiagnostic(error.message, "invalid login shell"),
     };
   }
-  const markerLine = result.stdout
-    .split(/\r?\n/)
-    .findLast((line) => line.startsWith(marker));
-  const resolved = markerLine?.slice(marker.length).trim() || "";
+  const marker = `__HUSH_LOGIN_${randomBytes(12).toString("hex")}__`;
+  const command = [
+    'if [ -n "${ZSH_VERSION-}" ]; then _hush_shell=zsh',
+    'elif [ -n "${BASH_VERSION-}" ]; then _hush_shell=bash',
+    "else _hush_shell=other",
+    "fi",
+    'if [ "${ZDOTDIR+x}" = x ]; then _hush_zdotdir_set=1; else _hush_zdotdir_set=0; fi',
+    `printf '${marker}%s\\t%s\\t%s\\t%s\\n' "$_hush_shell" "$_hush_zdotdir_set" "\${ZDOTDIR-}" ` +
+      '"$(command -v hush 2>/dev/null || true)"',
+  ].join("; ");
+  let args = details.args;
+  let parsed = runLoginProbe(details, args, command, marker);
+  if (parsed.kind === "failure") return parsed;
+  if (parsed.shellKind === "zsh" && args[0] !== "-lic") {
+    args = ["-lic"];
+    parsed = runLoginProbe(details, args, command, marker);
+    if (parsed.kind === "failure") return parsed;
+  }
+  const {
+    shellKind,
+    zdotdirSet,
+    zdotdir,
+    rawResolved,
+  } = parsed;
+  let startupPath;
+  if (shellKind === "zsh") {
+    try {
+      startupPath = zshStartupPath(zdotdirSet, zdotdir);
+    } catch (error) {
+      return {
+        kind: "failure",
+        shell: details.shell,
+        invocation: args.join(" "),
+        shellKind,
+        reason: sanitizedDiagnostic(error.message, "invalid zsh startup directory"),
+      };
+    }
+  }
+  const common = {
+    shell: details.shell,
+    invocation: args.join(" "),
+    shellKind,
+    startupPath,
+  };
+  if (rawResolved !== rawResolved.trim()) {
+    return {
+      kind: "failure",
+      reason: "login shell resolved a path with unsafe surrounding whitespace",
+      ...common,
+    };
+  }
+  const resolved = rawResolved;
   if (!resolved) {
-    return { kind: "missing", shell: details.shell, invocation: details.args.join(" ") };
+    return { kind: "missing", ...common };
   }
   if (!isAbsolute(resolved)) {
-    return { kind: "relative", resolved, shell: details.shell, invocation: details.args.join(" ") };
+    return { kind: "relative", resolved, ...common };
   }
 
   const helperPath = assertGuardedDescriptors();
@@ -923,101 +2834,318 @@ function probeLoginShell(config) {
       stdio: nativeStdio("ignore", "pipe", "pipe"),
     },
   );
+  if (comparison.error || comparison.signal) {
+    return {
+      kind: "unusable",
+      resolved,
+      reason: sanitizedDiagnostic(
+        comparison.error?.message || `signal ${comparison.signal}`,
+        "launcher comparison failed",
+      ),
+      ...common,
+    };
+  }
   if (comparison.status === 0) {
     checkRoots(config);
-    return { kind: "delivered", resolved, shell: details.shell, invocation: details.args.join(" ") };
+    return { kind: "delivered", resolved, ...common };
   }
   if (comparison.status !== 3) {
-    return { kind: "unusable", resolved, shell: details.shell, invocation: details.args.join(" ") };
+    return {
+      kind: "unusable",
+      resolved,
+      reason: sanitizedDiagnostic(comparison.stderr, `launcher comparison exited ${comparison.status}`),
+      ...common,
+    };
   }
-  return { kind: "shadowed", resolved, shell: details.shell, invocation: details.args.join(" ") };
+  return { kind: "shadowed", resolved, ...common };
 }
 
 function reportLoginShellFailure(config, probe) {
+  const shell = sanitizedDiagnostic(probe.shell, "unknown shell");
+  const invocation = sanitizedDiagnostic(probe.invocation, "login invocation");
+  const resolved = sanitizedDiagnostic(probe.resolved, "unprintable path");
+  const binDir = sanitizedDiagnostic(config.binDir, "configured bin directory");
+  const target = sanitizedDiagnostic(config.target, "installed launcher");
   if (probe.kind === "failure") {
     console.error(
-      `hush: installed ${config.target}, but login shell resolution failed ` +
-        `(${probe.shell} ${probe.invocation}): ${probe.reason}. This install is not delivered.`,
+      `hush: installed ${target}, but login shell resolution failed ` +
+        `(${shell} ${invocation}): ${probe.reason}. This install is not delivered.`,
     );
     return;
   }
   if (probe.kind === "missing") {
     console.error(
-      `hush: installed ${config.target}, but a login shell (${probe.shell} ${probe.invocation}) ` +
-        `resolves no hush at all -- ${config.binDir} is missing from the login PATH, ` +
+      `hush: installed ${target}, but a login shell (${shell} ${invocation}) ` +
+        `resolves no hush at all -- ${binDir} is missing from the login PATH, ` +
         "so this install is not delivered.",
     );
     return;
   }
   if (probe.kind === "relative") {
-    console.error(`hush: login shell resolved a non-absolute hush path: ${probe.resolved}`);
+    console.error(`hush: login shell resolved a non-absolute hush path: ${resolved}`);
     return;
   }
   if (probe.kind === "unusable") {
-    console.error(`hush: login shell resolved unusable hush path: ${probe.resolved}`);
+    console.error(
+      `hush: login shell resolved unusable hush path: ${resolved} (${probe.reason}).`,
+    );
     return;
   }
   console.error(
-    `hush: SHADOWED INSTALL. Installed ${config.target}, but a login shell resolves ${probe.resolved} first.\n` +
+    `hush: SHADOWED INSTALL. Installed ${target}, but a login shell resolves ${resolved} first.\n` +
       `hush is the secrets front door: every interactive shell would keep using that other copy, ` +
       `and this installer does not upgrade it.\n` +
-      `Fix the shadow (for a global npm copy: npm uninstall -g @chriscode/hush), or put ${config.binDir} ` +
+      `Fix the shadow (for a global npm copy: npm uninstall -g @chriscode/hush), or put ${binDir} ` +
       `ahead of it on the login PATH, then re-run.\n` +
       `Set HUSH_INSTALL_SKIP_SHADOW_CHECK=1 to bypass deliberately.`,
   );
 }
 
-function readShellStartupFile(path) {
-  let metadata;
+function sameShellStartupState(left, right) {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.uid === right.uid
+    && left.gid === right.gid
+    && left.mode === right.mode
+    && left.nlink === right.nlink
+    && left.size === right.size
+    && left.mtimeNs === right.mtimeNs
+    && left.ctimeNs === right.ctimeNs;
+}
+
+const shellStartupStateFields = [
+  "dev",
+  "ino",
+  "uid",
+  "gid",
+  "mode",
+  "nlink",
+  "size",
+  "mtimeNs",
+  "ctimeNs",
+];
+
+function parseShellStartupState(fields) {
+  if (fields.length !== shellStartupStateFields.length
+    || fields.some((field, index) => {
+      const signed = shellStartupStateFields[index] === "mtimeNs"
+        || shellStartupStateFields[index] === "ctimeNs";
+      return !(signed ? /^-?\d+$/ : /^\d+$/).test(field);
+    })) {
+    throw new Error("Hush login native helper returned an invalid publication receipt.");
+  }
+  return Object.fromEntries(
+    shellStartupStateFields.map((field, index) => [field, BigInt(fields[index])]),
+  );
+}
+
+function parseLoginPublicationReceipt(output, expectedOriginal) {
+  let text;
   try {
-    metadata = lstatSync(path, { bigint: true });
-  } catch (error) {
-    if (error.code === "ENOENT") return { exists: false };
-    throw error;
+    text = new TextDecoder("utf-8", { fatal: true }).decode(output);
+  } catch {
+    throw new Error("Hush login native helper returned a non-UTF-8 publication receipt.");
   }
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1n) {
-    throw new Error(`Hush login startup file must be a single-link regular file: ${path}`);
+  const lines = text.split("\n");
+  if (lines.at(-1) !== "") {
+    throw new Error("Hush login native helper returned an unterminated publication receipt.");
   }
-  const uid = process.getuid?.();
-  if (uid !== undefined && metadata.uid !== BigInt(uid)) {
-    throw new Error(`Hush login startup file must be owned by the current user: ${path}`);
+  lines.pop();
+  if (lines.length !== 2) {
+    throw new Error("Hush login native helper returned an invalid publication receipt.");
+  }
+  const published = lines[0].split("\t");
+  const original = lines[1].split("\t");
+  if (
+    published.shift() !== "published"
+    || original.shift() !== "original"
+    || (expectedOriginal ? original.length !== shellStartupStateFields.length : original.join("\t") !== "-")
+  ) {
+    throw new Error("Hush login native helper returned an invalid publication receipt.");
   }
   return {
-    exists: true,
-    content: readFileSync(path, "utf8"),
-    mode: Number(metadata.mode & 0o777n),
-    identity: {
-      dev: metadata.dev,
-      ino: metadata.ino,
-      size: metadata.size,
-      mtimeNs: metadata.mtimeNs,
-    },
+    published: parseShellStartupState(published),
+    original: expectedOriginal ? parseShellStartupState(original) : undefined,
   };
 }
 
-function sameShellStartupFile(left, right) {
-  if (left.exists !== right.exists) return false;
-  if (!left.exists) return true;
-  return left.identity.dev === right.identity.dev
-    && left.identity.ino === right.identity.ino
-    && left.identity.size === right.identity.size
-    && left.identity.mtimeNs === right.identity.mtimeNs;
+function shellStartupStateArgs(state) {
+  return shellStartupStateFields.map((field) => String(state[field]));
+}
+
+function sameShellDirectoryIdentity(left, right) {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.uid === right.uid
+    && left.gid === right.gid
+    && left.mode === right.mode
+    && left.nlink === right.nlink;
+}
+
+function readShellStartupFile(path) {
+  const parent = dirname(path);
+  const canonicalParent = realpathSync(parent);
+  if (canonicalParent !== parent) {
+    throw new Error(`Hush login startup directory must not be symlinked: ${parent}`);
+  }
+  const parentMetadata = lstatSync(parent, { bigint: true });
+  const uid = process.getuid?.();
+  if (
+    !parentMetadata.isDirectory()
+    || parentMetadata.isSymbolicLink()
+    || (uid !== undefined && parentMetadata.uid !== BigInt(uid))
+    || (parentMetadata.mode & 0o22n) !== 0n
+  ) {
+    throw new Error(`Hush login startup directory is unsafe: ${parent}`);
+  }
+  const parentFd = openSync(
+    parent,
+    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
+  );
+  try {
+    const openedParent = fstatSync(parentFd, { bigint: true });
+    const finalParent = lstatSync(parent, { bigint: true });
+    if (
+      !sameShellDirectoryIdentity(parentMetadata, openedParent)
+      || !sameShellDirectoryIdentity(openedParent, finalParent)
+      || realpathSync(parent) !== parent
+    ) {
+      throw new Error(`Hush login startup directory changed while opening: ${parent}`);
+    }
+    let pathMetadata;
+    try {
+      pathMetadata = lstatSync(path, { bigint: true });
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const absentParent = lstatSync(parent, { bigint: true });
+      if (
+        !sameShellDirectoryIdentity(openedParent, absentParent)
+        || realpathSync(parent) !== parent
+      ) {
+        throw new Error(`Hush login startup directory changed while reading: ${parent}`);
+      }
+      return {
+        exists: false,
+        content: Buffer.alloc(0),
+        fd: undefined,
+        parentFd,
+        state: undefined,
+      };
+    }
+    if (!pathMetadata.isFile() || pathMetadata.isSymbolicLink() || pathMetadata.nlink !== 1n) {
+      throw new Error(`Hush login startup file must be a single-link regular file: ${path}`);
+    }
+    if (uid !== undefined && pathMetadata.uid !== BigInt(uid)) {
+      throw new Error(`Hush login startup file must be owned by the current user: ${path}`);
+    }
+    const fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const opened = fstatSync(fd, { bigint: true });
+      const content = readFileSync(fd);
+      const afterRead = fstatSync(fd, { bigint: true });
+      const finalPath = lstatSync(path, { bigint: true });
+      const afterParent = lstatSync(parent, { bigint: true });
+      if (
+        !sameShellStartupState(pathMetadata, opened)
+        || !sameShellStartupState(opened, afterRead)
+        || !sameShellStartupState(afterRead, finalPath)
+        || !sameShellDirectoryIdentity(openedParent, afterParent)
+        || realpathSync(parent) !== parent
+      ) {
+        throw new Error(`Hush login startup file changed while reading: ${path}`);
+      }
+      return {
+        exists: true,
+        content,
+        fd,
+        parentFd,
+        state: afterRead,
+      };
+    } catch (error) {
+      closeSync(fd);
+      throw error;
+    }
+  } catch (error) {
+    closeSync(parentFd);
+    throw error;
+  }
+}
+
+function closeShellStartupFile(snapshot) {
+  if (!snapshot) return;
+  if (snapshot.fd !== undefined) {
+    closeSync(snapshot.fd);
+    snapshot.fd = undefined;
+  }
+  if (snapshot.parentFd !== undefined) {
+    closeSync(snapshot.parentFd);
+    snapshot.parentFd = undefined;
+  }
+}
+
+function splitStartupLines(content) {
+  const lines = [];
+  for (let offset = 0; offset < content.length;) {
+    const newline = content.indexOf("\n", offset);
+    const end = newline === -1 ? content.length : newline + 1;
+    const raw = content.slice(offset, end);
+    const ending = raw.endsWith("\r\n") ? "\r\n" : raw.endsWith("\n") ? "\n" : "";
+    const body = raw.slice(0, raw.length - ending.length);
+    if (body.includes("\r")) {
+      throw new Error("Hush login startup file uses unsupported bare carriage returns.");
+    }
+    lines.push({ raw, body });
+    offset = end;
+  }
+  return lines;
+}
+
+function isManagedPathExport(line) {
+  const prefix = "export PATH=";
+  const suffix = ':"$PATH"';
+  if (!line.startsWith(prefix) || !line.endsWith(suffix)) return false;
+  const quoted = line.slice(prefix.length, -suffix.length);
+  return /^'(?:[^']|'\\'')*'$/.test(quoted);
 }
 
 function renderLoginPathBlock(content, binDir) {
-  const start = content.indexOf(loginPathBlockStart);
-  const end = content.indexOf(loginPathBlockEnd);
-  if ((start === -1) !== (end === -1) || (start !== -1 && end < start)) {
+  if (/[\x00\r\n]/.test(binDir)) {
+    throw new Error(`Hush bin root is not shell-safe: ${binDir}`);
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content);
+  } catch {
+    throw new Error("Hush login startup file is not valid UTF-8; refusing replacement.");
+  }
+  if (!Buffer.from(text, "utf8").equals(content)) {
+    throw new Error("Hush login startup file does not round-trip as UTF-8; refusing replacement.");
+  }
+  const lines = splitStartupLines(text);
+  const starts = [];
+  const ends = [];
+  for (let index = 0; index < lines.length; index++) {
+    if (lines[index].body === loginPathBlockStart) starts.push(index);
+    if (lines[index].body === loginPathBlockEnd) ends.push(index);
+  }
+  if (starts.length !== ends.length || starts.length > 1) {
     throw new Error("Hush managed login PATH block is malformed; repair it before reinstalling.");
   }
-  let base = content;
-  if (start !== -1) {
-    const secondStart = content.indexOf(loginPathBlockStart, start + loginPathBlockStart.length);
-    const secondEnd = content.indexOf(loginPathBlockEnd, end + loginPathBlockEnd.length);
-    if (secondStart !== -1 || secondEnd !== -1) {
-      throw new Error("Hush managed login PATH block appears more than once; repair it before reinstalling.");
+  let base = text;
+  if (starts.length === 1) {
+    const start = starts[0];
+    const end = ends[0];
+    if (
+      end !== start + 3
+      || lines[start + 1]?.body !== "# Managed by Hush scripts/install-local.mjs."
+      || !isManagedPathExport(lines[start + 2]?.body || "")
+    ) {
+      throw new Error("Hush managed login PATH block is malformed; repair it before reinstalling.");
     }
-    base = `${content.slice(0, start)}${content.slice(end + loginPathBlockEnd.length)}`;
+    base = lines
+      .filter((_, index) => index < start || index > end)
+      .map((line) => line.raw)
+      .join("");
   }
   base = base.replace(/(?:\r?\n)*$/, "");
   const block = [
@@ -1027,47 +3155,246 @@ function renderLoginPathBlock(content, binDir) {
     loginPathBlockEnd,
     "",
   ].join("\n");
-  return `${base}${base ? "\n\n" : ""}${block}`;
+  return Buffer.from(`${base}${base ? "\n\n" : ""}${block}`, "utf8");
 }
 
-function writeShellStartupFile(path, expected, content, mode) {
-  const current = readShellStartupFile(path);
-  if (!sameShellStartupFile(current, expected)) {
-    throw new Error(`Hush login startup file changed during install: ${path}`);
+function runLoginNative(args, input, expected, metadataSource) {
+  const helperPath = requireNativeHelper(
+    loginNativeHelperEnv,
+    "Hush installer login native helper",
+  );
+  const result = spawnSync(helperPath, args, {
+    input,
+    env: process.env,
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: [
+      "pipe",
+      "pipe",
+      "pipe",
+      expected?.fd ?? "ignore",
+      metadataSource?.fd ?? "ignore",
+      expected?.parentFd ?? metadataSource?.parentFd ?? "ignore",
+    ],
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(sanitizedDiagnostic(
+      result.stderr || result.stdout,
+      `login native helper exited ${result.status}`,
+    ));
   }
-  const temporary = join(dirname(path), `.hush-login-${process.pid}-${randomBytes(8).toString("hex")}`);
+  if (result.stderr?.length) {
+    console.error(`hush: ${sanitizedDiagnostic(result.stderr, "login native helper warning")}`);
+  }
+  return result.stdout;
+}
+
+function preserveShellStartupOriginal(path, original, state, metadataSource, firstRecovery) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const recovery = attempt === 0
+      ? firstRecovery
+      : `.hush-login-recovery-${process.pid}-${randomBytes(16).toString("hex")}`;
+    try {
+      runLoginNative(
+        [
+          "login-preserve",
+          dirname(path),
+          recovery,
+          String(original.content.length),
+          "644",
+          ...shellStartupStateArgs(state),
+        ],
+        original.content,
+        original,
+        metadataSource,
+      );
+      return join(dirname(path), recovery);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function recoverShellStartupReadback(
+  path,
+  expected,
+  content,
+  metadataSource,
+  receipt,
+) {
+  let current;
+  let recoveryError;
   try {
-    writeFileSync(temporary, content, { flag: "wx", mode });
-    chmodSync(temporary, mode);
-    const beforePublish = readShellStartupFile(path);
-    if (!sameShellStartupFile(beforePublish, expected)) {
-      throw new Error(`Hush login startup file changed during install: ${path}`);
+    current = readShellStartupFile(path);
+    if (
+      current.exists
+      && current.content.equals(content)
+      && sameShellStartupState(current.state, receipt.published)
+    ) {
+      if (expected.exists) {
+        writeShellStartupFile(path, current, expected.content, metadataSource, false);
+      } else {
+        removeShellStartupFile(path, current);
+      }
+      return { kind: "restored" };
     }
-    renameSync(temporary, path);
+  } catch (error) {
+    recoveryError = error;
   } finally {
-    rmSync(temporary, { force: true });
+    closeShellStartupFile(current);
+  }
+
+  if (!expected.exists) {
+    return {
+      kind: "preserved-target",
+      reason: sanitizedDiagnostic(recoveryError?.message, "published startup identity changed"),
+    };
+  }
+  try {
+    return {
+      kind: "preserved-original",
+      recoveryPath: preserveShellStartupOriginal(
+        path,
+        expected,
+        receipt.original,
+        metadataSource,
+        `.hush-login-recovery-${process.pid}-${randomBytes(16).toString("hex")}`,
+      ),
+    };
+  } catch (error) {
+    return {
+      kind: "failed",
+      reason: sanitizedDiagnostic(error.message, "startup recovery failed"),
+    };
   }
 }
 
-function installZshLoginPath(config) {
-  const details = loginShellDetails();
-  if (basename(details.shell) !== "zsh") return undefined;
-  const path = join(homedir(), ".zlogin");
+function writeShellStartupFile(
+  path,
+  expected,
+  content,
+  metadataSource = expected,
+  verifyReadback = true,
+) {
+  const temporary = `.hush-login-${process.pid}-${randomBytes(12).toString("hex")}`;
+  const recovery = `.hush-login-${process.pid}-${randomBytes(12).toString("hex")}`;
+  const receipt = parseLoginPublicationReceipt(
+    runLoginNative(
+      [
+        "login-write",
+        dirname(path),
+        basename(path),
+        temporary,
+        recovery,
+        expected.exists ? "1" : "0",
+        String(expected.content.length),
+        String(content.length),
+        "644",
+      ],
+      Buffer.concat([expected.content, content]),
+      expected,
+      metadataSource?.exists ? metadataSource : undefined,
+    ),
+    expected.exists,
+  );
+  if (!verifyReadback) return undefined;
+  pauseForRaceTest("before-login-readback");
+  let installed;
+  try {
+    if (process.env.HUSH_INSTALL_TEST_FAIL_LOGIN_READBACK === "1") {
+      delete process.env.HUSH_INSTALL_TEST_FAIL_LOGIN_READBACK;
+      throw new Error("Hush login startup file test read-back failure.");
+    }
+    installed = readShellStartupFile(path);
+    if (
+      !installed.exists
+      || !installed.content.equals(content)
+      || !sameShellStartupState(installed.state, receipt.published)
+    ) {
+      throw new Error(`Hush login startup file read-back failed: ${path}`);
+    }
+    return installed;
+  } catch (error) {
+    closeShellStartupFile(installed);
+    const recovered = recoverShellStartupReadback(
+      path,
+      expected,
+      content,
+      metadataSource,
+      receipt,
+    );
+    const reason = sanitizedDiagnostic(error.message, "startup read-back failed");
+    if (recovered.kind === "restored") {
+      throw new Error(`${reason} Original startup state restored.`);
+    }
+    if (recovered.kind === "preserved-original") {
+      throw new Error(
+        `${reason} Changed startup target preserved; original preserved at ` +
+          `${sanitizedDiagnostic(recovered.recoveryPath, "startup recovery file")}.`,
+      );
+    }
+    if (recovered.kind === "preserved-target") {
+      throw new Error(
+        `${reason} Changed startup target preserved; original absence not overwritten ` +
+          `(${recovered.reason}).`,
+      );
+    }
+    throw new Error(`${reason} Startup recovery failed: ${recovered.reason}.`);
+  }
+}
+
+function removeShellStartupFile(path, expected) {
+  const quarantine = `.hush-login-${process.pid}-${randomBytes(12).toString("hex")}`;
+  runLoginNative(
+    [
+      "login-remove",
+      dirname(path),
+      basename(path),
+      quarantine,
+      String(expected.content.length),
+    ],
+    expected.content,
+    expected,
+    undefined,
+  );
+}
+
+function installZshLoginPath(config, probe) {
+  if (probe.shellKind !== "zsh" || !probe.startupPath) return undefined;
+  const path = probe.startupPath;
   const original = readShellStartupFile(path);
-  const installedContent = renderLoginPathBlock(original.content || "", config.binDir);
-  if (original.exists && original.content === installedContent) return () => {};
-  writeShellStartupFile(path, original, installedContent, original.mode || 0o644);
-  return () => {
-    const installed = readShellStartupFile(path);
-    if (!installed.exists || installed.content !== installedContent) {
-      throw new Error(`Hush login startup file changed before rollback: ${path}`);
+  try {
+    const installedContent = renderLoginPathBlock(original.content, config.binDir);
+    if (original.exists && original.content.equals(installedContent)) {
+      return {
+        path,
+        rollback() {},
+        close() {
+          closeShellStartupFile(original);
+        },
+      };
     }
-    if (original.exists) {
-      writeShellStartupFile(path, installed, original.content, original.mode);
-    } else {
-      rmSync(path);
-    }
-  };
+    const installed = writeShellStartupFile(path, original, installedContent);
+    return {
+      path,
+      rollback() {
+        if (original.exists) {
+          writeShellStartupFile(path, installed, original.content, original, false);
+        } else {
+          removeShellStartupFile(path, installed);
+        }
+      },
+      close() {
+        closeShellStartupFile(installed);
+        closeShellStartupFile(original);
+      },
+    };
+  } catch (error) {
+    closeShellStartupFile(original);
+    throw error;
+  }
 }
 
 function ensureLoginShellDelivery(config, checkOnly) {
@@ -1079,11 +3406,32 @@ function ensureLoginShellDelivery(config, checkOnly) {
     return true;
   }
 
-  const rollback = installZshLoginPath(config);
-  if (rollback) {
-    probe = probeLoginShell(config);
-    if (probe.kind === "delivered") return false;
-    rollback();
+  const change = installZshLoginPath(config, probe);
+  if (change) {
+    const expectedStartupPath = change.path;
+    try {
+      probe = probeLoginShell(config);
+      if (probe.kind === "delivered" && probe.startupPath === expectedStartupPath) {
+        return false;
+      }
+      if (probe.kind === "delivered") {
+        probe = {
+          ...probe,
+          kind: "failure",
+          reason: "zsh startup directory changed during install",
+        };
+      }
+      change.rollback();
+    } finally {
+      change.close();
+    }
+  }
+  if (probe.shellKind && probe.shellKind !== "zsh") {
+    const binDir = sanitizedDiagnostic(config.binDir, "configured bin directory");
+    console.error(
+      `hush: ${probe.shellKind} login startup is not managed automatically; ` +
+        `put ${binDir} first on PATH and re-run.`,
+    );
   }
   reportLoginShellFailure(config, probe);
   return true;
@@ -1229,6 +3577,7 @@ function runGuardedInstaller(config, publicArgs) {
         env: {
           ...guardedEnvironment(config),
           HUSH_INSTALL_NATIVE_HELPER: compiled.path,
+          [loginNativeHelperEnv]: compiled.loginPath,
         },
         stdio: "inherit",
       },
@@ -1425,7 +3774,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === scriptPath) {
   try {
     main();
   } catch (error) {
-    console.error(`hush: ${error.message}`);
+    console.error(`hush: ${sanitizedDiagnostic(error.message, "installer failed")}`);
     process.exitCode = 1;
   }
 }
