@@ -1,0 +1,30 @@
+{
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "insertFinalNewline": true,
+  "sortImports": {},
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/build/**",
+    "**/.next/**",
+    "**/.turbo/**",
+    "**/coverage/**",
+    "**/vendor/**",
+    "**/*.gen.ts",
+    "**/*.generated.*",
+    "**/*.md",
+    "**/*.mdx",
+    "**/fixtures/**",
+    "**/__fixtures__/**",
+    "**/__snapshots__/**",
+    "**/evidence/**",
+    "**/*.schema.json",
+    "**/src-tauri/gen/**",
+    "**/target/**",
+    "**/.cargo/**"
+  ]
+}
