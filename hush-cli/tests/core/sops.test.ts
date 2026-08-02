@@ -267,7 +267,7 @@ describe('sops helpers', () => {
     );
     encryptYamlContent('version: 3\n', manifestPath, { root: storeDir });
 
-    expect(() => decryptYaml(manifestPath, { root: storeDir })).toThrow(/no identity matched/i);
+    expect(() => decryptYaml(manifestPath, { root: storeDir })).toThrow(/identity did not match any of the recipients/i);
   });
 
   // Positive control for the guard above, and the part of it that cannot rot:

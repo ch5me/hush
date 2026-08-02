@@ -606,6 +606,25 @@ static void login_write_all(
   }
 }
 
+static bool login_random_name(char *buffer, size_t size, const char *prefix) {
+  unsigned char random[16];
+  if (getentropy(random, sizeof(random)) < 0) return false;
+  int written = snprintf(
+    buffer,
+    size,
+    "%s%ld-"
+    "%02x%02x%02x%02x%02x%02x%02x%02x"
+    "%02x%02x%02x%02x%02x%02x%02x%02x",
+    prefix,
+    (long)getpid(),
+    random[0], random[1], random[2], random[3],
+    random[4], random[5], random[6], random[7],
+    random[8], random[9], random[10], random[11],
+    random[12], random[13], random[14], random[15]
+  );
+  return written >= 0 && (size_t)written < size;
+}
+
 static bool login_claim_and_unlink(
   int parent,
   const char *name,
@@ -615,25 +634,8 @@ static bool login_claim_and_unlink(
   size_t length,
   bool compare_bytes
 ) {
-  unsigned char random[16];
-  if (getentropy(random, sizeof(random)) < 0) {
-    fprintf(stderr, "hush install helper warning: cannot claim startup cleanup: %s\n", name);
-    return false;
-  }
   char claim[96];
-  int written = snprintf(
-    claim,
-    sizeof(claim),
-    ".hush-login-claim-%ld-"
-    "%02x%02x%02x%02x%02x%02x%02x%02x"
-    "%02x%02x%02x%02x%02x%02x%02x%02x",
-    (long)getpid(),
-    random[0], random[1], random[2], random[3],
-    random[4], random[5], random[6], random[7],
-    random[8], random[9], random[10], random[11],
-    random[12], random[13], random[14], random[15]
-  );
-  if (written < 0 || (size_t)written >= sizeof(claim)) {
+  if (!login_random_name(claim, sizeof(claim), ".hush-login-claim-")) {
     fprintf(stderr, "hush install helper warning: cannot name startup cleanup claim: %s\n", name);
     return false;
   }
@@ -662,15 +664,26 @@ static bool login_claim_and_unlink(
     }
     return false;
   }
-  if (unlinkat(parent, claim, 0) < 0) {
+
+  pause_for_test("before-login-cleanup-seal", claim);
+  struct stat claim_before;
+  if (
+    fstatat(parent, claim, &claim_before, AT_SYMLINK_NOFOLLOW) < 0
+    || !same_inode(&claimed_state, &claim_before)
+  ) {
     fprintf(
       stderr,
-      "hush install helper warning: claimed startup cleanup preserved at %s\n",
+      "hush install helper warning: startup cleanup claim changed; preserved at %s\n",
       claim
     );
     return false;
   }
-  return true;
+  fprintf(
+    stderr,
+    "hush install helper warning: descriptor-bound startup cleanup preserved at %s\n",
+    claim
+  );
+  return false;
 }
 
 static int login_pending_parent = -1;
@@ -804,6 +817,32 @@ static int login_create_temporary(
   return fd;
 }
 
+static bool login_bind_name(
+  int parent,
+  const char *name,
+  int fd,
+  const struct stat *state,
+  const unsigned char *bytes,
+  size_t length,
+  char *bound,
+  size_t bound_size,
+  struct stat *bound_state
+) {
+  if (!login_random_name(bound, bound_size, ".hush-login-bound-")) return false;
+  if (rename_noreplace(parent, name, parent, bound) < 0) return false;
+  bool matches = login_capture_rename_transition(fd, state, bound_state)
+    && login_name_matches_state(
+      parent,
+      bound,
+      fd,
+      bound_state,
+      bytes,
+      length,
+      true
+    );
+  if (!matches) rename_noreplace(parent, bound, parent, name);
+  return matches;
+}
 static int login_rename_exchange(
   int left_fd,
   const char *left,
@@ -1197,6 +1236,8 @@ static void command_login_write(int argc, char **argv) {
   struct stat expected_state;
   struct stat temporary_state;
   struct stat published_state;
+  struct stat bound_state;
+  char bound[96];
 
   if (exists) {
     if (fstat(LOGIN_EXPECTED_FD, &expected_state) < 0) {
@@ -1272,30 +1313,34 @@ static void command_login_write(int argc, char **argv) {
     login_disarm_cleanup();
     fail("startup directory changed during publish: %s", directory);
   }
-  if (!login_name_matches_state(
+  pause_for_test("before-login-publish-bind", temporary);
+  if (!login_bind_name(
     parent,
     temporary,
     temporary_fd,
     &temporary_state,
     desired,
     new_length,
-    true
+    bound,
+    sizeof(bound),
+    &bound_state
   )) {
     login_disarm_cleanup();
     fail(
-      "startup temporary changed during publish; preserved replacement: %s",
+      "startup temporary changed while binding for publish; preserved replacement: %s",
       temporary
     );
   }
+  login_pending_name = bound;
 
   if (exists) {
-    if (login_rename_exchange(parent, temporary, parent, target) < 0) {
+    if (login_rename_exchange(parent, bound, parent, target) < 0) {
       int saved_errno = errno;
       login_cleanup_exact(
         parent,
-        temporary,
+        bound,
         temporary_fd,
-        &temporary_state,
+        &bound_state,
         desired,
         new_length
       );
@@ -1307,7 +1352,7 @@ static void command_login_write(int argc, char **argv) {
     struct stat displaced_state;
     bool publication_transition = login_capture_rename_transition(
       temporary_fd,
-      &temporary_state,
+      &bound_state,
       &published_state
     );
     bool displaced_transition = login_capture_rename_transition(
@@ -1329,7 +1374,7 @@ static void command_login_write(int argc, char **argv) {
     bool displaced_ok = displaced_transition
       && login_name_matches_state(
         parent,
-        temporary,
+        bound,
         LOGIN_EXPECTED_FD,
         &displaced_state,
         input,
@@ -1348,7 +1393,7 @@ static void command_login_write(int argc, char **argv) {
           login_fail_after_existing_exchange_restore(
             parent,
             target,
-            temporary,
+            bound,
             temporary_fd,
             &published_state,
             desired,
@@ -1376,7 +1421,7 @@ static void command_login_write(int argc, char **argv) {
       }
       fail("%s; startup target changed and was preserved: %s", reason, target);
     }
-    pause_for_test("before-login-displaced-unlink", temporary);
+    pause_for_test("before-login-displaced-unlink", bound);
     target_ok = login_name_matches_state(
       parent,
       target,
@@ -1388,7 +1433,7 @@ static void command_login_write(int argc, char **argv) {
     );
     displaced_ok = login_name_matches_state(
       parent,
-      temporary,
+      bound,
       LOGIN_EXPECTED_FD,
       &displaced_state,
       input,
@@ -1407,7 +1452,7 @@ static void command_login_write(int argc, char **argv) {
           login_fail_after_existing_exchange_restore(
             parent,
             target,
-            temporary,
+            bound,
             temporary_fd,
             &published_state,
             desired,
@@ -1439,7 +1484,7 @@ static void command_login_write(int argc, char **argv) {
       login_fail_after_existing_exchange_restore(
         parent,
         target,
-        temporary,
+        bound,
         temporary_fd,
         &published_state,
         desired,
@@ -1453,7 +1498,7 @@ static void command_login_write(int argc, char **argv) {
     }
     if (!login_claim_and_unlink(
       parent,
-      temporary,
+      bound,
       LOGIN_EXPECTED_FD,
       &displaced_state,
       input,
@@ -1475,13 +1520,13 @@ static void command_login_write(int argc, char **argv) {
       );
     }
   } else {
-    if (rename_noreplace(parent, temporary, parent, target) < 0) {
+    if (rename_noreplace(parent, bound, parent, target) < 0) {
       int saved_errno = errno;
       login_cleanup_exact(
         parent,
-        temporary,
+        bound,
         temporary_fd,
-        &temporary_state,
+        &bound_state,
         desired,
         new_length
       );
@@ -1492,7 +1537,7 @@ static void command_login_write(int argc, char **argv) {
     login_disarm_cleanup();
     bool publication_transition = login_capture_rename_transition(
       temporary_fd,
-      &temporary_state,
+      &bound_state,
       &published_state
     );
     pause_for_test("after-login-publish-noreplace", target);
@@ -1815,7 +1860,10 @@ export function assertSupportedInstallerPlatform(platform = process.platform) {
 export function assertInstallerPrerequisites({
   platform = process.platform,
   nodeVersion = process.version,
-  pathExists = existsSync,
+  resolveTools = () => ({
+    compilerPath: resolveSystemExecutable("C compiler", ["cc", "clang", "gcc"], true),
+    gitPath: resolveSystemExecutable("Git", ["git"], true),
+  }),
 } = {}) {
   assertSupportedInstallerPlatform(platform);
   try {
@@ -1823,13 +1871,13 @@ export function assertInstallerPrerequisites({
   } catch (error) {
     throw new HushInstallError("HUSH_INSTALL_MISSING_PREREQUISITE", error.message);
   }
-  for (const path of ["/usr/bin/cc", "/usr/bin/git"]) {
-    if (!pathExists(path)) {
-      throw new HushInstallError(
-        "HUSH_INSTALL_MISSING_PREREQUISITE",
-        `managed local install requires ${path}`,
-      );
-    }
+  try {
+    resolveTools();
+  } catch (error) {
+    throw new HushInstallError(
+      "HUSH_INSTALL_MISSING_PREREQUISITE",
+      `managed local install requires trusted Git and C compiler executables: ${error.message}`,
+    );
   }
 }
 
@@ -1863,6 +1911,52 @@ function requireExecutablePath(label, candidate, allowRootOwnedHardlinks = false
     throw new Error(`${label} must be a trusted executable regular file: ${canonical}`);
   }
   return canonical;
+}
+
+const systemExecutableDirectories = [
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+];
+
+export function resolveSystemExecutable(
+  label,
+  names,
+  allowRootOwnedHardlinks = false,
+  {
+    directories = systemExecutableDirectories,
+    pathExists = existsSync,
+    canonicalize = realpathSync,
+    inspect = lstatSync,
+  } = {},
+) {
+  let lastError;
+  for (const directory of directories) {
+    for (const name of names) {
+      const candidate = join(directory, name);
+      if (!pathExists(candidate)) continue;
+      try {
+        const canonical = canonicalize(candidate);
+        const metadata = inspect(canonical);
+        const linksAreSafe = metadata.nlink === 1
+          || (allowRootOwnedHardlinks && metadata.uid === 0);
+        if (
+          metadata.uid !== 0
+          || !metadata.isFile()
+          || metadata.isSymbolicLink()
+          || !linksAreSafe
+          || !(metadata.mode & 0o111)
+        ) {
+          throw new Error(`${label} must be a root-owned executable regular file: ${canonical}`);
+        }
+        return canonical;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+  throw lastError || new Error(`${label} was not found in trusted system directories`);
 }
 
 function gitEnvironment(base = process.env) {
@@ -1920,17 +2014,15 @@ function resolveToolPaths(guarded) {
   if (!expectedBunVersion) throw new Error(`Hush installer requires a pinned Bun packageManager: ${packageManager}`);
   return {
     bunPath: resolveBunExecutable(expectedBunVersion),
-    gitPath: requireExecutablePath("Hush installer Git", "/usr/bin/git", true),
+    gitPath: resolveSystemExecutable("Hush installer Git", ["git"], true),
   };
 }
 
 function currentGitPath() {
   const guarded = process.env.HUSH_INSTALL_NATIVE_GUARDED === "1";
-  return requireExecutablePath(
-    guarded ? "Pinned Hush installer Git" : "Hush installer Git",
-    guarded ? process.env[pinnedGitEnv] : "/usr/bin/git",
-    true,
-  );
+  return guarded
+    ? requireExecutablePath("Pinned Hush installer Git", process.env[pinnedGitEnv], true)
+    : resolveSystemExecutable("Hush installer Git", ["git"], true);
 }
 
 function guardedEnvironment(config) {
@@ -2411,13 +2503,7 @@ function compileNativeProgram(compiler, source, output, label) {
 }
 
 function compileNativeHelper() {
-  const compiler = "/usr/bin/cc";
-  if (!existsSync(compiler)) {
-    throw new HushInstallError(
-      "HUSH_INSTALL_MISSING_PREREQUISITE",
-      `managed local install requires a C compiler at ${compiler}`,
-    );
-  }
+  const compiler = resolveSystemExecutable("Hush installer C compiler", ["cc", "clang", "gcc"], true);
   const buildDirectory = realpathSync(mkdtempSync(join(tmpdir(), "hush-install-native-")));
   const helperPath = join(buildDirectory, "hush-install-native");
   const loginHelperPath = join(buildDirectory, "hush-login-native");
@@ -2631,11 +2717,10 @@ function shellQuote(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function loginShellDetails() {
-  const account = userInfo();
+export function loginShellDetails(account = userInfo()) {
   const shell = requireExecutablePath(
-    "Hush login shell",
-    process.env.SHELL || account.shell || "/bin/sh",
+    "Hush account login shell",
+    account.shell || "/bin/sh",
     true,
   );
   return {
@@ -2760,9 +2845,9 @@ function probeLoginShell(config) {
   } catch (error) {
     return {
       kind: "failure",
-      shell: sanitizedDiagnostic(process.env.SHELL, "unknown shell"),
+      shell: "account login shell",
       invocation: "login",
-      reason: sanitizedDiagnostic(error.message, "invalid login shell"),
+      reason: sanitizedDiagnostic(error.message, "invalid account login shell"),
     };
   }
   const marker = `__HUSH_LOGIN_${randomBytes(12).toString("hex")}__`;
