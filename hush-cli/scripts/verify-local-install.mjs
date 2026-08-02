@@ -848,6 +848,29 @@ async function main() {
   assert.notEqual(statSync(victimLauncher).ino, statSync(launcherPath).ino);
   assert.equal(lstatSync(launcherPath).nlink, 1);
 
+  const staleLauncherName = ".hush-launcher-race";
+  const staleLauncherPath = join(installBin, staleLauncherName);
+  const preservedStaleLauncher = join(sandbox, "stale-launcher-original");
+  writeFileSync(staleLauncherPath, "stale launcher\n", { mode: 0o755 });
+  const staleLauncherRace = await startPausedInstaller("before-launcher-quarantine", {
+    HUSH_INSTALL_TEST_PAUSE_ENTRY: staleLauncherName,
+  });
+  renameSync(staleLauncherPath, preservedStaleLauncher);
+  writeFileSync(staleLauncherPath, "replacement launcher\n", { mode: 0o755 });
+  releasePausedInstaller(staleLauncherRace);
+  const staleLauncherRaceResult = await staleLauncherRace.done;
+  assert.notEqual(staleLauncherRaceResult.status, 0);
+  assert.match(staleLauncherRaceResult.stderr, /quarantined stale launcher changed during cleanup/);
+  const launcherQuarantines = readdirSync(installBin).filter((name) => name.startsWith(".hush-bin-prune-"));
+  assert.equal(launcherQuarantines.length, 1);
+  assert.equal(readFileSync(join(installBin, launcherQuarantines[0]), "utf8"), "replacement launcher\n");
+  assert.equal(readFileSync(preservedStaleLauncher, "utf8"), "stale launcher\n");
+  assert.equal(existsSync(staleLauncherPath), false);
+  rmSync(join(installBin, launcherQuarantines[0]));
+  rmSync(preservedStaleLauncher);
+  const staleLauncherRecovery = runInstaller();
+  assert.equal(staleLauncherRecovery.status, 0, staleLauncherRecovery.stderr);
+
   writeFileSync(launcherPath, `${launcher}\n`);
   const launcherDrift = runInstaller(["--check"]);
   assert.notEqual(launcherDrift.status, 0);

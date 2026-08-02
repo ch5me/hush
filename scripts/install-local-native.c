@@ -739,6 +739,30 @@ static struct object_identity prune_identity_from_name(const char *name) {
   return result;
 }
 
+static struct object_identity launcher_quarantine_identity_from_name(const char *name) {
+  const char *prefix = ".hush-bin-prune-";
+  if (!has_prefix(name, prefix)) fail("invalid Hush launcher quarantine name: %s", name);
+  const char *cursor = name + strlen(prefix);
+  errno = 0;
+  char *end = NULL;
+  uintmax_t device = strtoumax(cursor, &end, 16);
+  if (errno || end == cursor || *end != '-') fail("invalid Hush launcher quarantine identity: %s", name);
+  cursor = end + 1;
+  errno = 0;
+  uintmax_t inode = strtoumax(cursor, &end, 16);
+  if (errno || end == cursor || *end != '-') fail("invalid Hush launcher quarantine identity: %s", name);
+  if (!end[1]) fail("invalid Hush launcher quarantine name: %s", name);
+
+  struct object_identity result = {
+    .device = (dev_t)device,
+    .inode = (ino_t)inode,
+  };
+  if ((uintmax_t)result.device != device || (uintmax_t)result.inode != inode) {
+    fail("Hush launcher quarantine identity is out of range: %s", name);
+  }
+  return result;
+}
+
 static void command_guard(int argc, char **argv) {
   if (argc < 8) fail("usage: guard <install|check> <source> <runtime-parent> <bin> <command> [args...]");
   bool create;
@@ -1055,9 +1079,12 @@ static void command_cleanup_bin(int argc, char **argv) {
   if (!directory) fail_errno("cannot enumerate", argv[2]);
   struct dirent *entry;
   while ((entry = readdir(directory)) != NULL) {
-    if (!has_prefix(entry->d_name, ".hush-launcher-")) continue;
+    bool quarantined = has_prefix(entry->d_name, ".hush-bin-prune-");
+    if (!quarantined && !has_prefix(entry->d_name, ".hush-launcher-")) continue;
+    require_component(entry->d_name);
     struct stat metadata;
     if (fstatat(BIN_FD, entry->d_name, &metadata, AT_SYMLINK_NOFOLLOW) < 0) {
+      if (errno == ENOENT) continue;
       fail_errno("cannot inspect stale launcher", entry->d_name);
     }
     if (!S_ISREG(metadata.st_mode) || metadata.st_nlink != 1) {
@@ -1070,12 +1097,52 @@ static void command_cleanup_bin(int argc, char **argv) {
     if (!same_inode(&metadata, &opened_metadata)) {
       fail("stale launcher changed before cleanup: %s", entry->d_name);
     }
-    if (unlinkat(BIN_FD, entry->d_name, 0) < 0) fail_errno("cannot remove stale launcher", entry->d_name);
-    if (fstat(opened, &opened_metadata) < 0) fail_errno("cannot verify removed stale launcher", entry->d_name);
-    close(opened);
-    if (opened_metadata.st_nlink != 0) {
-      fail("stale launcher changed during cleanup: %s", entry->d_name);
+
+    struct object_identity expected = identity_from_stat(&opened_metadata);
+    char quarantine[192];
+    const char *cleanup_name = entry->d_name;
+    if (quarantined) {
+      struct object_identity encoded = launcher_quarantine_identity_from_name(entry->d_name);
+      if (encoded.device != expected.device || encoded.inode != expected.inode) {
+        fail("Hush launcher quarantine identity mismatch: %s", entry->d_name);
+      }
+    } else {
+      pause_for_test("before-launcher-quarantine", entry->d_name);
+      bool renamed = false;
+      for (int attempt = 0; attempt < 100; attempt++) {
+        int count = snprintf(
+          quarantine,
+          sizeof(quarantine),
+          ".hush-bin-prune-%jx-%jx-%ld-%d",
+          (uintmax_t)expected.device,
+          (uintmax_t)expected.inode,
+          (long)getpid(),
+          attempt
+        );
+        if (count < 0 || (size_t)count >= sizeof(quarantine)) {
+          fail("cannot format launcher quarantine name: %s", entry->d_name);
+        }
+        if (rename_noreplace(BIN_FD, entry->d_name, BIN_FD, quarantine) == 0) {
+          renamed = true;
+          break;
+        }
+        if (errno != EEXIST) fail_errno("cannot quarantine stale launcher", entry->d_name);
+      }
+      if (!renamed) fail("cannot allocate launcher quarantine name: %s", entry->d_name);
+      if (fsync(BIN_FD) < 0) fail_errno("cannot sync quarantined stale launcher", entry->d_name);
+      cleanup_name = quarantine;
     }
+
+    struct stat cleanup_metadata;
+    if (fstatat(BIN_FD, cleanup_name, &cleanup_metadata, AT_SYMLINK_NOFOLLOW) < 0) {
+      fail_errno("quarantined stale launcher is missing or changed:", cleanup_name);
+    }
+    if (!matches_identity(&cleanup_metadata, &expected)) {
+      close(opened);
+      fail("quarantined stale launcher changed during cleanup: %s", cleanup_name);
+    }
+    if (unlinkat(BIN_FD, cleanup_name, 0) < 0) fail_errno("cannot remove quarantined stale launcher", cleanup_name);
+    close(opened);
   }
   closedir(directory);
   if (fsync(BIN_FD) < 0) fail_errno("cannot sync", argv[2]);

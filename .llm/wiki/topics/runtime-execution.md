@@ -54,8 +54,12 @@ external hardlink aliases.
 Removal uses the same inherited exclusive directory locks as install and binds
 every selected object to device/inode identity. This is an explicit cooperative
 writer boundary: another Hush installer cannot mutate the directory while
-cleanup runs. Each entry is rechecked immediately before unlink; an observed
-non-cooperative replacement fails closed and the replacement is never deleted.
+cleanup runs. Stale launcher cleanup atomically moves the selected public name
+into an identity-encoded quarantine before unlink. A replacement racing that
+public name is preserved and fails the identity check. The final private
+quarantine unlink relies on the cooperative locked-writer boundary; a same-user
+process deliberately racing the private quarantine namespace is outside this
+installer contract because POSIX has no identity-conditional unlink operation.
 
 Git uses the fixed system executable with `GIT_*` removed. Bun resolves once to
 the repository-pinned absolute executable before locking; guarded work receives
