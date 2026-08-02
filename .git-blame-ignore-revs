@@ -1,0 +1,5 @@
+# Commits listed here are ignored by `git blame` (see `git config blame.ignoreRevsFile`).
+# Enable once per clone: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# chore(hygiene): apply oxfmt formatting (big-bang)
+ff487ccf32e094d08c03835d23439b0488493613
