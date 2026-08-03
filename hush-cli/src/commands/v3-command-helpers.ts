@@ -628,7 +628,9 @@ export function loadMachineLocalOverrides(
     }
 
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid machine-local override file at ${overridePath}: ${message}`);
+    throw new Error(`Invalid machine-local override file at ${overridePath}: ${message}`, {
+      cause: error,
+    });
   }
 }
 
@@ -844,6 +846,7 @@ export function assertEditableValuePersisted(
     throw new Error(
       `Write verification failed for ${key} in ${target.filePath} (${target.scope}): ` +
         `the value could not be read back after writing (${message}). Nothing was reported as saved.`,
+      { cause: error },
     );
   }
 

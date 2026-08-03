@@ -711,8 +711,8 @@ export function parseArgs(args: string[]): ParsedArgs {
   let value: string | undefined;
   let setFile: string | undefined;
   let target: string | undefined;
-  let requireKeys: string[] = [];
-  let positionalArgs: string[] = [];
+  const requireKeys: string[] = [];
+  const positionalArgs: string[] = [];
   let cmdArgs: string[] = [];
   let format: string | undefined;
   let mode: string | undefined;
@@ -733,7 +733,7 @@ export function parseArgs(args: string[]): ParsedArgs {
   let vercel = false;
   let project: string | undefined;
   let team: string | undefined;
-  let environments: VercelEnvironment[] = [];
+  const environments: VercelEnvironment[] = [];
   let wranglerEnv: string | undefined;
   let keysToken: string | undefined;
 

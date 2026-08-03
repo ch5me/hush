@@ -516,7 +516,7 @@ function encryptWithFormat(
     writeFileSync(outputPath, encrypted, "utf-8");
   } catch (error) {
     const err = error as { stderr?: string; message?: string };
-    throw new Error(`SOPS encryption failed: ${err.stderr || err.message}`);
+    throw new Error(`SOPS encryption failed: ${err.stderr || err.message}`, { cause: error });
   }
 }
 

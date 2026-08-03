@@ -430,7 +430,7 @@ export function upsertManifestFileIndexEntry(
   return createManifestDocument({
     ...manifest,
     fileIndex: {
-      ...(manifest.fileIndex ?? {}),
+      ...manifest.fileIndex,
       [filePath]: entry,
     },
   });

@@ -27,7 +27,6 @@ export const fs = {
     path: PathLike,
     options?: { encoding?: BufferEncoding; flag?: string } | BufferEncoding,
   ): string | Buffer => {
-    // @ts-ignore - handled by overloads in node:fs
     return nodeReadFileSync(path, options);
   },
 
@@ -43,7 +42,7 @@ export const fs = {
   },
 
   readdirSync: (path: PathLike, options?: { recursive?: boolean }): string[] => {
-    // @ts-ignore - handled by node:fs
+    // @ts-expect-error - handled by node:fs
     return nodeReaddirSync(path, options);
   },
 

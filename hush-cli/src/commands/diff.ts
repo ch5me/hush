@@ -110,7 +110,9 @@ function readGitTextFile(
     return typeof output === "string" ? output : output.toString("utf-8");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Could not read ${gitRelativePath} from git ref "${ref}": ${message}`);
+    throw new Error(`Could not read ${gitRelativePath} from git ref "${ref}": ${message}`, {
+      cause: error,
+    });
   }
 }
 

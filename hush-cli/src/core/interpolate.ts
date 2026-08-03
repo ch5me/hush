@@ -55,7 +55,7 @@ export function interpolateValue(
 }
 
 export function interpolateVars(vars: EnvVar[], options: InterpolateOptions = {}): EnvVar[] {
-  const context: Record<string, string> = { ...(options.baseContext || {}) };
+  const context: Record<string, string> = { ...options.baseContext };
 
   for (const { key, value } of vars) {
     context[key] = value;

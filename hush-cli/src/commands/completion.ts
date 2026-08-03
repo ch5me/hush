@@ -129,34 +129,34 @@ _hush_completion() {
   local flags="${flags}"
 
   if [[ \${cword} -eq 1 ]]; then
-    COMPREPLY=( \$(compgen -W "\${commands} \${flags}" -- "\${cur}") )
+    COMPREPLY=( $(compgen -W "\${commands} \${flags}" -- "\${cur}") )
     return
   fi
 
   case "\${prev}" in
     -e|--env)
-      COMPREPLY=( \$(compgen -W "development production dev prod" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "development production dev prod" -- "\${cur}") )
       return ;;
     -t|--target|--bundle|--from|--to|--project|--team)
       COMPREPLY=()
       return ;;
     --environment)
-      COMPREPLY=( \$(compgen -W "production preview development" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "production preview development" -- "\${cur}") )
       return ;;
     --format)
-      COMPREPLY=( \$(compgen -W "dotenv wrangler vercel json shell yaml" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "dotenv wrangler vercel json shell yaml" -- "\${cur}") )
       return ;;
     --mode)
-      COMPREPLY=( \$(compgen -W "process file example" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "process file example" -- "\${cur}") )
       return ;;
   esac
 
   if [[ "\${cur}" == -* ]]; then
-    COMPREPLY=( \$(compgen -W "\${flags}" -- "\${cur}") )
+    COMPREPLY=( $(compgen -W "\${flags}" -- "\${cur}") )
     return
   fi
 
-  COMPREPLY=( \$(compgen -W "\${commands}" -- "\${cur}") )
+  COMPREPLY=( $(compgen -W "\${commands}" -- "\${cur}") )
 }
 
 complete -F _hush_completion hush
@@ -187,12 +187,12 @@ ${commandLines}
 ${flagLines}
   )
 
-  case \$state in
+  case $state in
     command)
       _describe 'hush commands' commands
       ;;
     args)
-      case \$words[2] in
+      case $words[2] in
         bundle)
           _describe 'bundle subcommands' '("add:Add a new bundle" "add-file:Add a file to a bundle" "remove-file:Remove a file from a bundle" "remove:Remove a bundle" "list:List bundles")'
           ;;
@@ -236,8 +236,8 @@ function buildFishScript(): string {
 
 function __fish_use_subcommand
   set -l cmd (commandline -opc)
-  for i in (seq 2 (count \$cmd))
-    if not string match -q -- '-*' \$cmd[\$i]
+  for i in (seq 2 (count $cmd))
+    if not string match -q -- '-*' $cmd[$i]
       return 0
     end
   end

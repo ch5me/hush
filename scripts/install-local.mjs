@@ -2089,7 +2089,7 @@ function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    throw new Error(`Hush runtime JSON invalid: ${path}: ${error.message}`);
+    throw new Error(`Hush runtime JSON invalid: ${path}: ${error.message}`, { cause: error });
   }
 }
 
@@ -3177,7 +3177,9 @@ function readShellStartupFile(path) {
         !sameShellDirectoryIdentity(openedParent, absentParent) ||
         realpathSync(parent) !== parent
       ) {
-        throw new Error(`Hush login startup directory changed while reading: ${parent}`);
+        throw new Error(`Hush login startup directory changed while reading: ${parent}`, {
+          cause: error,
+        });
       }
       return {
         exists: false,
@@ -3473,21 +3475,23 @@ function writeShellStartupFile(
     const recovered = recoverShellStartupReadback(path, expected, content, metadataSource, receipt);
     const reason = sanitizedDiagnostic(error.message, "startup read-back failed");
     if (recovered.kind === "restored") {
-      throw new Error(`${reason} Original startup state restored.`);
+      throw new Error(`${reason} Original startup state restored.`, { cause: error });
     }
     if (recovered.kind === "preserved-original") {
       throw new Error(
         `${reason} Changed startup target preserved; original preserved at ` +
           `${sanitizedDiagnostic(recovered.recoveryPath, "startup recovery file")}.`,
+        { cause: error },
       );
     }
     if (recovered.kind === "preserved-target") {
       throw new Error(
         `${reason} Changed startup target preserved; original absence not overwritten ` +
           `(${recovered.reason}).`,
+        { cause: error },
       );
     }
-    throw new Error(`${reason} Startup recovery failed: ${recovered.reason}.`);
+    throw new Error(`${reason} Startup recovery failed: ${recovered.reason}.`, { cause: error });
   }
 }
 

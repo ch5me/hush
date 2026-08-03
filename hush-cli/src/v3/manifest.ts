@@ -21,7 +21,7 @@ export function parseManifestDocument(path: string, content: string): HushManife
     return createManifestDocument(parseYamlDocument(path, content) as HushManifestDocument);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid v3 manifest at ${path}: ${message}`);
+    throw new Error(`Invalid v3 manifest at ${path}: ${message}`, { cause: error });
   }
 }
 
@@ -44,6 +44,6 @@ export function parseFileDocument(
     return document;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid v3 file document at ${path}: ${message}`);
+    throw new Error(`Invalid v3 file document at ${path}: ${message}`, { cause: error });
   }
 }

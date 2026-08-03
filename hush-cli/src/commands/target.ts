@@ -98,7 +98,7 @@ async function handleAdd(ctx: HushContext, options: TargetAddOptions): Promise<v
   const nextManifest = createManifestDocument({
     ...repository.manifest,
     targets: {
-      ...(repository.manifest.targets ?? {}),
+      ...repository.manifest.targets,
       [options.name]: targetDef,
     },
   });

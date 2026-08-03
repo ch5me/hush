@@ -77,7 +77,7 @@ function promptViaMacOSDialog(ctx: HushContext, key: string): string {
     if (error instanceof Error) {
       throw error;
     }
-    throw new Error(`macOS dialog failed: unknown error`);
+    throw new Error(`macOS dialog failed: unknown error`, { cause: error });
   }
 }
 
