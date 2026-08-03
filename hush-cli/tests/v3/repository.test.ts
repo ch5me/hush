@@ -167,7 +167,7 @@ describe("persistV3ManifestDocument", () => {
     );
 
     expect(mockCtx.sops.encryptYamlContent).toHaveBeenCalledOnce();
-    const [content, manifestPath] = mockCtx.sops.encryptYamlContent.mock.calls[0]!;
+    const [, manifestPath] = mockCtx.sops.encryptYamlContent.mock.calls[0]!;
     expect(manifestPath).toContain("manifest.encrypted");
     expect(result.metadata?.updatedAt).toBe("2026-01-01");
     expect(repository.manifest.metadata?.updatedAt).toBe("2026-01-01");

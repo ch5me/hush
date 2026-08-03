@@ -31,10 +31,6 @@ import { ensureTestSopsEnv, writeEncryptedYamlFile } from "./helpers/sops-test.j
 
 const TEST_DIR = join("/tmp", "hush-test-inspect-json");
 
-function stripAnsi(value: string): string {
-  return value.replace(new RegExp(String.raw`\[[0-9;]*m`, "g"), "");
-}
-
 function normalizeYaml(content: string): string {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 

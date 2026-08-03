@@ -2,7 +2,7 @@ import * as nodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { loadLocalTemplates, resolveTemplateVars } from "../../src/core/template.js";
 

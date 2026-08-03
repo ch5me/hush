@@ -275,7 +275,7 @@ describe("export-example --write", () => {
   it("written file content matches the stdout output (without ansi)", async () => {
     const root = join(TEST_DIR, "write-matches-stdout");
     const repository = writeRepo(root, MANIFEST, FILES);
-    const { ctx, logger, store } = createContext(root);
+    const { ctx, store } = createContext(root);
     setIdentity(ctx, store, repository, "owner-local");
 
     await exportExampleCommand(ctx, { store, env: "development", write: true });

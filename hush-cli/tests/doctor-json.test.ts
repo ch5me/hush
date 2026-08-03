@@ -17,7 +17,6 @@ import {
   createFileDocument,
   createFileIndexEntry,
   createManifestDocument,
-  createProjectSlug,
   loadV3Repository,
 } from "../src/index.js";
 import type { HushContext, HushManifestDocument, LegacyHushConfig } from "../src/types.js";

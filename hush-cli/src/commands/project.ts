@@ -1,7 +1,5 @@
 import { isAbsolute, relative, resolve } from "node:path";
 
-import pc from "picocolors";
-
 import { writeJsonSuccess } from "../lib/command-output.js";
 import type { HushContext, ProjectOptions, StoreContext } from "../types.js";
 import { resolveTargetEnvView } from "./v3-command-helpers.js";
