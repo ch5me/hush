@@ -625,6 +625,7 @@ hush config readers env/project/shared --identities owner-local,ci
 - Add `--json` to `show` for machine-readable structural output. JSON output includes paths, readers, bundles, targets, and state metadata only — never decrypted values.
 - `active-identity` writes machine-local state under `~/.hush/state/projects/<project-slug>/active-identity.json`.
 - `readers` updates one ACL unit at a time, because files are the only ACL boundary in v3.
+- `readers` fails closed before writing when the requested metadata change has no authoritative identity-to-age-recipient mapping. It never reports a metadata-only grant as usable encryption access.
 
 ---
 
@@ -675,7 +676,7 @@ hush file add env/api/production --roles owner,ci
 hush file add env/api/staging --roles owner,member,ci
 hush file add env/project/shared --identities owner-local,ci
 
-# Update readers on an existing file
+# Update readers on an existing file after recipient authority is configured
 hush file readers env/api/production --roles owner,ci
 hush file readers env/api/production --identities owner-local,ci
 
@@ -714,10 +715,11 @@ hush file remove env/api/production --keep-file
 
 - Requires the owner role. Non-owner identities cannot add, remove, or update files.
 - `file remove` fails if the file is still referenced by any bundle. Remove the bundle first.
+- `file readers` fails closed before changing the encrypted file or manifest when Hush cannot prove that SOPS recipients match the requested readers. The current implementation has no authoritative identity-to-age-recipient mapping.
 - All mutations emit `metadata_change` audit events.
 
 <Aside type="tip">
-Use `hush file readers` to grant CI access to a file without recreating it. This is the safe way to expand or restrict who can decrypt a file.
+Configure identity-to-age-recipient authority first. Until then, `hush file readers` refuses changes rather than claiming CI or another identity can decrypt a file from metadata alone.
 </Aside>
 
 ---

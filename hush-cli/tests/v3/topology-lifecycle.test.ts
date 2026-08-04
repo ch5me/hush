@@ -539,12 +539,23 @@ describe("topology-lifecycle", () => {
         identities: undefined,
       };
 
-      await fileCommand(ctx, options);
+      const filePath = join(TMP_DIR, ".hush", "files", "env", "project", "shared.encrypted");
+      const manifestPath = join(TMP_DIR, ".hush", "manifest.encrypted");
+      const beforeFile = nodeFs.readFileSync(filePath);
+      const beforeManifest = nodeFs.readFileSync(manifestPath);
+
+      await expect(fileCommand(ctx, options)).rejects.toMatchObject({
+        name: "ReaderRecipientAuthorityError",
+        code: "READER_RECIPIENT_AUTHORITY_MISSING",
+      });
 
       const reloaded = loadV3Repository(TMP_DIR, { keyIdentity: TMP_DIR });
-      expect(reloaded.filesByPath["env/project/shared"]?.readers.roles).toContain("owner");
-      expect(reloaded.filesByPath["env/project/shared"]?.readers.roles).toContain("member");
-      expect(reloaded.filesByPath["env/project/shared"]?.readers.roles).toContain("ci");
+      expect(reloaded.filesByPath["env/project/shared"]?.readers).toEqual({
+        roles: ["owner"],
+        identities: [],
+      });
+      expect(nodeFs.readFileSync(filePath)).toEqual(beforeFile);
+      expect(nodeFs.readFileSync(manifestPath)).toEqual(beforeManifest);
     });
   });
 

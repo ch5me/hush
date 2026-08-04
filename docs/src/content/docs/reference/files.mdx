@@ -41,7 +41,7 @@ It defines:
 
 ### `.hush/files/**.encrypted`
 
-These encrypted YAML documents hold the actual secret entries and their file readers.
+These encrypted YAML documents hold the actual secret entries and their file readers. Reader metadata is only authoritative when it matches the SOPS age recipients; Hush refuses reader changes when no identity-to-recipient mapping is available.
 
 Typical examples:
 

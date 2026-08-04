@@ -190,6 +190,7 @@ npx @chriscode/hush file remove env/api/production
 - Removing a file that is still referenced by a bundle fails. Remove the bundle first.
 - Removing a bundle that is still referenced by a target fails. Remove the target first.
 - \`hush file remove\` deletes the encrypted disk file by default. Pass \`--keep-file\` to remove only the manifest entry.
+- \`hush file readers\` and \`hush config readers\` fail closed when changing readers because Hush currently has no authoritative identity-to-age-recipient mapping. They never claim a metadata-only grant succeeded.
 - All mutations emit \`metadata_change\` audit events.
 
 ### Manage files
@@ -613,6 +614,11 @@ npx @chriscode/hush migrate --from v2 --cleanup
 \`\`\`
 
 ## Change readers on one file
+
+Reader metadata must stay synchronized with SOPS recipients. Hush currently has
+no authoritative identity-to-age-recipient mapping, so a reader change fails
+before writing either the encrypted file or manifest. Configure that mapping in
+the owning key-management layer, then retry.
 
 \`\`\`bash
 npx @chriscode/hush config readers env/project/shared --roles owner,member,ci

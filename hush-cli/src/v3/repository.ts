@@ -5,7 +5,12 @@ import { stringify as stringifyYaml } from "yaml";
 import { decryptYaml } from "../core/sops.js";
 import { fs } from "../lib/fs.js";
 import type { HushContext, HushV3Repository, StoreContext } from "../types.js";
-import type { HushFileDocument, HushFilePath, HushManifestDocument } from "./domain.js";
+import type {
+  HushFileDocument,
+  HushFilePath,
+  HushManifestDocument,
+  HushReaders,
+} from "./domain.js";
 import {
   createFileIndexEntry,
   createManifestDocument,
@@ -17,6 +22,33 @@ import { HUSH_V3_ENCRYPTED_FILE_EXTENSION } from "./schema.js";
 
 interface LoadV3RepositoryOptions {
   keyIdentity?: string;
+}
+
+export class ReaderRecipientAuthorityError extends Error {
+  readonly code = "READER_RECIPIENT_AUTHORITY_MISSING";
+
+  constructor(filePath: string) {
+    super(
+      `Cannot update readers for "${filePath}": Hush has no authoritative identity-to-age-recipient mapping. ` +
+        "Reader metadata was not changed; configure recipient authority before retrying.",
+    );
+    this.name = "ReaderRecipientAuthorityError";
+  }
+}
+
+/**
+ * Reader metadata is an access promise only when the encrypted file carries
+ * recipients for the same identities. Hush currently has no authoritative
+ * identity-to-recipient mapping, so refuse metadata-only mutations.
+ */
+export function assertReaderRecipientAuthority(
+  filePath: string,
+  currentReaders: HushReaders,
+  nextReaders: HushReaders,
+): void {
+  if (JSON.stringify(currentReaders) !== JSON.stringify(nextReaders)) {
+    throw new ReaderRecipientAuthorityError(filePath);
+  }
 }
 
 function walkEncryptedFiles(root: string): string[] {

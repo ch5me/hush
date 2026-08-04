@@ -12,7 +12,10 @@ import {
 import { writeJsonSuccess } from "../lib/command-output.js";
 import type { ConfigOptions, HushContext, HushV3Repository } from "../types.js";
 import { isIdentityAllowed } from "../v3/domain.js";
-import { persistV3FileDocument } from "../v3/repository.js";
+import {
+  assertReaderRecipientAuthority,
+  persistV3FileDocument,
+} from "../v3/repository.js";
 import { requireMutableIdentity } from "./v3-command-helpers.js";
 
 type ConfigShowSection =
@@ -248,6 +251,8 @@ function handleReaders(ctx: HushContext, options: ConfigOptions): void {
     ...file,
     readers: nextReaders,
   };
+
+  assertReaderRecipientAuthority(filePath, file.readers, nextReaders);
 
   persistV3FileDocument(
     ctx,

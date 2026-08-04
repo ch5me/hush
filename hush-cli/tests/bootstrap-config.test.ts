@@ -244,18 +244,23 @@ describe("bootstrap/config/init task 6", () => {
 
     await configCommand(ctx, { store, subcommand: "active-identity", args: ["owner-local"] });
 
-    await configCommand(ctx, {
-      store,
-      subcommand: "readers",
-      args: ["env/project/shared"],
-      roles: "owner,ci",
-      identities: "member-local",
+    await expect(
+      configCommand(ctx, {
+        store,
+        subcommand: "readers",
+        args: ["env/project/shared"],
+        roles: "owner,ci",
+        identities: "member-local",
+      }),
+    ).rejects.toMatchObject({
+      name: "ReaderRecipientAuthorityError",
+      code: "READER_RECIPIENT_AUTHORITY_MISSING",
     });
 
     const repository = loadV3Repository(projectRoot, { keyIdentity: store.keyIdentity });
     expect(repository.filesByPath["env/project/shared"]?.readers).toEqual({
-      roles: ["owner", "ci"],
-      identities: ["member-local"],
+      roles: ["owner", "member", "ci"],
+      identities: [],
     });
   }, 60000);
 
@@ -300,12 +305,17 @@ describe("bootstrap/config/init task 6", () => {
     const { ctx, store, logger } = createContext(projectRoot);
     await bootstrapCommand(ctx, { store, yes: true });
 
-    await configCommand(ctx, {
-      store,
-      subcommand: "readers",
-      args: ["env/project/shared"],
-      roles: "owner",
-      identities: "owner-local",
+    await expect(
+      configCommand(ctx, {
+        store,
+        subcommand: "readers",
+        args: ["env/project/shared"],
+        roles: "owner",
+        identities: "owner-local",
+      }),
+    ).rejects.toMatchObject({
+      name: "ReaderRecipientAuthorityError",
+      code: "READER_RECIPIENT_AUTHORITY_MISSING",
     });
 
     logger.log.mockClear();
@@ -315,7 +325,8 @@ describe("bootstrap/config/init task 6", () => {
     await configCommand(ctx, { store, subcommand: "show", args: ["files"] });
 
     const output = logger.log.mock.calls.map(([message]) => String(message)).join("\n");
-    expect(output).toBe("[]");
+    expect(output).toContain("env/project/shared");
+    expect(output).toContain("member");
   }, 60000);
 
   it("parses config subcommands and reader flags through cli argument parsing", () => {

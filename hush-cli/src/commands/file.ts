@@ -18,7 +18,11 @@ import type {
   HushContext,
   HushV3Repository,
 } from "../types.js";
-import { persistV3FileDocument, removeV3FileDocument } from "../v3/repository.js";
+import {
+  assertReaderRecipientAuthority,
+  persistV3FileDocument,
+  removeV3FileDocument,
+} from "../v3/repository.js";
 import { MACHINE_LOCAL_FILE_PATH, assertRepositoryFilePath } from "../v3/schema.js";
 import { withSuggestion } from "./mutation-feedback.js";
 import { requireMutableIdentity, requireV3Repository } from "./v3-command-helpers.js";
@@ -310,6 +314,8 @@ async function handleFileReaders(ctx: HushContext, options: FileReadersOptions):
     ...file,
     readers: nextReaders,
   });
+
+  assertReaderRecipientAuthority(filePath, file.readers, nextReaders);
 
   persistV3FileDocument(
     ctx,
