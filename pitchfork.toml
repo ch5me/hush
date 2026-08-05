@@ -6,3 +6,12 @@ run = "./node_modules/.bin/astro dev --host 0.0.0.0 --port $PORT"
 dir = "docs"
 port = { expect = [18161], bump = 20 }
 ready_port = { port = 18161, timeout = "30s" }
+
+# Serves the generated `openwiki/` wiki as an interactive graph + reader at
+# http://openwiki.<tree>.localhost:7300/. Read-only: it never calls a model.
+# Managed by `ch5-openwiki install`.
+[daemons.openwiki]
+run = "export PATH=\"$HOME/.local/bin:/opt/homebrew/bin:$HOME/.local/share/mise/shims:$PATH\"; exec node \"$(npm root -g)/openwiki/dist/cli.js\" visualize openwiki --port \"$PORT\" --no-open"
+dir = "."
+port = { expect = [11300], bump = 99 }
+ready_port = { port = 11300, timeout = "30s" }

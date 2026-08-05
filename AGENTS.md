@@ -96,3 +96,16 @@ When changing a CLI command, update all three in the same change:
 - No long key-management tutorials.
 - No full release workflow prose that belongs in docs/CI docs.
 - No duplicated quick-reference tables already covered by README/docs.
+
+<!-- OPENWIKI:START -->
+
+## OpenWiki
+
+This repository has an OpenWiki companion at `openwiki/`. Start with
+`openwiki/quickstart.md`, then follow its links.
+
+Refresh it with `ch5-openwiki refresh hush`. Cadence lives in
+`ch5-devtools/config/openwiki.json`. This repo uses Forgejo and lands directly
+on `main`; do not add the upstream OpenWiki GitHub/PR workflow.
+
+<!-- OPENWIKI:END -->
