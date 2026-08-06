@@ -1,0 +1,6 @@
+# Files
+
+- [Command Workflows, Providers, and Migration](commands-and-migrations.md) - Hush command modules own repository bootstrap and mutation, safe inspection, legacy migration, and provider synchronization. Cloudflare and Vercel are explicit side-effect boundaries, while v2 migration is the supported bridge into shipped v3 behavior.
+- [Configuration, Stores, and Key Resolution](configuration-and-keys.md) - Hush discovers a project or global store, selects shipped v3 versus legacy authority, derives project identity, and supplies SOPS with an age key without reading secrets into wiki content. Runtime state lives outside the repository under the Hush machine store.
+- [CLI Entrypoints and Command Surface](entrypoints.md) - hush-cli/src/cli.ts is the executable composition root: it parses options, resolves store context, selects a command module, and handles help, version, structured errors, and update checks. hush-cli/src/index.ts exposes the library and command exports.
+- [Runtime Secret Injection](runtime.md) - hush run -- <command> resolves a v3 target, materializes environment values in memory, invokes the child with inherited stdio, and cleans up on completion or interruption. It adds Node pinning and Wrangler-specific environment handling without becoming a process sandbox.

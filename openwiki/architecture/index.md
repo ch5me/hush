@@ -1,0 +1,5 @@
+# Files
+
+- [Hush Repository Architecture](overview.md) - Hush is a Bun and Node monorepo containing the @chriscode/hush encrypted-config CLI and an Astro Starlight documentation site. This page defines the boundary between the shipped package, the docs application, repository-local development services, and external SOPS, age, Cloudflare, Vercel, npm, and Forgejo systems.
+- [Resolution and Materialization](resolution-and-materialization.md) - Hush resolves a target by applying identity ACLs, bundle/import precedence, interpolation, and machine-local policy, then shapes values and artifacts into memory or private files. The materialization wrapper records audit events and cleans temporary state on normal exit and signals.
+- [Shipped V3 Repository Model](v3-model.md) - Hush v3 stores identities, file indexes, bundles, targets, imports, and metadata in an encrypted manifest, while encrypted file documents hold file-scoped readers and logical entries. This page describes shipped code and distinguishes it from future planning specifications.
