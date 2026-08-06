@@ -12,10 +12,7 @@ import {
 import { writeJsonSuccess } from "../lib/command-output.js";
 import type { ConfigOptions, HushContext, HushV3Repository } from "../types.js";
 import { isIdentityAllowed } from "../v3/domain.js";
-import {
-  assertReaderRecipientAuthority,
-  persistV3FileDocument,
-} from "../v3/repository.js";
+import { assertReaderRecipientAuthority, persistV3FileDocument } from "../v3/repository.js";
 import { requireMutableIdentity } from "./v3-command-helpers.js";
 
 type ConfigShowSection =

@@ -669,9 +669,12 @@ export interface HushContext {
     spawnSync(
       command: string,
       args: string[],
-      options?: any,
+      options?: import("node:child_process").SpawnSyncOptions,
     ): { status: number | null; stdout: string | Buffer; stderr: string | Buffer; error?: Error };
-    execSync(command: string, options?: any): string | Buffer;
+    execSync(
+      command: string,
+      options?: import("node:child_process").ExecSyncOptions,
+    ): string | Buffer;
   };
   logger: {
     log(message: string): void;

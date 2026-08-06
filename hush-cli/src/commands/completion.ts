@@ -227,7 +227,7 @@ function buildFishScript(): string {
   const commandCompletions = HUSH_COMMANDS.map(
     (cmd) => `complete -c hush -f -n '__fish_use_subcommand' -a '${cmd}'`,
   ).join("\n");
-  const flagCompletions = HUSH_FLAGS.map(
+  const _flagCompletions = HUSH_FLAGS.map(
     (flag) => `complete -c hush -n 'not __fish_use_subcommand' -l '${flag.replace(/^-+/, "")}'`,
   ).join("\n");
 

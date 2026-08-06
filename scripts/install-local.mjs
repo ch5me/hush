@@ -28,7 +28,6 @@ import { assertNode24 } from "./install-local-helpers.mjs";
 const scriptPath = realpathSync(fileURLToPath(import.meta.url));
 const root = realpathSync(resolve(dirname(scriptPath), ".."));
 const manifestName = ".hush-runtime-manifest.json";
-const stageMarkerName = ".hush-stage-owner";
 const trackedSourcePaths = [
   ".npmrc",
   "bun.lock",
@@ -3826,9 +3825,16 @@ function installManagedRuntime(config, checkOnly) {
           const expected = stageIdentity ?? currentStage.identity;
           runNative(["remove-stale", config.runtimeParent, stageName, ...identityArgs(expected)]);
         } else if (currentStage.kind !== "missing") {
+          // Caught by the enclosing catch two lines down, so it never escapes the
+          // finally -- the case the rule is actually about.
+          // oxlint-disable-next-line eslint/no-unsafe-finally
           throw new Error(`Hush stage changed before cleanup: ${stageName}`);
         }
       } catch (cleanupError) {
+        // Deliberate, and the guard is the whole point: a cleanup failure is only
+        // raised when nothing else is already propagating, so this can never mask
+        // the primary error. no-unsafe-finally cannot see the guard.
+        // oxlint-disable-next-line eslint/no-unsafe-finally
         if (!primaryError) throw cleanupError;
       }
     }

@@ -29,7 +29,7 @@ type BundleCommandOptions =
 function getCommandArgs(
   subcommand: string | undefined,
   args: string[],
-  options: BundleCommandOptions,
+  _options: BundleCommandOptions,
 ): string[] {
   const commandArgs = subcommand ? [subcommand, ...args] : [...args];
   return commandArgs;

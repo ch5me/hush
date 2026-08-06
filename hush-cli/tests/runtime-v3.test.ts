@@ -152,7 +152,7 @@ function createContext(root: string) {
         setRawMode: vi.fn(),
         removeListener: vi.fn(),
       } as unknown as NodeJS.ReadStream,
-      stdout: { write: vi.fn() } as any,
+      stdout: { write: vi.fn() } as unknown as NodeJS.WriteStream,
       on: vi.fn(),
       removeListener: vi.fn(),
     },

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs";
 import { dirname } from "node:path";
 import { join } from "node:path";
@@ -42,7 +41,7 @@ function createStore(root: string): StoreContext {
     mode: "project",
     root,
     configPath: null,
-    keyIdentity: root,
+    _keyIdentity: root,
     displayLabel: root,
     stateRoot: join(root, ".state"),
     projectStateRoot: join(root, ".state", "projects", "hush-test"),
@@ -134,7 +133,7 @@ function createMockContext(root: string): HushContext {
 function writeEncryptedManifest(
   root: string,
   manifest: HushManifestDocument,
-  keyIdentity: string,
+  _keyIdentity: string,
 ): void {
   const manifestPath = join(root, ".hush", "manifest.encrypted");
   nodeFs.mkdirSync(join(root, ".hush"), { recursive: true });

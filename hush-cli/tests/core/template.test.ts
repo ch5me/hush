@@ -11,15 +11,23 @@ const TEST_DIR = join(tmpdir(), "hush-test-template-fixtures");
 // Mock fs implementation using real node:fs for this test
 const mockFs = {
   existsSync: (p: string) => nodeFs.existsSync(p),
-  readFileSync: (p: string, opts: any) => nodeFs.readFileSync(p, opts),
-  writeFileSync: (p: string, data: any, opts: any) => nodeFs.writeFileSync(p, data, opts),
-  mkdirSync: (p: string, opts: any) => nodeFs.mkdirSync(p, opts),
-  readdirSync: (p: string, opts: any) => nodeFs.readdirSync(p, opts),
+  readFileSync: (p: string, opts: Parameters<typeof nodeFs.readFileSync>[1]) =>
+    nodeFs.readFileSync(p, opts),
+  writeFileSync: (
+    p: string,
+    data: Parameters<typeof nodeFs.writeFileSync>[1],
+    opts: Parameters<typeof nodeFs.writeFileSync>[2],
+  ) => nodeFs.writeFileSync(p, data, opts),
+  mkdirSync: (p: string, opts: Parameters<typeof nodeFs.mkdirSync>[1]) => nodeFs.mkdirSync(p, opts),
+  readdirSync: (p: string, opts: Parameters<typeof nodeFs.readdirSync>[1]) =>
+    nodeFs.readdirSync(p, opts),
   statSync: (p: string) => nodeFs.statSync(p),
   fstatSync: (fd: number) => nodeFs.fstatSync(fd),
   renameSync: (a: string, b: string) => nodeFs.renameSync(a, b),
   unlinkSync: (p: string) => nodeFs.unlinkSync(p),
-} as any;
+  // Every method forwards to node:fs above; this asserts the shape the loader
+  // is injected with, not a wider one.
+} as unknown as typeof nodeFs;
 
 describe("loadLocalTemplates", () => {
   beforeEach(() => {

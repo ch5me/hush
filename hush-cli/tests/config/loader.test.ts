@@ -217,7 +217,7 @@ describe("validateConfig", () => {
         production: ".env.prod",
         local: ".env.local",
       },
-      targets: [{ name: "test", path: ".", format: "invalid" as any }],
+      targets: [{ name: "test", path: ".", format: "invalid" as never }],
     };
     const errors = validateConfig(config);
     expect(errors.some((e) => e.includes("invalid format"))).toBe(true);
