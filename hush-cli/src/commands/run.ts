@@ -20,19 +20,59 @@ function warnWranglerConflict(ctx: HushContext, cwd: string): void {
   ctx.logger.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
 }
 
-const NODE_VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)$/;
+// .nvmrc accepts the same specificity nvm/fnm do: a bare major ("24"), a
+// major.minor ("24.19"), or a full major.minor.patch ("24.19.0"). Whatever
+// precision the repo declares is the precision that must match — a full
+// triple still demands an exact installed patch (unchanged, reproducible
+// pin); a bare major floats across any patch of that major, which is what a
+// repo whose toolchain manifest already declares a floating major (e.g.
+// `.mise.toml`'s `node = "24"`) actually wants. This does not weaken the
+// exact-pin case: it only makes the previously-rejected floating forms
+// resolvable, so a repo can make its .nvmrc match what it already declared
+// elsewhere instead of carrying an accidental exact pin nothing maintains.
+const NODE_VERSION_PATTERN = /^v?(\d+)(?:\.(\d+)(?:\.(\d+))?)?$/;
+const INSTALLED_NODE_VERSION_PATTERN = /^v(\d+)\.(\d+)\.(\d+)$/;
+
+interface NodeVersionSpec {
+  raw: string;
+  major: number;
+  minor: number | null;
+  patch: number | null;
+}
+
+/** @internal exported for unit tests only */
+export function parseNodeVersionSpec(pin: string): NodeVersionSpec {
+  const match = NODE_VERSION_PATTERN.exec(pin);
+  if (!match) throw new Error(`Invalid .nvmrc Node version: ${pin || "(empty)"}`);
+  return {
+    raw: pin,
+    major: Number(match[1]),
+    minor: match[2] === undefined ? null : Number(match[2]),
+    patch: match[3] === undefined ? null : Number(match[3]),
+  };
+}
+
+/** @internal exported for unit tests only */
+export function nodeVersionMatchesSpec(
+  installed: { major: number; minor: number; patch: number },
+  spec: NodeVersionSpec,
+): boolean {
+  if (installed.major !== spec.major) return false;
+  if (spec.minor !== null && installed.minor !== spec.minor) return false;
+  if (spec.patch !== null && installed.patch !== spec.patch) return false;
+  return true;
+}
 
 function quoteShellValue(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
-function findPinnedNodeBin(ctx: HushContext, cwd: string): string | null {
+/** @internal exported for unit tests only */
+export function findPinnedNodeBin(ctx: HushContext, cwd: string): string | null {
   const pinPath = join(cwd, ".nvmrc");
   if (!ctx.fs.existsSync(pinPath)) return null;
 
   const pin = String(ctx.fs.readFileSync(pinPath, "utf-8")).trim();
-  const match = NODE_VERSION_PATTERN.exec(pin);
-  if (!match) throw new Error(`Invalid .nvmrc Node version: ${pin || "(empty)"}`);
-  const expected = `v${match[1]}.${match[2]}.${match[3]}`;
+  const spec = parseNodeVersionSpec(pin);
 
   const candidates = [
     ...(ctx.process.env.PATH ?? "").split(delimiter).filter(Boolean),
@@ -45,13 +85,21 @@ function findPinnedNodeBin(ctx: HushContext, cwd: string): string | null {
         : join(candidate, process.platform === "win32" ? "node.exe" : "node");
     if (!ctx.fs.existsSync(node)) continue;
     const result = ctx.exec.spawnSync(node, ["--version"], { encoding: "utf-8" });
-    if (result.status === 0 && String(result.stdout).trim() === expected) {
+    if (result.status !== 0) continue;
+    const versionMatch = INSTALLED_NODE_VERSION_PATTERN.exec(String(result.stdout).trim());
+    if (!versionMatch) continue;
+    const installed = {
+      major: Number(versionMatch[1]),
+      minor: Number(versionMatch[2]),
+      patch: Number(versionMatch[3]),
+    };
+    if (nodeVersionMatchesSpec(installed, spec)) {
       return candidate === process.execPath ? join(process.execPath, "..") : candidate;
     }
   }
 
   throw new Error(
-    `No Node ${expected} executable from .nvmrc was found on the parent PATH or running Hush launcher.`,
+    `No Node matching .nvmrc pin "${pin}" was found on the parent PATH or running Hush launcher.`,
   );
 }
 
