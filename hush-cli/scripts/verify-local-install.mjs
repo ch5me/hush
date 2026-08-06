@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   readdirSync,
   renameSync,
@@ -747,7 +748,7 @@ async function main() {
   writeFileSync(join(unownedStaleStage, "unowned"), "must not be removed\n");
   const unownedStale = runInstaller();
   assert.notEqual(unownedStale.status, 0);
-  assert.match(unownedStale.stderr, /managed directory marker is missing/);
+  assert.match(unownedStale.stderr, /Hush stage marker is missing/);
   assert.equal(readFileSync(join(unownedStaleStage, "unowned"), "utf8"), "must not be removed\n");
   rmSync(unownedStaleStage, { recursive: true });
 
@@ -1859,6 +1860,24 @@ async function main() {
   const recoveredPrune = runInstaller();
   assert.equal(recoveredPrune.status, 0, recoveredPrune.stderr);
   assert.equal(existsSync(pruneCandidateOne), false);
+  assert.equal(readlinkSync(join(runtimeBase, "active")), sourceCommit);
+
+  // Regression: a runtime root with real content but no .hush-runtime-manifest.json (the shape
+  // every runtime published before the manifest convention existed still has on disk) must prune
+  // like any other runtime, not abort the whole install. There is no "legacy" branch to exercise --
+  // this is the same code path as pruneCandidateOne/Two above.
+  const pruneNoMarkerAnchor = join(runtimeBase, "f".repeat(40));
+  const pruneNoMarkerCandidate = join(runtimeBase, "0".repeat(40));
+  writePrunableRuntime(pruneNoMarkerAnchor);
+  mkdirSync(join(pruneNoMarkerCandidate, "hush-cli"), { recursive: true });
+  writeFileSync(join(pruneNoMarkerCandidate, "package.json"), "{}\n");
+  assert.equal(existsSync(join(pruneNoMarkerCandidate, ".hush-runtime-manifest.json")), false);
+  utimesSync(pruneNoMarkerAnchor, 6, 6);
+  utimesSync(pruneNoMarkerCandidate, 5, 5);
+  const recoveredNoMarkerPrune = runInstaller();
+  assert.equal(recoveredNoMarkerPrune.status, 0, recoveredNoMarkerPrune.stderr);
+  assert.equal(existsSync(pruneNoMarkerCandidate), false);
+  assert.equal(readlinkSync(join(runtimeBase, "active")), sourceCommit);
 
   const unlinkRaceStage = join(runtimeBase, ".hush-stage-unlink-race");
   mkdirSync(unlinkRaceStage);

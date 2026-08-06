@@ -528,17 +528,6 @@ static void write_small_file(int directory_fd, const char *name, const char *con
   close(fd);
 }
 
-static void require_regular_marker(int directory_fd, const char *name) {
-  int fd = openat(directory_fd, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-  if (fd < 0) fail_errno("managed directory marker is missing or symlinked:", name);
-  struct stat metadata;
-  if (fstat(fd, &metadata) < 0) fail_errno("cannot inspect managed directory marker", name);
-  close(fd);
-  if (!S_ISREG(metadata.st_mode) || metadata.st_nlink != 1) {
-    fail("managed directory marker must be a single-link regular file: %s", name);
-  }
-}
-
 static void format_stage_marker(
   char *buffer,
   size_t size,
@@ -662,26 +651,34 @@ static void remove_named_tree(
     fail_errno("cannot inspect managed directory", name);
   }
   require_identity(&directory_metadata, expected, "managed directory");
-  const char *marker = stage ? stage_marker : manifest_name;
-  int marker_fd = openat(directory, marker, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-  if (marker_fd < 0) {
-    if (errno != ENOENT) {
-      fail_errno("managed directory marker is missing or symlinked:", marker);
-    }
-    if (!directory_is_empty(directory)) fail("managed directory marker is missing: %s", marker);
+  if (!stage) {
+    // Runtime removal: the device/inode identity just verified above (matched against what the
+    // caller resolved via list-runtimes, and re-checked below after this call) is the whole
+    // safety guarantee. There is no side-car marker to require or preserve, so every runtime
+    // root prunes the same way regardless of which installer version produced it.
+    remove_directory_contents(directory, NULL);
+    if (fsync(directory) < 0) fail_errno("cannot finalize managed directory removal", name);
   } else {
-    struct stat metadata;
-    if (fstat(marker_fd, &metadata) < 0) {
-      fail_errno("cannot inspect managed directory marker", marker);
-    }
-    close(marker_fd);
-    if (!S_ISREG(metadata.st_mode) || metadata.st_nlink != 1) {
-      fail("managed directory marker must be a single-link regular file: %s", marker);
-    }
-    if (stage) require_stage_marker(directory, expected);
-    remove_directory_contents(directory, marker);
-    if (unlinkat(directory, marker, 0) < 0 || fsync(directory) < 0) {
-      fail_errno("cannot finalize managed directory removal", name);
+    int marker_fd = openat(directory, stage_marker, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (marker_fd < 0) {
+      if (errno != ENOENT) {
+        fail_errno("Hush stage marker is missing or symlinked:", stage_marker);
+      }
+      if (!directory_is_empty(directory)) fail("Hush stage marker is missing: %s", stage_marker);
+    } else {
+      struct stat metadata;
+      if (fstat(marker_fd, &metadata) < 0) {
+        fail_errno("cannot inspect Hush stage marker", stage_marker);
+      }
+      close(marker_fd);
+      if (!S_ISREG(metadata.st_mode) || metadata.st_nlink != 1) {
+        fail("Hush stage marker must be a single-link regular file: %s", stage_marker);
+      }
+      require_stage_marker(directory, expected);
+      remove_directory_contents(directory, stage_marker);
+      if (unlinkat(directory, stage_marker, 0) < 0 || fsync(directory) < 0) {
+        fail_errno("cannot finalize managed directory removal", name);
+      }
     }
   }
   struct stat current_metadata;
@@ -1027,7 +1024,6 @@ static void command_prune_runtime(int argc, char **argv) {
   struct stat runtime_metadata;
   if (fstat(runtime, &runtime_metadata) < 0) fail_errno("cannot inspect runtime for pruning", argv[3]);
   require_identity(&runtime_metadata, &expected, "runtime selected for pruning");
-  require_regular_marker(runtime, manifest_name);
 
   char quarantine[192];
   bool renamed = false;
@@ -1068,6 +1064,38 @@ static void command_prune_runtime(int argc, char **argv) {
   close(runtime);
   if (fsync(RUNTIME_PARENT_FD) < 0) fail_errno("cannot sync quarantined runtime", argv[3]);
   remove_named_tree(RUNTIME_PARENT_FD, quarantine, false, &expected);
+  require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
+}
+
+// Publishes a stable "active" pointer at the runtime parent's root, naming whichever runtime
+// delivery just finished with. Nothing in Hush's own delivery path (the launcher and the
+// zsh PATH block) reads this pointer -- it exists purely so a human or a script can see which
+// runtime is current with a single `ls`/`readlink`, the way the live filesystem was inspected to
+// diagnose the bug this file fixes. Publishing it is the first thing `ensure` does after writing
+// the launcher, before the best-effort prune of older runtimes runs, so a prune failure can never
+// leave it dangling.
+static void command_update_active(int argc, char **argv) {
+  if (argc != 5) fail("usage: update-active <runtime-parent> <name> <temporary-name>");
+  require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
+  lock_directory(RUNTIME_PARENT_FD);
+  if (!is_hex_runtime(argv[3])) fail("invalid runtime name for active pointer: %s", argv[3]);
+  require_component(argv[4]);
+  if (!has_prefix(argv[4], ".hush-active-")) fail("invalid active pointer temporary name: %s", argv[4]);
+
+  int target = openat(RUNTIME_PARENT_FD, argv[3], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (target < 0) fail_errno("active runtime target is missing, symlinked, or not a directory:", argv[3]);
+  close(target);
+
+  if (symlinkat(argv[3], RUNTIME_PARENT_FD, argv[4]) < 0) {
+    fail_errno("cannot create active pointer temporary", argv[4]);
+  }
+  if (renameat(RUNTIME_PARENT_FD, argv[4], RUNTIME_PARENT_FD, "active") < 0) {
+    int saved = errno;
+    unlinkat(RUNTIME_PARENT_FD, argv[4], 0);
+    errno = saved;
+    fail_errno("cannot publish active pointer", "active");
+  }
+  if (fsync(RUNTIME_PARENT_FD) < 0) fail_errno("cannot sync active pointer", "active");
   require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
 }
 
@@ -1275,6 +1303,7 @@ int main(int argc, char **argv) {
   else if (strcmp(argv[1], "list-runtimes") == 0) command_list_runtimes(argc, argv);
   else if (strcmp(argv[1], "remove-stale") == 0) command_remove_stale(argc, argv);
   else if (strcmp(argv[1], "prune-runtime") == 0) command_prune_runtime(argc, argv);
+  else if (strcmp(argv[1], "update-active") == 0) command_update_active(argc, argv);
   else if (strcmp(argv[1], "cleanup-bin") == 0) command_cleanup_bin(argc, argv);
   else if (strcmp(argv[1], "write-launcher") == 0) command_write_launcher(argc, argv);
   else if (strcmp(argv[1], "read-launcher") == 0) command_read_launcher(argc, argv);

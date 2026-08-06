@@ -2761,6 +2761,11 @@ function checkRoots(config) {
   runNative(["check-roots", root, config.runtimeParent, config.binDir]);
 }
 
+function updateActiveRuntimeLink(config, runtimeName) {
+  const temporaryName = `.hush-active-${process.pid}-${randomBytes(8).toString("hex")}`;
+  runNative(["update-active", config.runtimeParent, runtimeName, temporaryName]);
+}
+
 function cleanupStaleArtifacts(config, checkOnly) {
   const entries = listRuntimeEntries(config.runtimeParent);
   const unsafe = entries.find((entry) => entry.kind === "X");
@@ -3855,6 +3860,13 @@ exec ${shellQuote(realpathSync(process.execPath))} ${shellQuote(config.runtimeEn
   checkRoots(config);
 
   const activeName = config.runtimeName;
+  if (/^[0-9a-f]{40}$/.test(activeName)) updateActiveRuntimeLink(config, activeName);
+
+  // Delivery is done above: the launcher and the active pointer both name the runtime this run
+  // just published. Everything below is cleanup, not delivery, and runs after delivery so it can
+  // never block it -- an older runtime that fails to prune just stays for the next run to retry.
+  if (ensureLoginShellDelivery(config, false)) process.exitCode = 1;
+
   if (/^[0-9a-f]{40}$/.test(activeName)) {
     const entries = listRuntimeEntries(config.runtimeParent);
     const unsafe = entries.find((entry) => entry.kind === "X");
@@ -3874,7 +3886,6 @@ exec ${shellQuote(realpathSync(process.execPath))} ${shellQuote(config.runtimeEn
     }
   }
 
-  if (ensureLoginShellDelivery(config, false)) process.exitCode = 1;
   console.log(config.target);
 }
 
