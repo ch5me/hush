@@ -5,7 +5,7 @@
     "": {
       "name": "hush-monorepo",
       "devDependencies": {
-        "@ch5me/oxlint-config": "0.4.0",
+        "@ch5me/oxlint-config": "0.6.0",
         "@ch5me/tsconfig": "0.1.0",
         "oxfmt": "0.60.0",
         "oxlint": "1.75.0",
@@ -119,7 +119,7 @@
 
     "@capsizecss/unpack": ["@capsizecss/unpack@4.0.0", "", { "dependencies": { "fontkitten": "^1.0.0" } }, "sha512-VERIM64vtTP1C4mxQ5thVT9fK0apjPFobqybMtA1UdUujWka24ERHbRHFGmpbbhp73MhV+KSsHQH9C6uOTdEQA=="],
 
-    "@ch5me/oxlint-config": ["@ch5me/oxlint-config@0.4.0", "https://npm.ch5.me/@ch5me/oxlint-config/-/oxlint-config-0.4.0.tgz", { "peerDependencies": { "oxlint": ">=1.75.0" } }, "sha512-jVnazXVMSRIN/ipeEiJejlsvkLoISLQ9CcbVSLR6vBjdqsWKCi8BEJw5ZP6FSOz711AE7V64hl6EolF8SxVzZA=="],
+    "@ch5me/oxlint-config": ["@ch5me/oxlint-config@0.6.0", "https://npm.ch5.me/@ch5me/oxlint-config/-/oxlint-config-0.6.0.tgz", { "peerDependencies": { "oxlint": ">=1.75.0" } }, "sha512-TeUAXfodBmkdcvDoIn1g8wgrhhV5XkRxaaE9rdvsTf24JYUbqGO0nEawakcYPM5UXlJLTS7rOcHvKmgkfm6ONA=="],
 
     "@ch5me/tsconfig": ["@ch5me/tsconfig@0.1.0", "https://npm.ch5.me/@ch5me/tsconfig/-/tsconfig-0.1.0.tgz", {}, "sha512-VS/9RLOsSC+Y/cyIy/3skAlXtyQzTnZl5ub/KyTDbcKl2maqAh/WxwCmZb6uOaDno82M/J2H9z/R3E9sT/kciQ=="],
 

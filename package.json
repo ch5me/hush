@@ -37,7 +37,7 @@
     "fix": "bun run lint:fix && bun run format"
   },
   "devDependencies": {
-    "@ch5me/oxlint-config": "0.4.0",
+    "@ch5me/oxlint-config": "0.6.0",
     "@ch5me/tsconfig": "0.1.0",
     "oxfmt": "0.60.0",
     "oxlint": "1.75.0"
