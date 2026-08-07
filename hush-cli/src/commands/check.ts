@@ -11,7 +11,11 @@ import type {
   HushContext,
   PlaintextFileResult,
 } from "../types.js";
-import { loadV3Repository } from "../v3/repository.js";
+import {
+  assertNoReaderRecipientDrift,
+  loadV3Repository,
+  ReaderRecipientDriftError,
+} from "../v3/repository.js";
 import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from "./v3-command-helpers.js";
 
 const LEFTOVER_ARTIFACT_NAMES = new Set([
@@ -141,6 +145,11 @@ export async function check(ctx: HushContext, options: CheckOptions): Promise<Ch
     const repository = loadV3Repository(options.store.root, {
       keyIdentity: options.store.keyIdentity,
     });
+    // A file whose readers.identities cannot be backed by its actual age
+    // recipients is a structural integrity failure, not a plaintext-leftover
+    // warning: it means the repository's own access-control promise is false.
+    // See ReaderRecipientDriftError for the exact invariant.
+    assertNoReaderRecipientDrift(repository);
     const plaintextFiles = options.allowPlaintext
       ? []
       : scanForLeftoverArtifacts(ctx, options.store.root);
@@ -162,7 +171,10 @@ export async function check(ctx: HushContext, options: CheckOptions): Promise<Ch
           added: [],
           removed: [],
           changed: [],
-          error: "DECRYPT_FAILED",
+          error:
+            error instanceof ReaderRecipientDriftError
+              ? "READER_RECIPIENT_DRIFT"
+              : "DECRYPT_FAILED",
         },
       ],
     };
@@ -202,7 +214,10 @@ function formatTextOutput(result: CheckResult): string {
   }
 
   for (const file of result.files) {
-    if (file.source === "repository" && file.error === "DECRYPT_FAILED") {
+    if (
+      file.source === "repository" &&
+      (file.error === "DECRYPT_FAILED" || file.error === "READER_RECIPIENT_DRIFT")
+    ) {
       lines.push(pc.red("Repository validation failed:"));
       lines.push(pc.red(`  ${file.encrypted}`));
       lines.push("");

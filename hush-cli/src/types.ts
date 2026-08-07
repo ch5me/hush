@@ -335,7 +335,8 @@ export type CheckErrorType =
   | "SOURCE_MISSING"
   | "ENCRYPTED_MISSING"
   | "DECRYPT_FAILED"
-  | "SOPS_NOT_INSTALLED";
+  | "SOPS_NOT_INSTALLED"
+  | "READER_RECIPIENT_DRIFT";
 
 export interface CheckFileResult {
   source: string;

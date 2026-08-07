@@ -2,12 +2,13 @@ import { join } from "node:path";
 
 import { stringify as stringifyYaml } from "yaml";
 
-import { decryptYaml } from "../core/sops.js";
+import { decryptYaml, readEncryptedFileRecipients } from "../core/sops.js";
 import { fs } from "../lib/fs.js";
 import type { HushContext, HushV3Repository, StoreContext } from "../types.js";
 import type {
   HushFileDocument,
   HushFilePath,
+  HushIdentityName,
   HushManifestDocument,
   HushReaders,
 } from "./domain.js";
@@ -48,6 +49,123 @@ export function assertReaderRecipientAuthority(
 ): void {
   if (JSON.stringify(currentReaders) !== JSON.stringify(nextReaders)) {
     throw new ReaderRecipientAuthorityError(filePath);
+  }
+}
+
+export interface ReaderRecipientDriftFinding {
+  filePath: HushFilePath;
+  /** The file's full `readers.identities` declaration, unfiltered. */
+  declaredIdentities: HushIdentityName[];
+  /** Identities named in readers that are not recorded as holding the `owner` role. */
+  unaccountedIdentities: HushIdentityName[];
+  /** Age public keys actually wrapped into the file's own sops footer. */
+  recipients: string[];
+  /** Minimum recipient count for the declared identities to even be possible: owner + one each. */
+  requiredRecipients: number;
+}
+
+export function describeReaderRecipientDrift(findings: ReaderRecipientDriftFinding[]): string {
+  const lines = findings.map(
+    (finding) =>
+      `  "${finding.filePath}": readers.identities=[${finding.declaredIdentities.join(", ")}] ` +
+      `names ${finding.unaccountedIdentities.length} identity(ies) not recorded as owner ` +
+      `(${finding.unaccountedIdentities.join(", ")}), but the file has only ` +
+      `${finding.recipients.length} age recipient(s) [${finding.recipients.join(", ")}] -- ` +
+      `needs at least ${finding.requiredRecipients}.`,
+  );
+
+  return (
+    `${findings.length} file(s) declare reader identities their age recipients cannot back:\n` +
+    `${lines.join("\n")}\n` +
+    "Hush's readers metadata does not match who can actually decrypt these files. Either add " +
+    "a distinct age recipient for each named identity to .sops.yaml and re-encrypt " +
+    '("sops updatekeys"), or remove the identity from readers if the grant was never backed ' +
+    "by a real key."
+  );
+}
+
+export class ReaderRecipientDriftError extends Error {
+  readonly code = "READER_RECIPIENT_DRIFT";
+
+  constructor(readonly findings: ReaderRecipientDriftFinding[]) {
+    super(describeReaderRecipientDrift(findings));
+    this.name = "ReaderRecipientDriftError";
+  }
+}
+
+/**
+ * Hush's readers metadata (`hush config readers`, `hush file add --identities`) is a
+ * promise about who can decrypt a file. The file's actual age recipients are what
+ * governs decryption, and nothing keeps the two in sync:
+ * `assertReaderRecipientAuthority` only stops the promise from being WIDENED after
+ * creation -- it never checks whether an existing promise is real, and file
+ * creation has no prior state to compare against at all.
+ *
+ * This computes every file whose `readers.identities` names an identity that is not
+ * recorded as holding the `owner` role -- the one role guaranteed to correspond to a
+ * real recipient, since owner is whoever ran `hush keys generate` / `hush bootstrap`
+ * -- and for which the file's actual recipient count leaves no room for that
+ * identity to hold a distinct key: fewer recipients exist than the
+ * "owner key + one per named identity" floor requires.
+ *
+ * This is a necessary-condition check, not a full identity-to-key proof: Hush has no
+ * identity-to-age-key registry (see `ReaderRecipientAuthorityError`), so it cannot
+ * confirm any SPECIFIC named identity holds a SPECIFIC recipient key -- only that
+ * there is not even enough room for all of them to have distinct ones. Files that
+ * only widen `readers.roles` (not `readers.identities`) are out of scope: every file
+ * defaults to `roles: [owner, member, ci]` regardless of intent, so a roles-only
+ * signal cannot separate "never customized" from "deliberately widened" without
+ * flooding the entire fleet.
+ */
+export function computeReaderRecipientDrift(
+  repository: HushV3Repository,
+): ReaderRecipientDriftFinding[] {
+  const ownerIdentities = new Set(
+    Object.entries(repository.manifest.identities)
+      .filter(([, record]) => record.roles.includes("owner"))
+      .map(([name]) => name),
+  );
+
+  const findings: ReaderRecipientDriftFinding[] = [];
+
+  for (const [filePath, entry] of Object.entries(repository.filesByPath)) {
+    const declaredIdentities = entry.readers.identities;
+    if (declaredIdentities.length === 0) {
+      continue;
+    }
+
+    const unaccountedIdentities = declaredIdentities.filter((name) => !ownerIdentities.has(name));
+    if (unaccountedIdentities.length === 0) {
+      continue;
+    }
+
+    const systemPath = repository.fileSystemPaths[filePath];
+    if (!systemPath) {
+      throw new Error(`File "${filePath}" is not declared in repository ${repository.projectRoot}`);
+    }
+
+    const recipients = readEncryptedFileRecipients(systemPath);
+    const requiredRecipients = unaccountedIdentities.length + 1; // +1 for the owner's own key
+
+    if (recipients.length < requiredRecipients) {
+      findings.push({
+        filePath,
+        declaredIdentities,
+        unaccountedIdentities,
+        recipients,
+        requiredRecipients,
+      });
+    }
+  }
+
+  return findings.sort((left, right) => left.filePath.localeCompare(right.filePath));
+}
+
+/** Throws `ReaderRecipientDriftError` when any file fails `computeReaderRecipientDrift`. */
+export function assertNoReaderRecipientDrift(repository: HushV3Repository): void {
+  const findings = computeReaderRecipientDrift(repository);
+  if (findings.length > 0) {
+    throw new ReaderRecipientDriftError(findings);
   }
 }
 

@@ -25,6 +25,57 @@ export interface ResolvedAgeKeySource {
   attemptedKeyPaths: string[];
 }
 
+export class SopsRecipientReadError extends Error {
+  readonly code = "SOPS_RECIPIENT_READ_FAILED";
+
+  constructor(
+    readonly filePath: string,
+    reason: string,
+  ) {
+    super(`Cannot determine age recipients for "${filePath}": ${reason}`);
+    this.name = "SopsRecipientReadError";
+  }
+}
+
+/**
+ * Read the age recipients a sops-encrypted file is actually wrapped to, straight
+ * from its own unencrypted `sops:` footer -- no decrypt, no `.sops.yaml` lookup.
+ * This is ground truth for "who can decrypt this file right now": `.sops.yaml`
+ * only governs FUTURE encrypts, and a file that was never `sops updatekeys`'d
+ * after a `.sops.yaml` change still carries whatever recipient list it had at
+ * its last encrypt.
+ *
+ * Throws rather than returning an empty list on any failure to read: a caller
+ * comparing this against declared readers must never treat "could not tell" as
+ * "zero recipients" and fold that into a silent pass or a misleading fail --
+ * an unestablished comparison must throw, never read as agreement.
+ */
+export function readEncryptedFileRecipients(filePath: string): string[] {
+  if (!fs.existsSync(filePath)) {
+    throw new SopsRecipientReadError(filePath, "file does not exist");
+  }
+
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, "utf-8") as string;
+  } catch (error) {
+    throw new SopsRecipientReadError(filePath, `could not read file: ${(error as Error).message}`);
+  }
+
+  const recipients = [
+    ...new Set([...content.matchAll(/recipient:\s*(age1[a-z0-9]+)/g)].map((match) => match[1]!)),
+  ].sort();
+
+  if (recipients.length === 0) {
+    throw new SopsRecipientReadError(
+      filePath,
+      "no age recipients found in its sops footer; file may be corrupt or not sops-encrypted",
+    );
+  }
+
+  return recipients;
+}
+
 function getSopsConfigRecipients(options?: SopsOptions): string[] {
   const configPath = getSopsConfigFile(options);
   if (!configPath) {

@@ -7,7 +7,7 @@ import { parse as parseYaml } from "yaml";
 
 import { findProjectRoot, isV3RepositoryRoot } from "../config/loader.js";
 import { resolveAgeKeySource, type ResolvedAgeKeySource } from "../core/sops.js";
-import { writeJsonSuccess } from "../lib/command-output.js";
+import { writeJsonError, writeJsonSuccess } from "../lib/command-output.js";
 import { getProjectIdentifier } from "../project.js";
 import {
   resolveStoreContext,
@@ -17,7 +17,11 @@ import {
 import type { HushContext } from "../types.js";
 import type { HushV3Repository, StoreContext } from "../types.js";
 import { shapeTargetArtifacts, type HushShadowedEnvVar } from "../v3/artifacts.js";
-import { loadV3Repository } from "../v3/repository.js";
+import {
+  computeReaderRecipientDrift,
+  describeReaderRecipientDrift,
+  loadV3Repository,
+} from "../v3/repository.js";
 import { resolveV3Target } from "../v3/resolver.js";
 import {
   describeLegacyLocalRepositoryFile,
@@ -281,6 +285,31 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
             ? describeShadowedOverrides(shadowed)
             : "no machine-local override shadows a committed repository value",
       });
+
+      // Check 7: readers.identities named on a file must leave room for the
+      // identities it names -- see computeReaderRecipientDrift for the exact
+      // invariant. Hush's own readers metadata is not proof a file decrypts for
+      // anyone it names; this is the check that used to be silently absent.
+      try {
+        const readerRecipientFindings = computeReaderRecipientDrift(repo);
+        checks.push({
+          name: "reader_recipient_alignment",
+          ok: readerRecipientFindings.length === 0,
+          detail:
+            readerRecipientFindings.length === 0
+              ? "every file's readers.identities leaves enough age recipients for the identities it names"
+              : describeReaderRecipientDrift(readerRecipientFindings),
+        });
+      } catch (error) {
+        // Distinct failure mode: readers/recipients could not even be compared
+        // (e.g. an encrypted file's sops footer is unreadable) -- don't blame
+        // "repository_loads", which already succeeded above.
+        checks.push({
+          name: "reader_recipient_alignment",
+          ok: false,
+          detail: `could not evaluate reader/recipient alignment: ${(error as Error).message}`,
+        });
+      }
     } catch (error) {
       checks.push({
         name: "repository_loads",
@@ -294,8 +323,16 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
   const globalTopology =
     store.mode !== "global" ? peekGlobalStoreTopology(GLOBAL_STORE_ROOT) : null;
 
+  // Every other check here is advisory: doctor always exits 0 regardless of
+  // `ok:false` entries. reader_recipient_alignment is the one check that must
+  // actually gate -- a target whose readers metadata cannot be backed by its
+  // real age recipients is exactly the "green compatible with dead" failure
+  // this check exists to close, so it fails the command, not just the report.
+  const readerRecipientCheck = checks.find((c) => c.name === "reader_recipient_alignment");
+  const readerRecipientDrifted = readerRecipientCheck ? !readerRecipientCheck.ok : false;
+
   if (options.json) {
-    writeJsonSuccess(ctx, "doctor", {
+    const payload = {
       checks,
       storeTopology: {
         resolvedRoot: store.root,
@@ -312,7 +349,19 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
             }
           : null,
       },
-    });
+    };
+
+    if (readerRecipientDrifted) {
+      writeJsonError(ctx, "doctor", {
+        code: "READER_RECIPIENT_DRIFT",
+        message: readerRecipientCheck!.detail,
+        details: payload,
+      });
+      ctx.process.exit(5);
+      return;
+    }
+
+    writeJsonSuccess(ctx, "doctor", payload);
     return;
   }
 
@@ -452,6 +501,10 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
     }
   }
 
+  if (readerRecipientDrifted) {
+    issues.push(readerRecipientCheck!.detail);
+  }
+
   if (issues.length === 0) {
     ctx.logger.log(pc.green("  No issues detected. Your Hush configuration looks good."));
   } else {
@@ -462,4 +515,8 @@ export async function doctorCommand(ctx: HushContext, options: DoctorOptions): P
 
   ctx.logger.log("");
   ctx.logger.log(pc.blue("━".repeat(60)));
+
+  if (readerRecipientDrifted) {
+    ctx.process.exit(5);
+  }
 }

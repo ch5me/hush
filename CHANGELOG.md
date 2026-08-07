@@ -58,6 +58,19 @@ published to npm, and given a Forgejo Release by CI.
 
 ### Added
 
+- `hush doctor` and `hush check` now detect **reader/recipient drift**: a file
+  whose `readers.identities` names an identity that is not recorded as `owner`,
+  but whose actual age recipients leave no room for that identity to hold a
+  distinct key. Previously `hush config readers`/`hush file add --identities`
+  could record a reader promise with no corresponding age recipient, and both
+  `check` and `doctor` reported clean — the repository's own access-control
+  metadata was silently false. `hush doctor` fails (exit 5) and `hush check`
+  reports `status: "error"` with `error: "READER_RECIPIENT_DRIFT"` naming the
+  file, the unaccounted identities, and the actual recipient list. This is a
+  necessary-condition check (Hush has no identity-to-age-key registry), not a
+  full per-identity proof; files that only widen `readers.roles` are out of
+  scope, since every file defaults to all three roles regardless of intent.
+
 - `hush doctor` check `storage_class_separation`: reports any committed
   repository file still named `env/project/local`, with its entry count and
   whether a bundle selects it. `hush set` and `hush edit` emit the same warning
