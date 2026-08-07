@@ -34,7 +34,7 @@ sequenceDiagram
 
 - **Repository lifecycle:** `bootstrap`, `init` (deprecated alias), `config`, `migrate`, `keys`, `doctor`, `status`.
 - **Secret/file mutation:** `set`, `delete-key`, `copy-key`, `move-key`, `edit`, `file`, `bundle`, `target`, `import`.
-- **Safe inspection:** `inspect`, `list`, `has`, `check`, `resolve`, `trace`, `verify-target`, `diff`, `export-example`.
+- **Safe inspection:** `inspect`, `list`, `has`, `check`, `resolve`, `trace`, `verify-target`, `diff`, `export-example`. `has` accepts `--target <name>` for target-scoped presence checks; `inspect` accepts it to restrict the file inventory and JSON result to one resolved target. Both return `TARGET_NOT_FOUND` for an unknown target and avoid printing values.
 - **Runtime/output:** `run`, `materialize`, `push`, `project`.
 - **Agent/shell support:** `skill`, `completion`.
 - **Retired legacy helpers:** `encrypt`, `decrypt`, `template`, and `expansions` remain explicit compatibility/error paths; normal v3 runtime does not use `hush.yaml`.

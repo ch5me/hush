@@ -49,7 +49,11 @@ For the CLI, `node hush-cli/bin/hush.js --help` shows the command surface. A con
 - `user/**` is machine-local override storage; repository files must not claim it. `machineLocal` is explicit in resolver APIs.
 - `sensitive` controls redaction/projection, not encryption or ACL authorization.
 - A CLI command change must update implementation, AI skill docs, and `docs/src/content/docs/reference/commands.mdx` together.
+- `hush has` and `hush inspect` accept `--target <name>` to disambiguate or scope read-only checks in multi-target stores; `set` and destructive key commands still require explicit file-oriented selection.
 - Prefer injected `HushContext` in tests; do not add `as any`, `@ts-ignore`, or `@ts-expect-error`.
+- `check` and `doctor` fail closed on `READER_RECIPIENT_DRIFT`: declared reader identities must have enough actual age recipients in each encrypted file's SOPS footer; repair `.sops.yaml` and re-encrypt with `sops updatekeys` or remove the unsupported reader grant.
+- `.nvmrc` matching follows its precision: major, major/minor, and full major/minor/patch pins are accepted, while a full triple remains exact.
+- CI now runs `bun run lint` and `bun run format:check` from `.forgejo/workflows/ci.yml` in addition to the release workflow gates.
 - Do not expose credentials. CI uses secret names such as `SOPS_AGE_KEY` and `NPM_TOKEN`; this wiki documents topology and commands only.
 
 ## Backlog

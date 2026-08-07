@@ -14,7 +14,8 @@ Commands take `ctx: HushContext`; tests provide filesystem, process, exec, SOPS,
 - **Schema and path invariants:** `hush-cli/tests/v3/schema.test.ts`, `v3/paths.test.ts`, `v3/repository.test.ts`.
 - **ACL, imports, precedence, interpolation, conflicts, provenance:** `hush-cli/tests/v3/resolver.test.ts`, `v3/fixtures.test.ts`, and `core/interpolate.test.ts`.
 - **Memory-only runtime, private modes, signal cleanup, topology lifecycle:** `runtime-v3.test.ts`, `v3/materialize.test.ts`, `v3/topology-lifecycle.test.ts`.
-- **Masking and machine contracts:** `inspect-json.test.ts`, `doctor-json.test.ts`, `status-json.test.ts`, `command-output.test.ts`; verify values never appear in JSON diagnostics.
+- **Masking and machine contracts:** `inspect-json.test.ts`, `doctor-json.test.ts`, `status-json.test.ts`, `command-output.test.ts`; verify values never appear in JSON diagnostics. `global-runtime.test.ts` covers target-scoped `has`/`inspect` selection and unknown-target failures.
+- **Reader/recipient integrity:** `hush-cli/tests/reader-recipient-drift.test.ts` proves owner-only and healthy files do not false-positive, while drift makes `check` and `doctor` fail with `READER_RECIPIENT_DRIFT` and the expected nonzero behavior.
 - **Encryption and key lookup:** `core/sops.test.ts`, `lib/age.test.ts`, `keys.test.ts`; these need SOPS/age and isolated test key setup from `tests/helpers/sops-test.ts`.
 - **Migration and legacy boundary:** `migrate.test.ts`, `legacy-command-retirement.test.ts`, `run.test.ts`.
 - **Provider and project side effects:** `push.test.ts`, `project-command.test.ts`; assert dry-run does not write and failures are represented without leaking values.

@@ -30,7 +30,7 @@ The child receives the parent environment followed by resolved Hush values. Its 
 
 ## Non-obvious runtime behavior
 
-- A `.nvmrc` containing an exact `vMAJOR.MINOR.PATCH` causes Hush to search the parent PATH for that Node executable and prepend its directory. Shell commands using `sh`, `bash`, or `zsh -c` receive a quoted PATH export so nested resolution uses the pinned Node.
+- A `.nvmrc` may specify a bare major, major/minor, or exact `vMAJOR.MINOR.PATCH`. Hush searches the parent PATH for an installed Node matching the declared precision and prepends its directory; a full triple remains an exact patch pin. Shell commands using `sh`, `bash`, or `zsh -c` receive a quoted PATH export so nested resolution uses the matching Node. `parseNodeVersionSpec`, `nodeVersionMatchesSpec`, and `findPinnedNodeBin` in `hush-cli/src/commands/run.ts` own this behavior; `hush-cli/tests/run.test.ts` covers it.
 - Wrangler targets set `CLOUDFLARE_INCLUDE_PROCESS_ENV=true`. If `.dev.vars` exists, Hush warns because Wrangler may ignore injected process values; remove it when testing injected configuration.
 - `run` is guardrail and auditability, not a sandbox. A command such as `hush run -- env` can read injected values.
 - `HUSH_NO_UPDATE_CHECK=1`, `NO_UPDATE_NOTIFIER=1`, or `CI` suppresses the daily npm version check.

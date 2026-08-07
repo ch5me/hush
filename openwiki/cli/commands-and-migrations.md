@@ -33,6 +33,14 @@ flowchart TD
   PLAN -->|provider check| PROVIDER["provider validator"]
 ```
 
+## Target-scoped read-only checks
+
+`hush has <KEY> --target <name>` resolves presence against one named v3 target, which is useful for global stores or repositories with multiple targets. `hush inspect --target <name>` resolves that target with `machineLocal: "exclude"` and reports only its files, while preserving the active-identity ACL filtering; JSON includes `selectedTarget`. If a repository has multiple targets and no explicit target can be inferred from the working directory, the shared selector explains that `has` and `inspect` support `--target`, whereas commands without that option require a migrated target directory or a root target. The parser registration and usage strings live in `hush-cli/src/cli.ts`; implementation is in `hush-cli/src/commands/has.ts` and `inspect.ts`, with target selection helpers in `v3-command-helpers.ts`. Focused coverage is in `hush-cli/tests/global-runtime.test.ts`, `hush-cli/tests/set.test.ts`, and `hush-cli/tests/v3-command-helpers.test.ts`.
+
+## Reader/recipient integrity
+
+`hush check` and `hush doctor` now validate a necessary access-control condition beyond manifest metadata: `readers.identities` names a non-owner identity only when the encrypted file's own SOPS footer has enough actual age recipients for the owner plus each such identity. `readEncryptedFileRecipients` reads the footer directly; `.sops.yaml` only governs future encryption and is not proof of current recipients. Drift produces `READER_RECIPIENT_DRIFT`; `doctor` exits 5 for this finding, while `check` reports the dedicated file error. This is intentionally a count-based necessary condition, not identity-to-key proof. Repair by adding distinct recipients to `.sops.yaml` and running `sops updatekeys`, or remove the reader declaration. See `hush-cli/src/core/sops.ts`, `hush-cli/src/v3/repository.ts`, and `hush-cli/tests/reader-recipient-drift.test.ts`.
+
 ## Extension contract
 
 Adding a command requires registration in `hush-cli/src/cli.ts`, implementation with `ctx: HushContext`, export consideration in `hush-cli/src/index.ts`, skill regeneration from `skill.ts`, user docs in `docs/src/content/docs/reference/commands.mdx`, and focused tests. Provider changes must also preserve dry-run behavior and avoid secret-value logging.

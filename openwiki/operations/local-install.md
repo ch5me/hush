@@ -11,7 +11,7 @@ The root `cli:install-local` script runs `node scripts/install-local.mjs`; `hush
 
 ## Delivery and rollback
 
-The installer uses a source identity, runtime root, stage marker, guarded file descriptors, and an owner marker to prevent two installers from publishing over each other. It validates that the runtime graph points only to expected files, uses a detached runtime directory keyed by source commit, and cleans stale/incomplete stages. A failed delivery check rolls back managed changes, including the marked zsh `~/.zlogin` block. Do not hand-edit that block.
+The installer uses a source identity, runtime root, stage marker, guarded file descriptors, and an owner marker to prevent two installers from publishing over each other. It validates that the runtime graph points only to expected files, uses a detached runtime directory keyed by source commit, and cleans stale/incomplete stages. Delivery is published before stale-runtime cleanup, so an older runtime that cannot be pruned remains for a later retry rather than blocking the newly published launcher. Runtime pruning now relies on the verified device/inode identity of the selected runtime rather than requiring the old `.hush-runtime-manifest.json` marker; staged directories still require their stage marker. A failed delivery check rolls back managed changes, including the marked zsh `~/.zlogin` block. Do not hand-edit that block.
 
 The optional native helper in `scripts/install-local-native.c` supports login-shell publication and is compiled/used by the installer when the platform requires it. `scripts/install-local-helpers.mjs` contains shared Node-version and installer checks. These files are implementation, not user-facing APIs.
 

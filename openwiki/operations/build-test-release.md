@@ -23,6 +23,8 @@ The CLI package release gate is ordered by `hush-cli/package.json:prepublishOnly
 
 ## CI gates
 
+`.forgejo/workflows/ci.yml` is the lightweight hygiene workflow for pushes to `main`, pull requests, and manual dispatch: it installs Bun `1.3.14`, runs `bun install --frozen-lockfile`, then requires `bun run lint` and `bun run format:check`. The workflow uses Node 22 for these tooling checks; local package/build workflows still target the repository's Node `>=24 <25` engine.
+
 `.forgejo/workflows/release.yaml` pins Node `24.14.1`, Bun `1.3.14`, SOPS and age checksums, installs dependencies frozen, audits dependencies, builds, type-checks, runs CLI tests, verifies local installation, and builds docs on PRs. `docs-lint` forbids bare `npx hush` because it can resolve an unrelated package; docs must use `npx @chriscode/hush`.
 
 ```mermaid

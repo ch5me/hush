@@ -39,6 +39,7 @@ The relationships correspond to `HushManifestDocument`, `HushFileDocument`, `Hus
 - File ACLs are file-scoped. An identity can read when explicitly listed or when one of its roles is listed. `sensitive` controls redaction/projection; it does not encrypt a value or grant access.
 - Artifact `filename`, `subpath`, and `materializeAs` hints must be relative and cannot traverse directories.
 - A target must reference a bundle or logical path and must have a format; a manifest active identity must exist in `identities`.
+- `readers.identities` is only an access-control declaration. `computeReaderRecipientDrift` checks the necessary condition that each non-owner identity named by a file has room for a distinct age recipient in that file's actual SOPS footer, in addition to the owner recipient. It cannot prove which identity owns which key because the repository has no identity-to-key registry; roles-only widening is intentionally out of scope.
 
 ## Shipped versus planning sources
 

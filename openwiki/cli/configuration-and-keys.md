@@ -32,7 +32,7 @@ Active identity changes are validated by `setActiveIdentity`: the name must be d
 
 ## SOPS and age boundary
 
-`hush-cli/src/core/sops.ts` shells out to `sops` for encryption/decryption and `hush-cli/src/lib/age.ts` handles age key generation and project key paths. Hush parses recipients from the project `.sops.yaml`, matches local project keys where possible, and reports attempted key paths when decryption fails. CI supplies `SOPS_AGE_KEY` as an Actions secret; local operators may use a project key path such as `~/.config/sops/age/keys/{project}.txt` or an explicit SOPS variable. Hush must not invoke 1Password or `op`.
+`hush-cli/src/core/sops.ts` shells out to `sops` for encryption/decryption and `hush-cli/src/lib/age.ts` handles age key generation and project key paths. Hush parses recipients from the project `.sops.yaml`, matches local project keys where possible, and reports attempted key paths when decryption fails. `readEncryptedFileRecipients` separately reads the recipients embedded in an encrypted file's unencrypted SOPS footer; this is the ground truth for current decryption and is used by reader/recipient drift checks. CI supplies `SOPS_AGE_KEY` as an Actions secret; local operators may use a project key path such as `~/.config/sops/age/keys/{project}.txt` or an explicit SOPS variable. Hush must not invoke 1Password or `op`.
 
 Required runtime tools are Node 24, Bun 1.3.14 for repository workflows, `sops`, and `age`. Tests that exercise encrypted fixtures use isolated SOPS setup in `hush-cli/tests/helpers/sops-test.ts`; they are not proof that a production key exists.
 
