@@ -9,23 +9,28 @@ export interface HasOptions {
   store: StoreContext;
   env: Environment;
   key: string;
+  target?: string;
   quiet: boolean;
   json?: boolean;
 }
 
 export async function hasCommand(ctx: HushContext, options: HasOptions): Promise<void> {
-  const { store, key, quiet, json } = options;
+  const { store, key, target, quiet, json } = options;
   let exitStatus = 2;
 
   try {
-    const view = resolveTargetEnvView(ctx, store, undefined, {
+    const view = resolveTargetEnvView(ctx, store, target, {
       name: "has",
-      args: [key],
+      args: target ? [key, "--target", target] : [key],
+      supportsTargetFlag: true,
     });
     const found = view.envVars.find((variable) => variable.key === key);
     const exists = found !== undefined && found.value.length > 0;
 
-    appendCommandReadAudit(ctx, store, view, { name: "has", args: [key] });
+    appendCommandReadAudit(ctx, store, view, {
+      name: "has",
+      args: target ? [key, "--target", target] : [key],
+    });
 
     if (json) {
       writeJsonSuccess(ctx, "has", {

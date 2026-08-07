@@ -9,6 +9,7 @@ import { inspectCommand } from "../src/commands/inspect.js";
 import { materializeCommand } from "../src/commands/materialize.js";
 import { runCommand } from "../src/commands/run.js";
 import { setCommand } from "../src/commands/set.js";
+import { targetCommand } from "../src/commands/target.js";
 import {
   decrypt,
   decryptYaml,
@@ -188,6 +189,10 @@ function getLastLogOutput(logger: { log: ReturnType<typeof vi.fn> }): string {
   return stripAnsi(lastCall ? String(lastCall[0]) : "");
 }
 
+function getErrorOutput(logger: { error: ReturnType<typeof vi.fn> }): string {
+  return stripAnsi(logger.error.mock.calls.map(([message]) => String(message)).join("\n"));
+}
+
 async function bootstrapGlobalSecret(
   ctx: HushContext,
   store: StoreContext,
@@ -195,6 +200,34 @@ async function bootstrapGlobalSecret(
   value: string,
 ): Promise<void> {
   await setCommand(ctx, { store, key, value });
+}
+
+/**
+ * Bootstrap always creates a target literally named "runtime", and
+ * selectRuntimeTarget always prefers that name over disambiguating, so an
+ * unqualified `has`/`inspect` is never actually ambiguous against a freshly
+ * bootstrapped repo. Swap it for two differently-named targets over the same
+ * bundle to reproduce the real shape reported against the global store
+ * (multiple named targets, none called "runtime") where `has`/`inspect`
+ * could not previously accept `--target` to disambiguate.
+ */
+async function makeTargetsAmbiguous(
+  ctx: HushContext,
+  store: StoreContext,
+  names: readonly string[],
+): Promise<void> {
+  await targetCommand(ctx, { store, subcommand: "remove", name: "runtime" });
+  await targetCommand(ctx, { store, subcommand: "remove", name: "example" });
+  for (const name of names) {
+    await targetCommand(ctx, {
+      store,
+      subcommand: "add",
+      name,
+      bundle: "project",
+      format: "dotenv",
+      mode: "process",
+    });
+  }
 }
 
 const PINNED_NODE_VERSION = "v24.11.0";
@@ -453,6 +486,133 @@ describe("global store runtime regressions", () => {
     const output = getLogOutput(logger);
     expect(output).toContain("PRESENT_KEY is set (5 chars)");
     expect(output).toContain("MISSING_KEY not found in target runtime");
+  });
+
+  it("has --target checks presence against one named target in a multi-target store", async () => {
+    const globalRoot = join(TEST_DIR, "global-store");
+    const { ctx, logger } = createContext(globalRoot);
+    const store = createStore(globalRoot, "global");
+
+    await bootstrapGlobalSecret(ctx, store, "INTENT_GATEWAY_INTERNAL_TOKEN", "value");
+    await makeTargetsAmbiguous(ctx, store, ["root", "root-production"]);
+
+    // Unqualified `has` cannot pick a target: two equally-eligible targets exist
+    // and neither is named "runtime".
+    await expect(
+      hasCommand(ctx, {
+        store,
+        env: "development",
+        key: "INTENT_GATEWAY_INTERNAL_TOKEN",
+        quiet: true,
+      }),
+    ).rejects.toThrow("Process exit: 2");
+
+    // --target root resolves presence by exit code only, without printing the value.
+    await expect(
+      hasCommand(ctx, {
+        store,
+        env: "development",
+        key: "INTENT_GATEWAY_INTERNAL_TOKEN",
+        target: "root",
+        quiet: false,
+      }),
+    ).rejects.toThrow("Process exit: 0");
+
+    // A key absent from that target reports absence the same way.
+    await expect(
+      hasCommand(ctx, {
+        store,
+        env: "development",
+        key: "NOT_A_REAL_KEY",
+        target: "root",
+        quiet: false,
+      }),
+    ).rejects.toThrow("Process exit: 1");
+
+    const output = getLogOutput(logger);
+    expect(output).toContain("INTENT_GATEWAY_INTERNAL_TOKEN is set (5 chars)");
+    expect(output).toContain("NOT_A_REAL_KEY not found in target root");
+    expect(output).not.toContain("value");
+  });
+
+  it("has (unqualified, ambiguous) tells the operator --target is the fix, not that it's unsupported", async () => {
+    const globalRoot = join(TEST_DIR, "global-store");
+    const { ctx, logger } = createContext(globalRoot);
+    const store = createStore(globalRoot, "global");
+
+    await bootstrapGlobalSecret(ctx, store, "INTENT_GATEWAY_INTERNAL_TOKEN", "value");
+    await makeTargetsAmbiguous(ctx, store, ["root", "root-production"]);
+
+    await expect(
+      hasCommand(ctx, {
+        store,
+        env: "development",
+        key: "INTENT_GATEWAY_INTERNAL_TOKEN",
+        quiet: false,
+      }),
+    ).rejects.toThrow("Process exit: 2");
+
+    const output = getErrorOutput(logger);
+    expect(output).toContain("Multiple v3 targets are available");
+    expect(output).toContain("--target <name>");
+    // `has` now DOES accept --target, so the old "does not accept --target yet"
+    // wording would be a lie here.
+    expect(output).not.toContain("does not accept --target");
+  });
+
+  it("has --target reports an unknown target by exit code, never a crash or a value", async () => {
+    const globalRoot = join(TEST_DIR, "global-store");
+    const { ctx, logger } = createContext(globalRoot);
+    const store = createStore(globalRoot, "global");
+
+    await bootstrapGlobalSecret(ctx, store, "SOME_KEY", "top-secret");
+
+    await expect(
+      hasCommand(ctx, {
+        store,
+        env: "development",
+        key: "SOME_KEY",
+        target: "does-not-exist",
+        quiet: false,
+      }),
+    ).rejects.toThrow("Process exit: 2");
+
+    const output = getErrorOutput(logger);
+    expect(output).toMatch(/Target "does-not-exist" not found/);
+    expect(output).not.toContain("top-secret");
+  });
+
+  it("inspect --target scopes to one target's files in a multi-target store", async () => {
+    const globalRoot = join(TEST_DIR, "global-store");
+    const { ctx, logger } = createContext(globalRoot);
+    const store = createStore(globalRoot, "global");
+
+    await bootstrapGlobalSecret(ctx, store, "SCOPED_KEY", "secret-value");
+    await makeTargetsAmbiguous(ctx, store, ["root", "root-production"]);
+
+    await inspectCommand(ctx, { store, env: "development", target: "root" });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain("Target: root");
+    expect(output).toContain("env/project/shared/SCOPED_KEY");
+    expect(output).toContain("[redacted]");
+    expect(output).not.toContain("secret-value");
+  });
+
+  it("inspect --target rejects an unknown target by exit code, without dumping the repo", async () => {
+    const globalRoot = join(TEST_DIR, "global-store");
+    const { ctx, logger } = createContext(globalRoot);
+    const store = createStore(globalRoot, "global");
+
+    await bootstrapGlobalSecret(ctx, store, "SOME_KEY", "top-secret");
+
+    await expect(
+      inspectCommand(ctx, { store, env: "development", target: "does-not-exist" }),
+    ).rejects.toThrow("Process exit: 1");
+
+    const output = getErrorOutput(logger);
+    expect(output).toMatch(/Target "does-not-exist" not found/);
+    expect(output).not.toContain("top-secret");
   });
 
   it("materialize --global --json emits metadata for persisted outputs", async () => {

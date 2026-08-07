@@ -453,8 +453,8 @@ const COMMAND_OPTIONS: Readonly<Record<string, readonly string[]>> = {
   "delete-key": [...COMMON_STORE_OPTIONS, "--from", "--yes", "--json"],
   edit: COMMON_STORE_OPTIONS,
   list: [...COMMON_STORE_OPTIONS, "--env", "--reveal", "--json"],
-  inspect: [...COMMON_STORE_OPTIONS, "--env", "--json"],
-  has: [...COMMON_STORE_OPTIONS, "--env", "--quiet", "--json"],
+  inspect: [...COMMON_STORE_OPTIONS, "--env", "--target", "--json"],
+  has: [...COMMON_STORE_OPTIONS, "--env", "--target", "--quiet", "--json"],
   check: [
     ...COMMON_STORE_OPTIONS,
     "--warn",
@@ -570,6 +570,8 @@ const COMMAND_SUMMARIES: Readonly<Record<string, string>> = {
 const COMMAND_USAGE: Readonly<Record<string, string>> = {
   set: "hush set <KEY> [VALUE] [--file <path> | --repo-local | --env <development|production>]",
   run: "hush run [--target <name>] -- <command> [args...]",
+  has: "hush has <KEY> [--target <name>] [--quiet] [--json]",
+  inspect: "hush inspect [--target <name>] [--json]",
   resolve: "hush resolve <target> [--json]",
   trace: "hush trace <KEY> [--json]",
   "verify-target": "hush verify-target <target> [--require <KEY> ...] [--json]",
@@ -1476,7 +1478,7 @@ export async function main(): Promise<void> {
         break;
 
       case "inspect":
-        await inspectCommand(defaultContext, { store, env, json });
+        await inspectCommand(defaultContext, { store, env, target, json });
         break;
 
       case "has":
@@ -1484,7 +1486,7 @@ export async function main(): Promise<void> {
           console.error(pc.red("Usage: hush has <KEY>"));
           process.exit(1);
         }
-        await hasCommand(defaultContext, { store, env, key, quiet, json });
+        await hasCommand(defaultContext, { store, env, key, target, quiet, json });
         break;
 
       case "check":

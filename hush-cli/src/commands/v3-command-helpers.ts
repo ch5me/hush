@@ -79,7 +79,7 @@ export const MACHINE_LOCAL_ALIAS = "local";
  */
 const LEGACY_POSITIONAL_FILE_ARGS = new Set<string>([...FILE_KEYS, MACHINE_LOCAL_ALIAS]);
 
-function loadImportedRepositories(repository: HushV3Repository): HushImportRepositoryMap {
+export function loadImportedRepositories(repository: HushV3Repository): HushImportRepositoryMap {
   return Object.fromEntries(
     Object.entries(repository.manifest.imports ?? {}).map(([name, definition]) => {
       if (!definition.sourceRoot) {
@@ -507,7 +507,7 @@ function isWithinPath(parentPath: string, candidatePath: string): boolean {
 export function selectRuntimeTargetForCommand(
   repository: HushV3Repository,
   store: StoreContext,
-  command: { name: string; args: string[] },
+  command: { name: string; args: string[]; supportsTargetFlag?: boolean },
   requestedTarget?: string,
   currentWorkingDirectory?: string,
 ): { targetName: string; target: HushTargetDefinition } {
@@ -538,8 +538,11 @@ export function selectRuntimeTargetForCommand(
   }
 
   const availableTargets = Object.keys(repository.manifest.targets ?? {}).sort();
+  const resolutionHint = command.supportsTargetFlag
+    ? `Choose one explicitly with --target <name>, or run it from a migrated target directory, or add a runtime target for the repository root.`
+    : `${command.name} does not accept --target yet, so run it from a migrated target directory or add a runtime target for the repository root.`;
   throw new Error(
-    `Multiple v3 targets are available (${availableTargets.join(", ")}). ${command.name} does not accept --target yet, so run it from a migrated target directory or add a runtime target for the repository root.`,
+    `Multiple v3 targets are available (${availableTargets.join(", ")}). ${resolutionHint}`,
   );
 }
 
@@ -958,7 +961,7 @@ export function resolveTargetEnvView(
   ctx: HushContext,
   store: StoreContext,
   requestedTarget: string | undefined,
-  command: { name: string; args: string[] },
+  command: { name: string; args: string[]; supportsTargetFlag?: boolean },
 ): V3ResolvedEnvView {
   const repository = requireV3Repository(store, command.name);
   const activeIdentity = requireActiveIdentity(ctx, store, repository.manifest.identities, command);

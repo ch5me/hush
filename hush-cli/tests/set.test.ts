@@ -539,6 +539,16 @@ describe("CLI argument parsing for set command", () => {
     expect(validateCommandOptions(parsed)).toBe("`hush delete-key` does not accept --target.");
   });
 
+  it("accepts --target on has, so presence can be checked against one named target", () => {
+    const parsed = parseArgs(["has", "MY_KEY", "--target", "root"]);
+    expect(validateCommandOptions(parsed)).toBeNull();
+  });
+
+  it("accepts --target on inspect, so it can scope to one named target", () => {
+    const parsed = parseArgs(["inspect", "--target", "root"]);
+    expect(validateCommandOptions(parsed)).toBeNull();
+  });
+
   it("parses hush set KEY VALUE correctly", () => {
     const result = parseArgs(["set", "MY_KEY", "my-value"]);
 

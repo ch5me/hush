@@ -1,6 +1,6 @@
 import pc from "picocolors";
 
-import { writeJsonSuccess } from "../lib/command-output.js";
+import { writeJsonError, writeJsonSuccess } from "../lib/command-output.js";
 import type { HushContext, StoreContext } from "../types.js";
 import { appendAuditEvent } from "../v3/audit.js";
 import {
@@ -11,10 +11,14 @@ import {
 } from "../v3/domain.js";
 import { requireActiveIdentity } from "../v3/identity.js";
 import { loadV3Repository } from "../v3/repository.js";
+import { resolveV3Target } from "../v3/resolver.js";
+import { loadImportedRepositories, selectRuntimeTarget } from "./v3-command-helpers.js";
 
 export interface InspectOptions {
   store: StoreContext;
   env: "development" | "production";
+  /** Restrict inspection to the files one declared target resolves. */
+  target?: string;
   json?: boolean;
 }
 
@@ -63,20 +67,57 @@ function formatReaders(file: Pick<HushFileIndexEntry, "readers">): string {
 }
 
 export async function inspectCommand(ctx: HushContext, options: InspectOptions): Promise<void> {
+  const commandArgs = options.target ? ["--target", options.target] : [];
   const repository = loadV3Repository(options.store.root, {
     keyIdentity: options.store.keyIdentity,
   });
   const identity = requireActiveIdentity(ctx, options.store, repository.manifest.identities, {
     name: "inspect",
-    args: [],
+    args: commandArgs,
   });
+
+  // Restrict to one declared target's files, so a multi-target repository can be
+  // inspected one target at a time instead of an undifferentiated repo-wide dump.
+  let targetName: string | undefined;
+  let targetFilePaths: Set<string> | undefined;
+  if (options.target) {
+    try {
+      const selected = selectRuntimeTarget(repository, options.target);
+      targetName = selected.targetName;
+      const resolution = resolveV3Target(ctx, {
+        store: options.store,
+        repository,
+        importedRepositories: loadImportedRepositories(repository),
+        targetName: selected.targetName,
+        command: { name: "inspect", args: commandArgs },
+        machineLocal: "exclude",
+      });
+      targetFilePaths = new Set(resolution.files);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (options.json) {
+        writeJsonError(ctx, "inspect", {
+          code: "TARGET_NOT_FOUND",
+          message,
+          rejectedInput: options.target,
+          details: { availableTargets: Object.keys(repository.manifest.targets ?? {}).sort() },
+        });
+      } else {
+        ctx.logger.error(pc.red(message));
+      }
+      ctx.process.exit(1);
+      return;
+    }
+  }
+
   const roles = repository.manifest.identities[identity]?.roles ?? [];
-  const readableFileIndexes = Object.values(repository.filesByPath).filter((file) =>
+  const scopedFileIndexes = Object.values(repository.filesByPath).filter((file) =>
+    targetFilePaths ? targetFilePaths.has(file.path) : true,
+  );
+  const readableFileIndexes = scopedFileIndexes.filter((file) =>
     canReadFile(file, identity, roles),
   );
-  const unreadableFiles = Object.values(repository.filesByPath).filter(
-    (file) => !canReadFile(file, identity, roles),
-  );
+  const unreadableFiles = scopedFileIndexes.filter((file) => !canReadFile(file, identity, roles));
   const readableFiles = readableFileIndexes.map((file) => repository.loadFile(file.path));
   const logicalPaths: string[] = [];
 
@@ -120,12 +161,16 @@ export async function inspectCommand(ctx: HushContext, options: InspectOptions):
       type: "read_attempt",
       activeIdentity: identity,
       success: true,
-      command: { name: "inspect", args: ["--json"] },
+      command: { name: "inspect", args: [...commandArgs, "--json"] },
       files: readableFiles.map((file) => file.path),
       logicalPaths: logicalPaths.sort(),
     });
 
-    writeJsonSuccess(ctx, "inspect", { target: options.store.root, entries });
+    writeJsonSuccess(ctx, "inspect", {
+      target: options.store.root,
+      selectedTarget: targetName,
+      entries,
+    });
     return;
   }
 
@@ -133,6 +178,9 @@ export async function inspectCommand(ctx: HushContext, options: InspectOptions):
 
   lines.push(pc.blue("Hush inspect\n"));
   lines.push(`Active identity: ${pc.green(identity)}`);
+  if (targetName) {
+    lines.push(`Target: ${pc.cyan(targetName)}`);
+  }
   lines.push(`Readable files: ${pc.cyan(String(readableFiles.length))}`);
   lines.push(`Unreadable files: ${pc.cyan(String(unreadableFiles.length))}`);
 
@@ -170,7 +218,7 @@ export async function inspectCommand(ctx: HushContext, options: InspectOptions):
     type: "read_attempt",
     activeIdentity: identity,
     success: true,
-    command: { name: "inspect", args: [] },
+    command: { name: "inspect", args: commandArgs },
     files: readableFiles.map((file) => file.path),
     logicalPaths: logicalPaths.sort(),
   });

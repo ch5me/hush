@@ -77,6 +77,21 @@ describe("v3 command helpers", () => {
     );
   });
 
+  it("honors an explicit --target even when the repo root is otherwise ambiguous", () => {
+    // This is the counterpart to the ambiguity test above: `has`/`inspect` used
+    // to hardcode `requestedTarget: undefined`, so this path never ran for them
+    // even though selectRuntimeTargetForCommand already supported it.
+    const selection = selectRuntimeTargetForCommand(
+      createRepository(),
+      createStore(),
+      { name: "has", args: ["DATABASE_URL"] },
+      "api-production",
+      "/repo",
+    );
+
+    expect(selection.targetName).toBe("api-production");
+  });
+
   it("maps migrated production targets back to the legacy deployment path", () => {
     const deployment = resolveTargetDeploymentContext(
       createStore(),
