@@ -92,7 +92,12 @@ function packTarball() {
 function verifyTarballContents(tarballPath) {
   const binResult = run("tar", ["-xOf", tarballPath, "package/bin/hush.js"]);
   assertSuccess("tarball bin read", "tar", ["-xOf", tarballPath, "package/bin/hush.js"], binResult);
-  assertIncludes("packed bin script", binResult.stdout, "process.env.HUSH_CLI_ENTRYPOINT = '1';");
+  // Matches the committed source (bin/hush.js), which oxfmt formats with double
+  // quotes. This literal previously used single quotes and silently broke every
+  // release job's "Verify packaged CLI entrypoint" gate from the 2026-08-02
+  // oxfmt big-bang commit onward -- the source and packed output were both
+  // correct, only this check's expected literal had gone stale.
+  assertIncludes("packed bin script", binResult.stdout, 'process.env.HUSH_CLI_ENTRYPOINT = "1";');
 }
 
 function verifyInstalledTarball(tarballPath) {
@@ -115,7 +120,7 @@ function verifyInstalledTarball(tarballPath) {
       "hush.js",
     );
     const installedBin = readFileSync(installedPackageBinPath, "utf8");
-    assertIncludes("installed package bin", installedBin, "process.env.HUSH_CLI_ENTRYPOINT = '1';");
+    assertIncludes("installed package bin", installedBin, 'process.env.HUSH_CLI_ENTRYPOINT = "1";');
 
     const versionResult = run(binPath, ["--version"], { cwd: installRoot });
     assertSuccess("installed version check", binPath, ["--version"], versionResult);
