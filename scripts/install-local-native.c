@@ -1067,38 +1067,6 @@ static void command_prune_runtime(int argc, char **argv) {
   require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
 }
 
-// Publishes a stable "active" pointer at the runtime parent's root, naming whichever runtime
-// delivery just finished with. Nothing in Hush's own delivery path (the launcher and the
-// zsh PATH block) reads this pointer -- it exists purely so a human or a script can see which
-// runtime is current with a single `ls`/`readlink`, the way the live filesystem was inspected to
-// diagnose the bug this file fixes. Publishing it is the first thing `ensure` does after writing
-// the launcher, before the best-effort prune of older runtimes runs, so a prune failure can never
-// leave it dangling.
-static void command_update_active(int argc, char **argv) {
-  if (argc != 5) fail("usage: update-active <runtime-parent> <name> <temporary-name>");
-  require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
-  lock_directory(RUNTIME_PARENT_FD);
-  if (!is_hex_runtime(argv[3])) fail("invalid runtime name for active pointer: %s", argv[3]);
-  require_component(argv[4]);
-  if (!has_prefix(argv[4], ".hush-active-")) fail("invalid active pointer temporary name: %s", argv[4]);
-
-  int target = openat(RUNTIME_PARENT_FD, argv[3], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-  if (target < 0) fail_errno("active runtime target is missing, symlinked, or not a directory:", argv[3]);
-  close(target);
-
-  if (symlinkat(argv[3], RUNTIME_PARENT_FD, argv[4]) < 0) {
-    fail_errno("cannot create active pointer temporary", argv[4]);
-  }
-  if (renameat(RUNTIME_PARENT_FD, argv[4], RUNTIME_PARENT_FD, "active") < 0) {
-    int saved = errno;
-    unlinkat(RUNTIME_PARENT_FD, argv[4], 0);
-    errno = saved;
-    fail_errno("cannot publish active pointer", "active");
-  }
-  if (fsync(RUNTIME_PARENT_FD) < 0) fail_errno("cannot sync active pointer", "active");
-  require_bound_directory(argv[2], RUNTIME_PARENT_FD, "Hush runtime parent");
-}
-
 static void command_cleanup_bin(int argc, char **argv) {
   if (argc != 3) fail("usage: cleanup-bin <bin>");
   require_bound_directory(argv[2], BIN_FD, "Hush bin root");
@@ -1303,7 +1271,6 @@ int main(int argc, char **argv) {
   else if (strcmp(argv[1], "list-runtimes") == 0) command_list_runtimes(argc, argv);
   else if (strcmp(argv[1], "remove-stale") == 0) command_remove_stale(argc, argv);
   else if (strcmp(argv[1], "prune-runtime") == 0) command_prune_runtime(argc, argv);
-  else if (strcmp(argv[1], "update-active") == 0) command_update_active(argc, argv);
   else if (strcmp(argv[1], "cleanup-bin") == 0) command_cleanup_bin(argc, argv);
   else if (strcmp(argv[1], "write-launcher") == 0) command_write_launcher(argc, argv);
   else if (strcmp(argv[1], "read-launcher") == 0) command_read_launcher(argc, argv);

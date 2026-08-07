@@ -8,7 +8,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readlinkSync,
   realpathSync,
   readdirSync,
   renameSync,
@@ -1860,7 +1859,6 @@ async function main() {
   const recoveredPrune = runInstaller();
   assert.equal(recoveredPrune.status, 0, recoveredPrune.stderr);
   assert.equal(existsSync(pruneCandidateOne), false);
-  assert.equal(readlinkSync(join(runtimeBase, "active")), sourceCommit);
 
   // Regression: a runtime root with real content but no .hush-runtime-manifest.json (the shape
   // every runtime published before the manifest convention existed still has on disk) must prune
@@ -1877,7 +1875,6 @@ async function main() {
   const recoveredNoMarkerPrune = runInstaller();
   assert.equal(recoveredNoMarkerPrune.status, 0, recoveredNoMarkerPrune.stderr);
   assert.equal(existsSync(pruneNoMarkerCandidate), false);
-  assert.equal(readlinkSync(join(runtimeBase, "active")), sourceCommit);
 
   const unlinkRaceStage = join(runtimeBase, ".hush-stage-unlink-race");
   mkdirSync(unlinkRaceStage);
