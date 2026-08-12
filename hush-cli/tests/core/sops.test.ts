@@ -527,7 +527,7 @@ describe("isSopsInstalled preflight (no indefinite network hang)", () => {
 });
 
 /**
- * Regression guard for the 2026-07-25 chrislaptop delivery failure: on a box at
+ * Regression guard for the 2026-07-25 ch5-laptop-m4 delivery failure: on a box at
  * load average 873, a cold `sops --version` with the network version check
  * already disabled took up to 6256ms, so the single 2s preflight budget failed
  * `ch5-managed-runtime ensure ch5-devtools` for hours while blaming github.com
@@ -635,7 +635,7 @@ describe("isSopsInstalled preflight (slow process start is not a network hang)",
   it("keeps a retry budget generous enough for the measured worst-case cold start", () => {
     delete process.env[SOPS_PREFLIGHT_TIMEOUT_ENV];
     delete process.env[SOPS_PREFLIGHT_RETRY_TIMEOUT_ENV];
-    // Measured 2026-07-25 on chrislaptop: 6256ms at load average 873, and 17.8s
+    // Measured 2026-07-25 on ch5-laptop-m4: 6256ms at load average 873, and 17.8s
     // at load ~490 during a full suite run. Do not regress below that.
     expect(SOPS_PREFLIGHT_RETRY_TIMEOUT_MS).toBeGreaterThanOrEqual(18_000);
     expect(getSopsPreflightRetryTimeoutMs()).toBeGreaterThanOrEqual(18_000);

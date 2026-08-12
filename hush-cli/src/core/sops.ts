@@ -334,7 +334,7 @@ export const SOPS_PREFLIGHT_TIMEOUT_ENV = "HUSH_SOPS_PREFLIGHT_TIMEOUT_MS";
  * Second-attempt budget, used ONLY after the fast budget above already timed
  * out. The fast budget stays tight so a genuine captive-portal hang is caught in
  * ~2s, but on its own it misreports plain process-start starvation as a network
- * hang: measured 2026-07-25 on chrislaptop at load average 873 (several agent
+ * hang: measured 2026-07-25 on ch5-laptop-m4 at load average 873 (several agent
  * lanes running), a cold `sops --version` WITH the network version check already
  * disabled took 1475 / 1908 / 2193 / 2638 / 6256 ms across five samples — so the
  * 2s budget failed roughly half the time for a reason that has nothing to do

@@ -739,7 +739,7 @@ describe("storage class is named by the path, never by manifest state", () => {
   }, 60000);
 
   /**
-   * Regression for the 2026-07-25 chrislaptop delivery failure: a starved
+   * Regression for the 2026-07-25 ch5-laptop-m4 delivery failure: a starved
    * `sops --version` preflight surfaced as "Invalid machine-local override file
    * at .../local-overrides.encrypted", so `ch5-managed-runtime ensure
    * ch5-devtools` looked like file corruption for hours. An environment failure
