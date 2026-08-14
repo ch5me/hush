@@ -1,0 +1,5 @@
+{
+  "bootstrapCommand": "./scripts/cloud-bootstrap.sh",
+  "verifyCommand": "./scripts/cloud-verify.sh",
+  "cloudRemote": "github"
+}
