@@ -11,3 +11,5 @@ SEC-03: experimental secret-mediation adapter is `DISABLED` (`MISS-SEC03-OWNER-U
 SEC-05: tenant/data-disclosure isolation is `INTERNAL_ONLY` (`customer_release: BLOCKED`, `MISS-SEC05-ISOLATION-UNPROVED`). Gate: `hush-cli/src/sec05/isolation.ts` (`enforceIsolation`). Receipt: `.ch5/sec-05-isolation.json`.
 
 STO-05: scoped deletion/recovery is `DISABLED` (`defaultOff: true`, `MISS-STO05-COMPLETE-WIPE-UNPROVED`). Gate: `hush-cli/src/sto05/deletion.ts` (`issueScopedDeletion`). Receipt: `.ch5/sto-05-deletion.json`. Blanket delete and legacy migration are refused.
+
+INT-06: cross-boundary failure/security acceptance is `DISABLED` (`defaultOff: true`, `MISS-INT06-LIVE`). Gate: `hush-cli/src/int06/sentinels.ts` (`runSentinelSuite`). Receipt: `.ch5/int-06-sentinels.json`. Fixture sentinels only; `ready_for_live` stays `blocked_by_D06`.

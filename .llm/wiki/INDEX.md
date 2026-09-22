@@ -24,6 +24,7 @@
 | [topics/sec-03-mediation.md](./topics/sec-03-mediation.md) | SEC-03 experimental mediation gate: `admit(destination, action)`, default-off, `MISS-SEC03-OWNER-UNRESOLVED` |
 | [topics/sec-05-isolation.md](./topics/sec-05-isolation.md) | SEC-05 internal isolation gate: owner/tenant/grant scope, `customer_release: BLOCKED` |
 | [topics/sto-05-deletion.md](./topics/sto-05-deletion.md) | STO-05 experimental scoped deletion/recovery: honest receipts, no complete wipe |
+| [topics/int-06-sentinels.md](./topics/int-06-sentinels.md) | INT-06 fixture sentinel suite: complete/incomplete, no post-hoc criteria, live blocked by D06 |
 | [concepts/encrypted-file-format.md](./concepts/encrypted-file-format.md) | SOPS-encrypted YAML, no plaintext at rest |
 | [concepts/target-isolation.md](./concepts/target-isolation.md) | Named consumers receive only bundle-defined secrets |
 | [concepts/secrets-as-code.md](./concepts/secrets-as-code.md) | Encrypted config at rest, no .env files, AI-safe management |
@@ -54,4 +55,5 @@ Key source files grounding this entire wiki:
 - `hush-cli/src/sec03/mediation.ts` — SEC-03 experimental admit(destination, action) mediation gate
 - `hush-cli/src/sec05/isolation.ts` — SEC-05 internal tenant/data-disclosure isolation gate
 - `hush-cli/src/sto05/deletion.ts` — STO-05 experimental scoped deletion/recovery gate
+- `hush-cli/src/int06/sentinels.ts` — INT-06 fixture-only cross-boundary sentinel suite
 - `docs/HUSH_V3_SPEC.md` — Canonical architecture specification
