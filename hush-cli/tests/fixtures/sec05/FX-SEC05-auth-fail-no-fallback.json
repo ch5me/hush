@@ -1,0 +1,65 @@
+{
+  "id": "FX-SEC05-auth-fail-no-fallback",
+  "internal_only": true,
+  "proof_label": "internal",
+  "customer_release": "BLOCKED",
+  "actor": "adversary",
+  "secretRef": "API_TOKEN",
+  "fakeToken": "tok_fx_sec05_fake_only",
+  "accessPath": "mediated.admit.use",
+  "declaredAccessPaths": ["mediated.admit.use", "mediated.admit.materialize"],
+  "auth": {
+    "status": "fail",
+    "reason": "expired-or-rejected"
+  },
+  "customerReleaseClaim": "BLOCKED",
+  "adapter": {
+    "experimental": true,
+    "defaultOff": false,
+    "enabled": true,
+    "ownership": {
+      "status": "resolved",
+      "owner": "fixture://FX-SEC05-auth-fail-no-fallback"
+    }
+  },
+  "resource": {
+    "owner": "alice",
+    "tenant": "acme",
+    "secretRef": "API_TOKEN"
+  },
+  "principal": {
+    "owner": "alice",
+    "tenant": "acme",
+    "grants": [
+      {
+        "owner": "alice",
+        "tenant": "acme",
+        "destination": "https://hooks.example.invalid/admitted",
+        "action": "http.post",
+        "secretRef": "API_TOKEN",
+        "accessPath": "mediated.admit.use"
+      }
+    ]
+  },
+  "policy": [
+    {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post",
+      "secretRef": "API_TOKEN"
+    }
+  ],
+  "fallbackAttempts": [
+    { "kind": "local", "credentialRef": "fixture://local-keyring" },
+    { "kind": "cloud", "credentialRef": "fixture://cloud-kms" },
+    { "kind": "provider", "credentialRef": "fixture://provider-token" }
+  ],
+  "broaderCredentials": {
+    "shared-root": "tok_fx_sec05_broader_fake"
+  },
+  "attempts": {
+    "admittedPath": {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post"
+    }
+  }
+}

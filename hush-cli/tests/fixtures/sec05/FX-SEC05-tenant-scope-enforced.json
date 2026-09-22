@@ -1,0 +1,78 @@
+{
+  "id": "FX-SEC05-tenant-scope-enforced",
+  "internal_only": true,
+  "proof_label": "internal",
+  "customer_release": "BLOCKED",
+  "actor": "adversary",
+  "secretRef": "API_TOKEN",
+  "fakeToken": "tok_fx_sec05_fake_only",
+  "accessPath": "mediated.admit.use",
+  "declaredAccessPaths": ["mediated.admit.use", "mediated.admit.materialize"],
+  "auth": { "status": "ok" },
+  "customerReleaseClaim": "BLOCKED",
+  "adapter": {
+    "experimental": true,
+    "defaultOff": false,
+    "enabled": true,
+    "ownership": {
+      "status": "resolved",
+      "owner": "fixture://FX-SEC05-tenant-scope-enforced"
+    }
+  },
+  "resource": {
+    "owner": "alice",
+    "tenant": "acme",
+    "secretRef": "API_TOKEN"
+  },
+  "principal": {
+    "owner": "alice",
+    "tenant": "acme",
+    "grants": [
+      {
+        "owner": "alice",
+        "tenant": "acme",
+        "destination": "https://hooks.example.invalid/admitted",
+        "action": "http.post",
+        "secretRef": "API_TOKEN",
+        "accessPath": "mediated.admit.use"
+      }
+    ]
+  },
+  "policy": [
+    {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post",
+      "secretRef": "API_TOKEN"
+    }
+  ],
+  "attempts": {
+    "inScope": {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post"
+    },
+    "crossTenant": {
+      "owner": "mallory",
+      "tenant": "other",
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post"
+    },
+    "crossOwner": {
+      "owner": "mallory",
+      "tenant": "acme",
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post"
+    },
+    "missingGrant": {
+      "owner": "alice",
+      "tenant": "acme",
+      "grants": [],
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post"
+    },
+    "undeclaredPath": {
+      "accessPath": "raw.secret.read",
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post"
+    }
+  }
+}
