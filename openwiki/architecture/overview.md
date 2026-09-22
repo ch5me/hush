@@ -15,6 +15,7 @@ Hush is a local, zero-server secrets manager. The shipped product is the `@chris
 - **Encrypted repository:** A consumer repository owns `.hush/manifest.encrypted`, `.hush/files/**.encrypted`, and `.sops.yaml`; Hush reads and mutates those files but does not own the consuming application's source or deployment runtime.
 - **Documentation:** `docs/astro.config.mjs` configures Starlight at `https://hush.ch5.me`; `docs/wrangler.toml` deploys `docs/dist` to Cloudflare Pages. Docs are not a runtime dependency of the CLI.
 - **External tools:** SOPS and age perform cryptography. Wrangler, Vercel HTTP APIs, npm/CH5 Verdaccio, and Forgejo Actions are integration surfaces, not libraries implemented by this repository.
+- **CON-06 contracts:** Hush is not in the CON-06 import matrix. The honest consumer row is `NOT_ACTIVATED` with `pin: null` / `binding: null`; do not add `agent-runtime-contracts` or enable experimental imports. See `.ch5/mig-01-con-06-consumer.json` and `docs/CON-06-CONSUMER.md`.
 - **Development service:** `pitchfork.toml` declares `docs` and an optional `openwiki` visualizer. Use the repo's `ch5-svc` front door rather than choosing ports manually; see `AGENTS.md`.
 
 ```mermaid

@@ -48,6 +48,7 @@ For the CLI, `node hush-cli/bin/hush.js --help` shows the command surface. A con
 - `hush run` resolves v3 only, injects values into memory, and cleans temporary state on exit or signal; it is not a sandbox against a child that can inspect its own environment.
 - `user/**` is machine-local override storage; repository files must not claim it. `machineLocal` is explicit in resolver APIs.
 - `sensitive` controls redaction/projection, not encryption or ACL authorization.
+- CON-06: Hush is not an `agent-runtime-contracts` consumer. Receipt status is `NOT_ACTIVATED` with `pin: null` / `binding: null`; do not invent a binding or add that dependency.
 - A CLI command change must update implementation, AI skill docs, and `docs/src/content/docs/reference/commands.mdx` together.
 - `hush has` and `hush inspect` accept `--target <name>` to disambiguate or scope read-only checks in multi-target stores; `set` and destructive key commands still require explicit file-oriented selection.
 - Prefer injected `HushContext` in tests; do not add `as any`, `@ts-ignore`, or `@ts-expect-error`.

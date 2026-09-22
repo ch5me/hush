@@ -20,6 +20,7 @@
 | [topics/age-key-management.md](./topics/age-key-management.md) | Local age key discovery, generation, and verification |
 | [topics/vendor-catalog.md](./topics/vendor-catalog.md) | Third-party vendor integrations: OAuth apps, API keys, GitHub OAuth + GitHub Apps |
 | [topics/runtime-execution.md](./topics/runtime-execution.md) | Memory-only secret injection, signal-safe cleanup |
+| [topics/con-06-consumer.md](./topics/con-06-consumer.md) | CON-06 `NOT_ACTIVATED` receipt: pin/binding null, no experimental contracts import |
 | [concepts/encrypted-file-format.md](./concepts/encrypted-file-format.md) | SOPS-encrypted YAML, no plaintext at rest |
 | [concepts/target-isolation.md](./concepts/target-isolation.md) | Named consumers receive only bundle-defined secrets |
 | [concepts/secrets-as-code.md](./concepts/secrets-as-code.md) | Encrypted config at rest, no .env files, AI-safe management |

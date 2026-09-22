@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "program": "ELF-CH5",
+  "impl": "MIG-01-IMPL-04",
+  "miss": "MISS-MIG01-08",
+  "consumer": "hush",
+  "package": "@chriscode/hush",
+  "matrix": "CON-06",
+  "status": "NOT_ACTIVATED",
+  "pin": null,
+  "binding": null,
+  "spend": 0,
+  "decision": "D08",
+  "inImportMatrix": false,
+  "experimentalImports": false,
+  "reason": "Hush is not in the CON-06 import matrix and is not an experimental agent-runtime-contracts consumer.",
+  "lockfileVocabulary": "ch5-company MIG-01 lockfile"
+}
