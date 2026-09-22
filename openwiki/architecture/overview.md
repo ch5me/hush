@@ -18,6 +18,7 @@ Hush is a local, zero-server secrets manager. The shipped product is the `@chris
 - **CON-06 contracts:** Hush is not in the CON-06 import matrix. The honest consumer row is `NOT_ACTIVATED` with `pin: null` / `binding: null`; do not add `agent-runtime-contracts` or enable experimental imports. See `.ch5/mig-01-con-06-consumer.json` and `docs/CON-06-CONSUMER.md`.
 - **SEC-03 mediation:** Experimental secret-mediation is default-off and disabled (`MISS-SEC03-OWNER-UNRESOLVED`). `admit(destination, action)` is required before use projection; Hush does not invent another vault. See `.ch5/sec-03-mediation.json` and `docs/SEC-03-MEDIATION.md`.
 - **SEC-05 isolation:** Tenant and data-disclosure isolation is fixture-only and labeled internal (`customer_release: BLOCKED`, `internal_only: true`). It composes SEC-03 admit with owner/tenant/grant checks and does not invent vault ownership. See `.ch5/sec-05-isolation.json` and `docs/SEC-05-ISOLATION.md`.
+- **STO-05 deletion:** Scoped deletion/recovery is experimental and default-off (`MISS-STO05-COMPLETE-WIPE-UNPROVED`). Receipts list verified stores and outstanding copies honestly and do not claim to erase independent exports or completed external effects. Blanket delete and legacy migration are refused. See `.ch5/sto-05-deletion.json` and `docs/STO-05-DELETION.md`.
 - **Development service:** `pitchfork.toml` declares `docs` and an optional `openwiki` visualizer. Use the repo's `ch5-svc` front door rather than choosing ports manually; see `AGENTS.md`.
 
 ```mermaid
