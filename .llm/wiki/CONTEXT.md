@@ -48,6 +48,7 @@ hush/
 | Understand bootstrap behavior (nested repos, plan preview) | [topics/bootstrap-behavior.md](./topics/bootstrap-behavior.md) |
 | Diagnose root/key resolution issues | `hush-cli/src/commands/doctor.ts` |
 | Understand the full V3 architecture spec | `docs/HUSH_V3_SPEC.md` |
+| Confirm Hush is not a CON-06 contracts consumer | [topics/con-06-consumer.md](./topics/con-06-consumer.md) |
 
 ## Architecture Overview
 

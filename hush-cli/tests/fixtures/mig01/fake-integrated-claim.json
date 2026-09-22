@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "program": "ELF-CH5",
+  "impl": "MIG-01-IMPL-04",
+  "miss": "MISS-MIG01-08",
+  "consumer": "hush",
+  "package": "@chriscode/hush",
+  "matrix": "CON-06",
+  "status": "ACTIVATED",
+  "pin": "invented-pin",
+  "binding": "invented-binding",
+  "spend": 0,
+  "decision": "D08",
+  "inImportMatrix": true,
+  "experimentalImports": true,
+  "reason": "fake integrated claim for the CON-06 no-import gate",
+  "lockfileVocabulary": "ch5-company MIG-01 lockfile"
+}
