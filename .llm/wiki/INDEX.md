@@ -21,6 +21,7 @@
 | [topics/vendor-catalog.md](./topics/vendor-catalog.md) | Third-party vendor integrations: OAuth apps, API keys, GitHub OAuth + GitHub Apps |
 | [topics/runtime-execution.md](./topics/runtime-execution.md) | Memory-only secret injection, signal-safe cleanup |
 | [topics/con-06-consumer.md](./topics/con-06-consumer.md) | CON-06 `NOT_ACTIVATED` receipt: pin/binding null, no experimental contracts import |
+| [topics/sec-03-mediation.md](./topics/sec-03-mediation.md) | SEC-03 experimental mediation gate: `admit(destination, action)`, default-off, `MISS-SEC03-OWNER-UNRESOLVED` |
 | [concepts/encrypted-file-format.md](./concepts/encrypted-file-format.md) | SOPS-encrypted YAML, no plaintext at rest |
 | [concepts/target-isolation.md](./concepts/target-isolation.md) | Named consumers receive only bundle-defined secrets |
 | [concepts/secrets-as-code.md](./concepts/secrets-as-code.md) | Encrypted config at rest, no .env files, AI-safe management |
@@ -47,4 +48,6 @@ Key source files grounding this entire wiki:
 - `hush-cli/src/lib/age.ts` — Age key management
 - `hush-cli/src/types.ts` — Central type definitions
 - `hush-cli/src/context.ts` — Dependency injection context
+- `hush-cli/src/mig01/con-06-consumer.ts` — CON-06 NOT_ACTIVATED no-import gate
+- `hush-cli/src/sec03/mediation.ts` — SEC-03 experimental admit(destination, action) mediation gate
 - `docs/HUSH_V3_SPEC.md` — Canonical architecture specification
