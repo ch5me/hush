@@ -1,0 +1,57 @@
+{
+  "id": "FX-SEC05-customer-release-blocked",
+  "internal_only": true,
+  "proof_label": "internal",
+  "customer_release": "BLOCKED",
+  "actor": "worker",
+  "secretRef": "API_TOKEN",
+  "fakeToken": "tok_fx_sec05_fake_only",
+  "accessPath": "mediated.admit.use",
+  "declaredAccessPaths": ["mediated.admit.use", "mediated.admit.materialize"],
+  "auth": { "status": "ok" },
+  "customerReleaseClaim": "ALLOWED",
+  "attemptCustomerRelease": "ALLOWED",
+  "inventVault": true,
+  "adapter": {
+    "experimental": true,
+    "defaultOff": true,
+    "enabled": true,
+    "ownership": {
+      "status": "unresolved",
+      "blocker": "MISS-SEC03-OWNER-UNRESOLVED",
+      "reason": "Secret-mediation adapter ownership is unresolved. Hush remains the existing vault and does not invent another vault."
+    }
+  },
+  "resource": {
+    "owner": "alice",
+    "tenant": "acme",
+    "secretRef": "API_TOKEN"
+  },
+  "principal": {
+    "owner": "alice",
+    "tenant": "acme",
+    "grants": [
+      {
+        "owner": "alice",
+        "tenant": "acme",
+        "destination": "https://hooks.example.invalid/admitted",
+        "action": "http.post",
+        "secretRef": "API_TOKEN",
+        "accessPath": "mediated.admit.use"
+      }
+    ]
+  },
+  "policy": [
+    {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post",
+      "secretRef": "API_TOKEN"
+    }
+  ],
+  "attempts": {
+    "customerActivation": {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post"
+    }
+  }
+}

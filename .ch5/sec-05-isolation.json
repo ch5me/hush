@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "program": "ELF-CH5",
+  "impl": "SEC-05-IMPL-01",
+  "task": "SEC-05",
+  "miss": "MISS-SEC05-ISOLATION-UNPROVED",
+  "sec03Miss": "MISS-SEC03-OWNER-UNRESOLVED",
+  "gate": "tenant-data-disclosure-isolation",
+  "status": "INTERNAL_ONLY",
+  "experimental": true,
+  "internal_only": true,
+  "proof_label": "internal",
+  "customer_release": "BLOCKED",
+  "enabled": false,
+  "spend": 0,
+  "decision": "D08",
+  "con06Status": "NOT_ACTIVATED",
+  "ownership": "unresolved",
+  "blocker": "MISS-SEC05-ISOLATION-UNPROVED",
+  "reason": "Tenant and data-disclosure isolation is fixture-proved and labeled internal. Customer release stays BLOCKED on unproved isolation. Secret-mediation adapter ownership remains unresolved (MISS-SEC03-OWNER-UNRESOLVED); Hush does not invent a vault owner to green isolation. CON-06 stays NOT_ACTIVATED. Zero spend."
+}
