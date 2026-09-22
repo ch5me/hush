@@ -52,6 +52,7 @@ hush/
 | Confirm secret-mediation stays experimental and disabled | [topics/sec-03-mediation.md](./topics/sec-03-mediation.md) |
 | Confirm tenant isolation stays internal and customer_release BLOCKED | [topics/sec-05-isolation.md](./topics/sec-05-isolation.md) |
 | Confirm scoped deletion/recovery stays experimental and default-off | [topics/sto-05-deletion.md](./topics/sto-05-deletion.md) |
+| Confirm INT-06 sentinel suite stays fixture-only and live-blocked | [topics/int-06-sentinels.md](./topics/int-06-sentinels.md) |
 
 ## Architecture Overview
 

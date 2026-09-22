@@ -22,6 +22,7 @@ Commands take `ctx: HushContext`; tests provide filesystem, process, exec, SOPS,
 - **SEC-03 mediation gate:** `hush-cli/tests/sec03/mediation.test.ts` runs FX-SEC03-adversary-no-secret, FX-SEC03-hide-not-authorize, and FX-SEC03-unresolved-owner-disabled with fake tokens only.
 - **SEC-05 isolation gate:** `hush-cli/tests/sec05/isolation.test.ts` runs FX-SEC05-tenant-scope-enforced, FX-SEC05-auth-fail-no-fallback, and FX-SEC05-customer-release-blocked with fake tokens only. Customer release stays `BLOCKED`.
 - **STO-05 deletion gate:** `hush-cli/tests/sto05/deletion.test.ts` runs FX-STO05-honest-deletion-receipt, FX-STO05-no-erase-exports-promise, and FX-STO05-blanket-delete-refused with fake `fixture://sto05/` paths only. No live deletes.
+- **INT-06 sentinel suite:** `hush-cli/tests/int06/sentinels.test.ts` runs FX-INT06-sentinels-complete, FX-INT06-untested-boundary-narrows, and FX-INT06-no-post-hoc-criteria with fake `tok_fx_int06_` tokens only. No live suite, no npm.ch5.me.
 - **Provider and project side effects:** `push.test.ts`, `project-command.test.ts`; assert dry-run does not write and failures are represented without leaking values.
 - **Package delivery:** `hush-cli/scripts/verify-pack-install.mjs` checks source and packed installation; `verify-local-install.mjs` checks detached runtime delivery, concurrency, rollback, stale stages, and login-shell publication.
 

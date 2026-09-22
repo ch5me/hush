@@ -1,0 +1,96 @@
+{
+  "id": "FX-INT06-no-post-hoc-criteria",
+  "experimental": true,
+  "defaultOff": true,
+  "enabled": false,
+  "liveRun": false,
+  "spend": 0,
+  "customerReleaseClaim": "BLOCKED",
+  "untestedBoundaryPolicy": "block-rollout",
+  "hosts": ["fixture://int06/local"],
+  "combination": {
+    "id": "FX-INT06-admitted-release-combination-failed",
+    "admitted": true,
+    "live": false,
+    "opaqueRefs": ["EXE-02", "DEV-07", "SEC-05", "FF-04", "OBS-01", "UI-02"],
+    "fakeToken": "tok_fx_int06_failed_combo"
+  },
+  "criteria": {
+    "requiredSentinelIds": [
+      "SEN-INT06-EXE02-NO-FALLBACK",
+      "SEN-INT06-DEV07-IDENTITY",
+      "SEN-INT06-SEC05-NO-FALLBACK",
+      "SEN-INT06-FF04-SECURITY",
+      "SEN-INT06-OBS01-SECURITY",
+      "SEN-INT06-UI02-IDENTITY"
+    ],
+    "requiredBoundaries": [
+      "execution-identity-no-fallback",
+      "developer-identity-binding",
+      "auth-fail-no-fallback",
+      "feature-flag-fail-closed",
+      "observability-no-secret-leak",
+      "ui-identity-presentation"
+    ],
+    "failClosed": true
+  },
+  "supportedClaim": {
+    "boundaries": [
+      "execution-identity-no-fallback",
+      "developer-identity-binding",
+      "auth-fail-no-fallback",
+      "feature-flag-fail-closed",
+      "observability-no-secret-leak",
+      "ui-identity-presentation"
+    ]
+  },
+  "results": [
+    {
+      "sentinelId": "SEN-INT06-EXE02-NO-FALLBACK",
+      "represented": true,
+      "outcome": "pass"
+    },
+    {
+      "sentinelId": "SEN-INT06-DEV07-IDENTITY",
+      "represented": true,
+      "outcome": "pass"
+    },
+    {
+      "sentinelId": "SEN-INT06-SEC05-NO-FALLBACK",
+      "represented": true,
+      "outcome": "fail"
+    },
+    {
+      "sentinelId": "SEN-INT06-FF04-SECURITY",
+      "represented": true,
+      "outcome": "pass"
+    },
+    {
+      "sentinelId": "SEN-INT06-OBS01-SECURITY",
+      "represented": true,
+      "outcome": "pass"
+    },
+    {
+      "sentinelId": "SEN-INT06-UI02-IDENTITY",
+      "represented": true,
+      "outcome": "pass"
+    }
+  ],
+  "postHocCriteria": {
+    "requiredSentinelIds": [
+      "SEN-INT06-EXE02-NO-FALLBACK",
+      "SEN-INT06-DEV07-IDENTITY",
+      "SEN-INT06-FF04-SECURITY",
+      "SEN-INT06-OBS01-SECURITY",
+      "SEN-INT06-UI02-IDENTITY"
+    ],
+    "requiredBoundaries": [
+      "execution-identity-no-fallback",
+      "developer-identity-binding",
+      "feature-flag-fail-closed",
+      "observability-no-secret-leak",
+      "ui-identity-presentation"
+    ],
+    "failClosed": true
+  }
+}
