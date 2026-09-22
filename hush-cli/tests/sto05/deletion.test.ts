@@ -264,7 +264,9 @@ describe("STO-05 scoped deletion and recovery", () => {
   });
 
   it("FX-STO05-honest-deletion-receipt: lists verified stores and outstanding copies; recovery stays scoped", () => {
-    const loaded = sessionFromFixture(join(fixtureRoot, `${FX_STO05_HONEST_DELETION_RECEIPT}.json`));
+    const loaded = sessionFromFixture(
+      join(fixtureRoot, `${FX_STO05_HONEST_DELETION_RECEIPT}.json`),
+    );
     expect(loaded.id).toBe(FX_STO05_HONEST_DELETION_RECEIPT);
 
     const deletion = issueScopedDeletion(loaded.session);
