@@ -1,0 +1,60 @@
+{
+  "id": "FX-STO05-blanket-delete-refused",
+  "experimental": true,
+  "defaultOff": true,
+  "enabled": false,
+  "liveDelete": false,
+  "customerReleaseClaim": "BLOCKED",
+  "principal": {
+    "owner": "alice",
+    "tenant": "acme"
+  },
+  "stores": [
+    {
+      "id": "verified-project",
+      "path": "fixture://sto05/acme/project.hush",
+      "owner": "alice",
+      "tenant": "acme",
+      "claimedVerified": true
+    }
+  ],
+  "outstandingCopies": [],
+  "externalEffects": [],
+  "independentExports": [],
+  "attempts": {
+    "blanket": {
+      "mode": "blanket",
+      "claimedCompleteWipe": true,
+      "claimedEraseIndependentExports": false,
+      "claimedEraseExternalEffects": false
+    },
+    "legacyMigration": {
+      "mode": "legacy-migration",
+      "claimedCompleteWipe": false,
+      "claimedEraseIndependentExports": false,
+      "claimedEraseExternalEffects": false
+    },
+    "liveDelete": {
+      "mode": "scoped",
+      "liveDelete": true,
+      "claimedCompleteWipe": false,
+      "claimedEraseIndependentExports": false,
+      "claimedEraseExternalEffects": false
+    },
+    "realPath": {
+      "mode": "scoped",
+      "claimedCompleteWipe": false,
+      "claimedEraseIndependentExports": false,
+      "claimedEraseExternalEffects": false,
+      "stores": [
+        {
+          "id": "real-home",
+          "path": "/home/user/.hush",
+          "owner": "alice",
+          "tenant": "acme",
+          "claimedVerified": true
+        }
+      ]
+    }
+  }
+}

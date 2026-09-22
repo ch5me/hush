@@ -51,6 +51,7 @@ For the CLI, `node hush-cli/bin/hush.js --help` shows the command surface. A con
 - CON-06: Hush is not an `agent-runtime-contracts` consumer. Receipt status is `NOT_ACTIVATED` with `pin: null` / `binding: null`; do not invent a binding or add that dependency.
 - SEC-03: secret-mediation is experimental and default-off. Unresolved adapter ownership keeps it disabled (`MISS-SEC03-OWNER-UNRESOLVED`); do not invent another vault.
 - SEC-05: tenant/data-disclosure isolation is internal-only. Customer release stays `BLOCKED` (`MISS-SEC05-ISOLATION-UNPROVED`); do not invent a vault owner or a public isolation pass.
+- STO-05: scoped deletion/recovery is experimental and default-off. Complete wipe stays unproved (`MISS-STO05-COMPLETE-WIPE-UNPROVED`); do not invent a blanket delete, live wipe, or legacy migration.
 - A CLI command change must update implementation, AI skill docs, and `docs/src/content/docs/reference/commands.mdx` together.
 - `hush has` and `hush inspect` accept `--target <name>` to disambiguate or scope read-only checks in multi-target stores; `set` and destructive key commands still require explicit file-oriented selection.
 - Prefer injected `HushContext` in tests; do not add `as any`, `@ts-ignore`, or `@ts-expect-error`.
