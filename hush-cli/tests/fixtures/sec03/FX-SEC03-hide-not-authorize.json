@@ -1,0 +1,31 @@
+{
+  "id": "FX-SEC03-hide-not-authorize",
+  "actor": "worker",
+  "secretRef": "API_TOKEN",
+  "fakeToken": "tok_fx_sec03_fake_only",
+  "adapter": {
+    "experimental": true,
+    "defaultOff": false,
+    "enabled": true,
+    "ownership": {
+      "status": "resolved",
+      "owner": "fixture://FX-SEC03-hide-not-authorize"
+    }
+  },
+  "policy": [
+    {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post",
+      "secretRef": "API_TOKEN"
+    }
+  ],
+  "hiddenView": {
+    "secretRef": "API_TOKEN",
+    "hidden": true,
+    "masked": "********"
+  },
+  "arbitraryEffect": {
+    "destination": "https://billing.example.invalid/charge",
+    "action": "http.post"
+  }
+}

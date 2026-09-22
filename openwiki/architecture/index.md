@@ -5,3 +5,5 @@
 - [Shipped V3 Repository Model](v3-model.md) - Hush v3 stores identities, file indexes, bundles, targets, imports, and metadata in an encrypted manifest, while encrypted file documents hold file-scoped readers and logical entries. This page describes shipped code and distinguishes it from future planning specifications.
 
 CON-06 / MIG-01: Hush is `NOT_ACTIVATED` as an `agent-runtime-contracts` consumer (`pin: null`, `binding: null`). Canonical receipt: `.ch5/mig-01-con-06-consumer.json`. Gate: `hush-cli/src/mig01/con-06-consumer.ts`.
+
+SEC-03: experimental secret-mediation adapter is `DISABLED` (`MISS-SEC03-OWNER-UNRESOLVED`). Gate: `hush-cli/src/sec03/mediation.ts` (`admit`). Receipt: `.ch5/sec-03-mediation.json`.

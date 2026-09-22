@@ -1,0 +1,25 @@
+{
+  "id": "FX-SEC03-unresolved-owner-disabled",
+  "actor": "worker",
+  "secretRef": "API_TOKEN",
+  "fakeToken": "tok_fx_sec03_fake_only",
+  "adapter": {
+    "experimental": true,
+    "defaultOff": true,
+    "enabled": true,
+    "ownership": {
+      "status": "unresolved",
+      "blocker": "MISS-SEC03-OWNER-UNRESOLVED",
+      "reason": "Secret-mediation adapter ownership is unresolved. Hush remains the existing vault and does not invent another vault."
+    }
+  },
+  "policy": [
+    {
+      "destination": "https://hooks.example.invalid/admitted",
+      "action": "http.post",
+      "secretRef": "API_TOKEN"
+    }
+  ],
+  "attemptEnable": true,
+  "inventVault": true
+}

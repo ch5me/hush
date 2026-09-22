@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "program": "ELF-CH5",
+  "impl": "SEC-03-IMPL-01",
+  "task": "SEC-03",
+  "miss": "MISS-SEC03-OWNER-UNRESOLVED",
+  "adapter": "secret-mediation",
+  "status": "DISABLED",
+  "experimental": true,
+  "defaultOff": true,
+  "enabled": false,
+  "spend": 0,
+  "decision": "D08",
+  "con06Status": "NOT_ACTIVATED",
+  "ownership": "unresolved",
+  "blocker": "MISS-SEC03-OWNER-UNRESOLVED",
+  "reason": "Secret-mediation adapter ownership is unresolved. Hush remains the existing vault and does not invent another vault. Experimental, default-off, zero spend."
+}

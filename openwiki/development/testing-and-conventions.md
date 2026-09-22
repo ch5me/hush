@@ -19,6 +19,7 @@ Commands take `ctx: HushContext`; tests provide filesystem, process, exec, SOPS,
 - **Encryption and key lookup:** `core/sops.test.ts`, `lib/age.test.ts`, `keys.test.ts`; these need SOPS/age and isolated test key setup from `tests/helpers/sops-test.ts`.
 - **Migration and legacy boundary:** `migrate.test.ts`, `legacy-command-retirement.test.ts`, `run.test.ts`.
 - **CON-06 no-import gate:** `hush-cli/tests/mig01/con-06-not-activated.test.ts` refuses fake integrated claims and scans workspace manifests, `bun.lock`, and `hush-cli/src` for `agent-runtime-contracts`.
+- **SEC-03 mediation gate:** `hush-cli/tests/sec03/mediation.test.ts` runs FX-SEC03-adversary-no-secret, FX-SEC03-hide-not-authorize, and FX-SEC03-unresolved-owner-disabled with fake tokens only.
 - **Provider and project side effects:** `push.test.ts`, `project-command.test.ts`; assert dry-run does not write and failures are represented without leaking values.
 - **Package delivery:** `hush-cli/scripts/verify-pack-install.mjs` checks source and packed installation; `verify-local-install.mjs` checks detached runtime delivery, concurrency, rollback, stale stages, and login-shell publication.
 
