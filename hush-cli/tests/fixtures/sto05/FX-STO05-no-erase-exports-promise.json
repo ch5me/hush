@@ -1,0 +1,43 @@
+{
+  "id": "FX-STO05-no-erase-exports-promise",
+  "experimental": true,
+  "defaultOff": true,
+  "enabled": false,
+  "liveDelete": false,
+  "mode": "scoped",
+  "customerReleaseClaim": "BLOCKED",
+  "claimedCompleteWipe": false,
+  "claimedEraseIndependentExports": true,
+  "claimedEraseExternalEffects": true,
+  "principal": {
+    "owner": "alice",
+    "tenant": "acme"
+  },
+  "stores": [
+    {
+      "id": "verified-project",
+      "path": "fixture://sto05/acme/project.hush",
+      "owner": "alice",
+      "tenant": "acme",
+      "claimedVerified": true
+    }
+  ],
+  "outstandingCopies": [],
+  "externalEffects": [
+    {
+      "id": "already-pushed-secret",
+      "destination": "https://api.example.invalid/completed-effect",
+      "completed": true
+    }
+  ],
+  "independentExports": [
+    {
+      "id": "user-taken-copy",
+      "path": "fixture://sto05/exports/taken.env"
+    }
+  ],
+  "honestRetry": {
+    "claimedEraseIndependentExports": false,
+    "claimedEraseExternalEffects": false
+  }
+}

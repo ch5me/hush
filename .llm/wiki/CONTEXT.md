@@ -51,6 +51,7 @@ hush/
 | Confirm Hush is not a CON-06 contracts consumer | [topics/con-06-consumer.md](./topics/con-06-consumer.md) |
 | Confirm secret-mediation stays experimental and disabled | [topics/sec-03-mediation.md](./topics/sec-03-mediation.md) |
 | Confirm tenant isolation stays internal and customer_release BLOCKED | [topics/sec-05-isolation.md](./topics/sec-05-isolation.md) |
+| Confirm scoped deletion/recovery stays experimental and default-off | [topics/sto-05-deletion.md](./topics/sto-05-deletion.md) |
 
 ## Architecture Overview
 

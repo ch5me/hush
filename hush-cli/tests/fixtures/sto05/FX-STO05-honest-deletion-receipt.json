@@ -1,0 +1,66 @@
+{
+  "id": "FX-STO05-honest-deletion-receipt",
+  "experimental": true,
+  "defaultOff": true,
+  "enabled": false,
+  "liveDelete": false,
+  "mode": "scoped",
+  "customerReleaseClaim": "BLOCKED",
+  "claimedCompleteWipe": false,
+  "claimedEraseIndependentExports": false,
+  "claimedEraseExternalEffects": false,
+  "principal": {
+    "owner": "alice",
+    "tenant": "acme"
+  },
+  "stores": [
+    {
+      "id": "verified-project",
+      "path": "fixture://sto05/acme/project.hush",
+      "owner": "alice",
+      "tenant": "acme",
+      "claimedVerified": true
+    },
+    {
+      "id": "unverified-replica",
+      "path": "fixture://sto05/acme/replica.hush",
+      "owner": "alice",
+      "tenant": "acme",
+      "claimedVerified": false
+    },
+    {
+      "id": "other-tenant-store",
+      "path": "fixture://sto05/other/project.hush",
+      "owner": "mallory",
+      "tenant": "other",
+      "claimedVerified": true
+    }
+  ],
+  "outstandingCopies": [
+    {
+      "id": "laptop-cache",
+      "path": "fixture://sto05/acme/laptop-cache",
+      "reason": "Machine-local replica was not presented for verification."
+    }
+  ],
+  "externalEffects": [
+    {
+      "id": "wrangler-push",
+      "destination": "https://workers.example.invalid/already-applied",
+      "completed": true
+    }
+  ],
+  "independentExports": [
+    {
+      "id": "user-dotenv-export",
+      "path": "fixture://sto05/exports/user.env"
+    }
+  ],
+  "recoveryTargets": [
+    "verified-project",
+    "unverified-replica",
+    "other-tenant-store",
+    "laptop-cache",
+    "user-dotenv-export"
+  ]
+}
